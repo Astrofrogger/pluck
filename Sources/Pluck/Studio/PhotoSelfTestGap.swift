@@ -53,6 +53,8 @@ extension PhotoSelfTest {
         check("gap: always-on Mac seeds mail into a new hosted folder", (try? String(contentsOf: hostedB.appendingPathComponent("mail.secret"), encoding: .utf8)) == "app-password"
               && mode == 0o600 && (try? String(contentsOf: hostedB.appendingPathComponent("mail.json"), encoding: .utf8)) == #"{"enabled":false}"#
               && ReviewHosting.mailOps.contains("mail-set") && !ReviewHosting.mailOps.contains("unsubscribe"), "mode \(String(mode, radix: 8))")
+        check("gap: link mute list for this Mac's person's emails", DeliverMail.muted(["a"], "b", true) == ["a", "b"] && DeliverMail.muted(["a", "b"], "a", false) == ["b"]
+              && DeliverMail.muted(["a"], "a", true) == ["a"])
         check("gap: library edits are stamped in whole seconds", store.library.at.map { $0.timeIntervalSince1970.rounded(.down) == $0.timeIntervalSince1970 && abs($0.timeIntervalSinceNow) < 5 } == true)
     }
 }

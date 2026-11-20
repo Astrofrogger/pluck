@@ -17,6 +17,7 @@ final class DeliverMail {
     }
     struct Subscriber: Identifiable, Hashable {
         var id: String, kind: String, email: String, name: String, mode: String
+        var person: String? = nil, mute: [String] = []
     }
 
     private(set) var settings = Settings()
@@ -54,7 +55,7 @@ final class DeliverMail {
         subscribers = (answer["subscribers"] as? [[String: Any]] ?? []).compactMap { row in
             guard let id = row["id"] as? String else { return nil }
             return Subscriber(id: id, kind: row["kind"] as? String ?? "client", email: row["email"] as? String ?? "", name: row["name"] as? String ?? "",
-                              mode: row["mode"] as? String ?? "instant")
+                              mode: row["mode"] as? String ?? "instant", person: row["person"] as? String, mute: row["mute"] as? [String] ?? [])
         }
         hooks = (answer["hooks"] as? [String: [String: Any]] ?? [:]).compactMapValues { $0["url"] as? String }
     }
@@ -111,6 +112,19 @@ final class DeliverMail {
         if let text = Self.errorText(answer) { return text }
         await refresh()
         return nil
+    }
+
+    /// A link's "Mute Notifications" also mutes this Mac's person's emails about it (their team row's `mute`).
+    func mute(_ link: UUID, _ on: Bool) async {
+        guard available, let me = DeliverNotify.me(), let row = subscribers.first(where: { $0.kind == "team" && $0.person == me }) else { return }
+        let mute = Self.muted(row.mute, link.uuidString, on)
+        guard mute != row.mute else { return }
+        _ = await ask(["op": "subscriber-set", "id": row.id, "kind": "team", "email": row.email, "mode": row.mode, "mute": mute])
+        await refresh()
+    }
+
+    nonisolated static func muted(_ list: [String], _ link: String, _ on: Bool) -> [String] {
+        list.filter { $0 != link } + (on ? [link] : [])
     }
 
     // MARK: Mentions
