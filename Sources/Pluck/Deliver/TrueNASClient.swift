@@ -328,6 +328,8 @@ final class TrueNASClient {
         var mainLink: String?
         var backupMax: Int?
         var quality: String?
+        /// Upload links write straight into media1 (the drop1 block: a `--drop` argument and its /drop/ mount).
+        var drop = false
     }
 
     /// nil when there's no usable PLUCK_HOST_KEY (a 32-byte base64url key). The key is looked for anywhere (an
@@ -351,6 +353,7 @@ final class TrueNASClient {
             let dataset = parts[0].hasPrefix("/mnt/") ? String(parts[0].dropFirst(5)) : nil
             if parts[0] == "media2", parts[1].hasPrefix("/media/") { found.secondID = String(parts[1].dropFirst(7)) }
             else if parts[1] == "/data" { found.data = dataset }
+            else if parts[1].hasPrefix("/drop/") { found.drop = true }
             else if parts[1].hasPrefix("/uploads/") { found.uploads = dataset; found.uploadsID = String(parts[1].dropFirst(9)) }
             else if parts[1].hasPrefix("/media/"), let dataset { found.media.append(dataset); found.mediaIDs.append(String(parts[1].dropFirst(7))) }
         }
@@ -358,6 +361,7 @@ final class TrueNASClient {
             found.secondAddress = (nfs["o"] as? String)?.firstMatch(of: #/addr=([^,]+)/#).map { String($0.1) }
             found.secondPath = (nfs["device"] as? String).map { $0.hasPrefix(":") ? String($0.dropFirst()) : $0 }
         }
+        if (service["command"] as? [Any])?.contains(where: { $0 as? String == "--drop" }) == true { found.drop = true }
         found.cpus = number(service["cpus"]).map { Int($0) }
         found.memory = (service["mem_limit"] as? String).flatMap { Int($0.lowercased().trimmingCharacters(in: .letters)) } ?? number(service["mem_limit"]).map { Int($0) }
         return found

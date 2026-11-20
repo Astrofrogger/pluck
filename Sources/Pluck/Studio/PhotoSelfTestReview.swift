@@ -2274,6 +2274,12 @@ extension PhotoSelfTest {
               && parsed?.media == ["tank/media"] && parsed?.mediaIDs == ["nas1"] && parsed?.uploads == "tank/renders" && parsed?.secondAddress == "192.0.2.20"
               && parsed?.secondPath == "/mnt/pool/footage" && parsed?.cpus == 3 && parsed?.memory == 4 && parsed?.iroh == false && parsed?.name == "Studio NAS"
               && parsed?.mainLink == nil, "\(String(describing: parsed))")
+        var dropping = installed, service = (installed["services"] as? [String: Any])?["pluck-review"] as? [String: Any] ?? [:]
+        service["command"] = ["--media", "nas1=/media/nas1", "--drop", "nas1=/drop/nas1"]
+        service["volumes"] = ["/mnt/tank/media:/media/nas1:ro", "/mnt/tank/media:/drop/nas1"]
+        dropping["services"] = ["pluck-review": service]
+        check("repair: Change Folders reads back \"Let upload links write here\"", parsed?.drop == false && TrueNASClient.installed(dropping)?.drop == true
+              && TrueNASClient.installed(dropping)?.media == ["tank/media"])
         // The key in other shapes: a KEY=value list, YAML text; a short or missing key isn't one.
         let listForm: [String: Any] = ["services": ["pluck-review": ["environment": ["PLUCK_IROH=1", "PLUCK_HOST_KEY=\(keyA)"]]]]
         let yaml = "services:\n  pluck-review:\n    environment:\n      PLUCK_HOST_KEY: \"\(keyA)\"   # kept\n"
