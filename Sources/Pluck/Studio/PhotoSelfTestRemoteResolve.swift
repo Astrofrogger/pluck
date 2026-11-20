@@ -254,6 +254,9 @@ class Comp:
 class Graph:
     def GetNumNodes(self): return 1
     def GetLUT(self, n): return "Sony/SLog3.cube"
+    def GetToolsInNode(self, n): return ["LUT: Sony/SLog3.cube", "OFX: Film Grain", "Primary Balance"]
+class OfxEffect:
+    def GetInfo(self): return {"id": "com.example.Sparkle", "name": "Sparkle"}
 class Clip:
     def __init__(self, kind): self.kind = kind
     def GetClipProperty(self, key): return {"File Path": "" if self.kind == "Multicam" else "/Volumes/Share/a.mov", "Type": self.kind}.get(key, "")
@@ -265,7 +268,7 @@ class Item:
     def GetType(self): return self.kind
     def GetFusionCompCount(self): return 0 if self.clip else 1
     def GetFusionCompByIndex(self, i): return Comp()
-    def GetEffects(self, kind): return []
+    def GetEffects(self, kind): return [OfxEffect()] if kind == "ofx" and not self.clip else []
     def GetMediaPoolItem(self): return self.clip
     def GetNodeGraph(self, layer=None): return Graph()
     def FlattenMulticam(self, grade):
@@ -366,6 +369,12 @@ def scriptapp(name): return Resolve()
         check("uses: the exported project's comps, media and grade LUT are read from Resolve's own blobs",
               paths.isSuperset(of: ["/Volumes/Elsewhere/x.png", "/Volumes/Elsewhere/y.png", "/Volumes/Share/a.mov", "/Volumes/Share/d.mov", "ACES/LMT ACES v0.1.1.cube"])
               && (found["unchecked"] as? [Any])?.isEmpty == true, "\(paths) \(found["unchecked"] ?? "")")
+        let fonts = RemoteMissing.fonts(found), effects = RemoteMissing.effects(found)
+        check("uses: fonts of Text+ in the exported project are found (family and style)",
+              fonts.contains(.init(family: "Open Sans", style: "Semibold")), "\(fonts)")
+        check("uses: effects on items and in grades are found (OFX by id and name, and as the node shows them)",
+              effects.contains(.init(id: "com.example.Sparkle", name: "Sparkle")) && effects.contains { $0.name == "Film Grain" }
+              && (found["unchecked"] as? [Any])?.isEmpty == true, "\(effects)")
         check("uses: the sent project's exported copy is removed", !fm.fileExists(atPath: sent + ".check.drp"))
         let problems = RemoteResolveProject.uses(found, roots: [share.path], builtIn: RemoteResolveProject.builtInRoots)
         let expected = ["Music.wav loads /Volumes/Elsewhere/plugin.preset", "Music.wav loads /Volumes/Elsewhere/reverb.ir", "Title 1 (RunCommand1) runs", "Title 1 (Ctl1) runs", "Film (RunCommand1) runs", "Title 1 (Text1) has an expression",

@@ -224,6 +224,8 @@ final class RemoteShares {
             var item: [String: Any] = ["id": OfficeProxies.id(folder), "name": folder.lastPathComponent, "online": state.online,
                                        "freeBytes": state.free, "totalBytes": state.total]
             if let volume = share(folder)?.volume { item["volume"] = volume }
+            // (Its NAS key, so a home Mac on the same NAS knows a file there is in this share: RemoteMissing.)
+            if let nas = share(folder)?.nas { item["nas"] = nas }
             return item
         }
     }

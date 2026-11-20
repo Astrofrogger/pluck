@@ -73,18 +73,23 @@ enum RemoteResolveProject {
             guard project.versions.contains(where: { $0.number == version }) else {
                 throw OfficeLink.Failure.office(String(localized: "That version isn’t on the host Mac any more."))
             }
-            let proxies = (arguments["proxies"] as? [[String: Any]] ?? []).prefix(20_000).compactMap { value -> RemoteRenderQueue.Proxy? in
-                guard let file = value["file"] as? String, let share = value["share"] as? String, let path = value["path"] as? String,
-                      file.count < 2000, share.count <= 40, path.count < 2000 else { return nil }
-                return .init(file: file, share: share, path: path, piece: value["piece"] as? Bool == true ? true : nil)
+            func entries(_ key: String) -> [RemoteRenderQueue.Proxy] {
+                (arguments[key] as? [[String: Any]] ?? []).prefix(20_000).compactMap { value -> RemoteRenderQueue.Proxy? in
+                    guard let file = value["file"] as? String, let share = value["share"] as? String, let path = value["path"] as? String,
+                          file.count < 2000, share.count <= 40, path.count < 2000 else { return nil }
+                    return .init(file: file, share: share, path: path, piece: value["piece"] as? Bool == true ? true : nil)
+                }
             }
+            let files = entries("files")
             let item = queue.add(.init(project: id, projectName: project.name, version: version, timeline: try OfficeActions.text(arguments["timeline"], 300),
-                                       preset: try OfficeActions.text(arguments["preset"], 300), share: project.share, proxies: Array(proxies),
+                                       preset: try OfficeActions.text(arguments["preset"], 300), share: project.share, proxies: entries("proxies"),
+                                       files: files.isEmpty ? nil : files, anyway: arguments["anyway"] as? Bool == true ? true : nil,
                                        device: device.name, deviceID: device.id))
             return ["job": item.summary(for: device.id, position: queue.position(item.id))]
         }
         OfficeActions.register("resolveQueue") { _, device in
-            ["queue": queue.items.suffix(60).reversed().map { $0.summary(for: device.id, position: queue.position($0.id)) }]
+            // (sendMissing: this office takes the path map and Render Anyway, and answers resolveMissing.)
+            ["queue": queue.items.suffix(60).reversed().map { $0.summary(for: device.id, position: queue.position($0.id)) }, "sendMissing": true]
         }
         OfficeActions.register("resolveCancel") { arguments, device in
             try await queue.cancel(try uuid(arguments["id"]), by: device.id)
@@ -300,8 +305,17 @@ enum RemoteResolveProject {
 
     /// The conform check on this host: each proxy's original looked up in its share (and checked to
     /// stay in it), other files kept only when they are in a share here (any file here with full trust).
-    static func conform(_ clips: [Clip], proxies: [RemoteRenderQueue.Proxy], trusted: Bool = false) async -> (swaps: [String: String], problems: [String]) {
+    /// `files`: the editor's own files sent to (or found in) a share, checked to stay in it and swapped without comparing.
+    static func conform(_ clips: [Clip], proxies: [RemoteRenderQueue.Proxy], files: [RemoteRenderQueue.Proxy] = [],
+                        trusted: Bool = false) async -> (swaps: [String: String], problems: [String]) {
         var swaps: [String: String] = [:], originals: [String: Original] = [:]
+        for entry in files {
+            // (Out of the share or not there: left as it is, so it's reported offline.)
+            guard let root = try? RemoteEditHost.share(entry.share).root, let copy = try? RemoteEditHost.resolve(entry.path, in: root),
+                  RemoteDriveWriteHost.stamp(of: copy) != nil else { continue }
+            swaps[entry.file] = copy.path
+            originals[copy.path] = Original()
+        }
         for proxy in proxies {
             guard let root = try? RemoteEditHost.share(proxy.share).root else { swaps[proxy.file] = proxy.path; continue }
             guard let original = try? RemoteEditHost.resolve(proxy.path, in: root) else { swaps[proxy.file] = root.path + "/" + proxy.path; continue }

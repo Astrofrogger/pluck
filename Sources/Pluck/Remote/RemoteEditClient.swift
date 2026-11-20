@@ -9,10 +9,13 @@ extension OfficeRenderClient {
         var online: Bool
         var freeBytes: Int64
         var totalBytes: Int64
+        /// The NAS folder it is (OfficeGroup.nasKey); nil on a local disk or from an older office.
+        var nas: String? = nil
 
         init?(_ value: [String: Any]) {
             guard let id = value["id"] as? String else { return nil }
             self.id = id
+            nas = value["nas"] as? String
             name = value["name"] as? String ?? ""
             online = value["online"] as? Bool ?? false
             freeBytes = (value["freeBytes"] as? NSNumber)?.int64Value ?? 0

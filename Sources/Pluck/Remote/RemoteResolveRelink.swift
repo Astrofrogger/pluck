@@ -59,10 +59,13 @@ final class RemoteResolve {
         var versions: [Version]
         var holder: String?
         var mine: Bool
+        /// The share it was made for (nil from an older office).
+        var share: String?
 
         init?(_ value: [String: Any]) {
             guard let id = value["id"] as? String else { return nil }
             self.id = id
+            share = value["share"] as? String
             name = value["name"] as? String ?? ""
             latest = value["latest"] as? Int ?? 0
             holder = value["holder"] as? String
@@ -132,6 +135,8 @@ final class RemoteResolve {
     /// What's being done now, for the pane.
     private(set) var step: String?
     private(set) var lastLink: (linked: Int, added: Int)?
+    /// The office takes missing files with a render and checks fonts and effects (RemoteMissing).
+    private(set) var takesFiles = false
     @ObservationIgnored private var following: Task<Void, Never>?
 
     private var client: OfficeRenderClient { .shared }
@@ -200,7 +205,9 @@ final class RemoteResolve {
     func refresh() async throws {
         let answer = try await client.ask("resolveProjects")
         projects = (answer["projects"] as? [[String: Any]] ?? []).compactMap(HostProject.init)
-        let fresh = ((try await client.ask("resolveQueue"))["queue"] as? [[String: Any]] ?? []).compactMap(QueueItem.init)
+        let queued = try await client.ask("resolveQueue")
+        takesFiles = queued["sendMissing"] as? Bool == true
+        let fresh = (queued["queue"] as? [[String: Any]] ?? []).compactMap(QueueItem.init)
         for item in fresh where item.mine {
             if let before = queue.first(where: { $0.id == item.id }), before.state != item.state || (before.makingPreview && !item.makingPreview) {
                 announce(item)
@@ -326,17 +333,63 @@ final class RemoteResolve {
 
     // MARK: - Rendering on the host
 
-    /// Sends the open project as a new version of `project` (kept checked out) and queues a render of
-    /// exactly that version, with which local proxy stands for which original.
-    func render(_ project: HostProject?, timeline: String, preset: String) async throws {
+    /// Before a render: which files the office lacks (only on this Mac), which are on a share it has, and which fonts
+    /// and effects it hasn't installed (RemoteMissing). Reads the open project only (an exported copy), never changes it.
+    func preflight() async throws -> RemoteMissing.Plan {
+        step = String(localized: "Checking what the office Mac needs…")
+        defer { step = nil }
         await readLocal()
         guard let local else { throw OfficeLink.Failure.office(String(localized: "No project is open in DaVinci Resolve.")) }
-        let proxies = RemoteResolveMap.proxies(for: local.files, roots: await roots(everyMode: true))
+        var plan = RemoteMissing.Plan(proxies: RemoteResolveMap.proxies(for: local.files, roots: await roots(everyMode: true)))
+        let found = try await RemoteResolveScript.run(["action": "uses"])
+        let shares = ((try? await client.shares()) ?? []).compactMap { share in share.nas.map { (id: share.id, nas: $0) } }
+        let sorted = RemoteMissing.classify(media: found["files"] as? [String] ?? local.files, refs: found["refs"] as? [[String: Any]] ?? [],
+                                            proxies: Set(plan.proxies.map(\.file)), shares: shares, builtIn: RemoteResolveProject.builtInRoots) { path in
+            RemoteDriveWriteHost.stamp(of: URL(fileURLWithPath: path))?.size
+        }
+        (plan.files, plan.send, plan.stuck) = sorted
+        try? await refresh()
+        plan.takesFiles = takesFiles
+        if takesFiles {
+            let fonts = RemoteMissing.fonts(found), effects = RemoteMissing.effects(found)
+            if !fonts.isEmpty || !effects.isEmpty {
+                let answer = try await client.ask("resolveMissing", ["fonts": fonts.map(\.dictionary), "effects": effects.map(\.dictionary)], timeout: 120)
+                plan.fonts = (answer["fonts"] as? [[String: Any]] ?? []).compactMap(RemoteMissing.Font.init)
+                plan.effects = (answer["effects"] as? [[String: Any]] ?? []).compactMap(RemoteMissing.Effect.init)
+            }
+        }
+        return plan
+    }
+
+    /// Sends the open project as a new version of `project` (kept checked out) and queues a render of
+    /// exactly that version, with which local proxy stands for which original. With a pre-flight `plan`: its files
+    /// only on this Mac are sent first, and its path map goes with the render; `anyway`: missing fonts and effects don't stop it.
+    func render(_ project: HostProject?, timeline: String, preset: String, plan: RemoteMissing.Plan? = nil, anyway: Bool = false) async throws {
+        await readLocal()
+        guard let local else { throw OfficeLink.Failure.office(String(localized: "No project is open in DaVinci Resolve.")) }
+        var proxies = plan?.proxies ?? []
+        if plan == nil { proxies = RemoteResolveMap.proxies(for: local.files, roots: await roots(everyMode: true)) }
+        var files = plan?.files ?? []
+        let firstShare = plan?.canSend == true && project?.share == nil ? (try? await client.shares())?.first?.id : nil
+        if let plan, plan.canSend {
+            let mac = Host.current().localizedName ?? "Mac"
+            guard let target = RemoteMissing.target(proxies: proxies, share: project?.share ?? firstShare, mac: mac) else {
+                throw OfficeLink.Failure.office(String(localized: "There’s no share on the office Mac to send the files to."))
+            }
+            defer { step = nil }
+            files += try await RemoteMissing.send(plan.send, to: target, client: client) { name, fraction in
+                Task { @MainActor in self.step = String(localized: "Sending \(name)… \(Int(fraction * 100))%") }
+            }
+        }
         let made = try await checkIn(project, keep: true)
         step = String(localized: "Adding to the queue…")
         defer { step = nil }
-        _ = try await client.ask("resolveRender", ["id": made.id, "version": made.version, "timeline": timeline, "preset": preset,
-                                                   "proxies": proxies.map { ["file": $0.file, "share": $0.share, "path": $0.path, "piece": $0.piece == true] }])
+        var arguments: [String: Any] = ["id": made.id, "version": made.version, "timeline": timeline, "preset": preset,
+                                        "proxies": proxies.map { ["file": $0.file, "share": $0.share, "path": $0.path, "piece": $0.piece == true] }]
+        // (New fields: an office from before ignores them, and refuses with its list as it did.)
+        if !files.isEmpty { arguments["files"] = files.map { ["file": $0.file, "share": $0.share, "path": $0.path] } }
+        if anyway { arguments["anyway"] = true }
+        _ = try await client.ask("resolveRender", arguments)
         try await refresh()
         follow()
     }
