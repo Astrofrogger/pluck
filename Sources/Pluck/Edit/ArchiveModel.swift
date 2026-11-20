@@ -47,12 +47,21 @@ final class ArchiveModel {
     struct Client: Identifiable { var id: String { name }; var name: String; var projects: [ProjectRow] }
     struct Untouched: Identifiable { var id: String { path }; var path: String; var size: Int64; var project: String; var reason: String }
     struct Progress { var machine: String; var done: Int; var total: Int; var current: String?; var left: Double?; var waitingForEdit: Bool }
+    /// A share's folder to delete: what's in it, and a recycle bin there that keeps deleted files' space.
+    struct Waiting: Identifiable, Sendable { var id: String { folder.path }; var share: String; var folder: URL; var bytes: Int64; var recycle: String? }
+    typealias Choice = ShrinkFolders.Rules.Choice
 
     // MARK: State
 
     var screen = Screen.dashboard
     private(set) var folders: [URL] = []
-    private(set) var survey: ShrinkFolders.Survey?
+    /// (Settable for the self-test.)
+    var survey: ShrinkFolders.Survey? { didSet { refreshChoices() } }
+    /// Each project's own size (Keep 4K, Skip), by project folder (from the rules kept per share).
+    private(set) var choices: [String: Choice] = [:]
+    /// Waiting in the folders to delete, and what's really gone from them (measured, never deleted by Pluck).
+    private(set) var waiting: [Waiting] = []
+    private(set) var freedSoFar: Int64 = 0
     private(set) var scanning = false
     private(set) var found = 0
     private(set) var problems: [String] = []
@@ -91,6 +100,15 @@ final class ArchiveModel {
         // The last folders looked at, and that look (the dashboard opens on it).
         folders = (defaults.stringArray(forKey: "shrinkFolders") ?? []).filter { FileManager.default.fileExists(atPath: $0) }.map { URL(fileURLWithPath: $0) }
         if !folders.isEmpty { survey = ShrinkFolders.savedSurvey(folders.map { ShrinkFolders.real($0).path }) }
+        refreshChoices()
+    }
+
+    private func refreshChoices() {
+        let sizes = ShrinkFolders.Rules.load().sizes ?? [:]
+        guard !sizes.isEmpty else { choices = [:]; return }
+        choices = (survey?.projects.values ?? [:].values).reduce(into: [:]) { found, project in
+            if let choice = sizes[ShrinkFolders.Rules.key(project.folder, share: project.share)] { found[project.folder] = choice }
+        }
     }
 
     private func save() {
@@ -116,12 +134,21 @@ final class ArchiveModel {
          destination.map { String(localized: "to \($0.lastPathComponent)") }].compactMap { $0 }.joined(separator: " · ")
     }
 
-    var files: [File] { survey?.files ?? [] }
+    /// The files found, each with its project's own size (Keep 4K).
+    var files: [File] {
+        let k4 = settings.size == .k4 ? nil : settings.with(size: .k4)
+        return (survey?.files ?? []).map { file in
+            var file = file
+            file.projectSettings = choices[file.project] == .k4 ? k4 : nil
+            return file
+        }
+    }
 
     func kind(_ file: File) -> ShrinkFolders.Kind { overrides[file.path] ?? file.kind }
 
     /// Why a file is left as it is (nil: it can be shrunk).
     func reason(_ file: File) -> String? {
+        if choices[file.project] == .skip { return String(localized: "Skipped") }
         if kind(file) == .deliveries { return String(localized: "Delivery") }
         if let skip = file.skip { return skip }
         if file.tooSmall(settings) { return String(localized: "Already small") }
@@ -178,6 +205,7 @@ final class ArchiveModel {
             let mine = byProject[project.folder] ?? []
             let open = mine.filter { reason($0) == nil }
             let dim: String? = !open.isEmpty ? nil
+                : choices[project.folder] == .skip ? String(localized: "skipped")
                 : mine.contains { $0.tooRecent(months: months) && kind($0) == .rushes } ? String(localized: "recent")
                 : mine.contains { kind($0) == .rushes } ? String(localized: "small") : String(localized: "no rushes")
             return ProjectRow(project: project, saving: open.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) } + proxyBytes(of: open), files: open.count,
@@ -251,6 +279,7 @@ final class ArchiveModel {
         center.keepAwake = overnight
         for run in center.runs where run.files.contains(where: { $0.state == .elsewhere }) { follow(run.id) }
         officeProblem = await ShrinkRemote.unavailable()
+        await refreshSpace()
     }
 
     /// New Archive: from its first step.
@@ -330,6 +359,52 @@ final class ArchiveModel {
     func select(_ projects: [Project], _ on: Bool) { for project in projects { if on { off.remove(project.folder) } else { off.insert(project.folder) } } }
     func selectAll(_ on: Bool) { off = on ? [] : Set(survey?.projects.keys ?? [:].keys) }
 
+    /// In place, a share with less free space than the run's masters need (×1.2 and headroom): why another folder is better.
+    var spaceShort: String? {
+        guard destination == nil else { return nil }
+        let byShare = Dictionary(grouping: picked) { survey?.projects[$0.project]?.share ?? ShrinkFolders.shareRoot(of: URL(fileURLWithPath: $0.folder)) }
+        for (share, list) in byShare.sorted(by: { $0.key < $1.key }) {
+            let url = URL(fileURLWithPath: share)
+            guard let free = OffloadCenter.freeSpace(url) else { continue }
+            let need = Int64(Double(list.reduce(Int64(0)) { $0 + $1.estimate(settings) }) * 1.2) + ShrinkFolders.headroom(ShrinkFolders.capacity(url))
+            if free < need {
+                let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+                return String(localized: "\((share as NSString).lastPathComponent) has \(bytes(free)) free and the masters need about \(bytes(need)) until you delete the originals: archive to another folder or NAS")
+            }
+        }
+        return nil
+    }
+
+    /// Measures the folders to delete on each share (and a recycle bin there) and what's been deleted from them.
+    func refreshSpace() async {
+        let shares = Set((survey?.projects.values ?? [:].values).map(\.share))
+        let moved = center.runs.flatMap(\.files).filter { $0.state == .done && $0.moved != nil }
+        let holdings = Set(moved.compactMap { $0.moved.flatMap(ShrinkFolders.holdingFolder(of:)) })
+        let result = await Task.detached(priority: .utility) { () -> ([Waiting], Int64) in
+            var folders = holdings
+            for share in shares { folders.insert(ShrinkFolders.holding(for: URL(fileURLWithPath: share))) }
+            let waiting = folders.sorted { $0.path < $1.path }.compactMap { folder -> Waiting? in
+                guard FileManager.default.fileExists(atPath: folder.path) else { return nil }
+                let share = folder.deletingLastPathComponent().path
+                return Waiting(share: (share as NSString).lastPathComponent, folder: folder, bytes: ShrinkFolders.bytes(in: folder), recycle: ShrinkFolders.recycleBin(share))
+            }
+            // shortcut: proxy folders moved and deleted aren't counted (no size kept for them); keep their size in the run if wanted.
+            let freed = moved.filter { !FileManager.default.fileExists(atPath: $0.moved ?? "") }.reduce(Int64(0)) { $0 + max($1.size - ($1.masterSize ?? 0), 0) }
+            return (waiting, freed)
+        }.value
+        (waiting, freedSoFar) = result
+    }
+
+    /// A project's own size (nil: the run's), kept per share like a rename.
+    func choose(_ projects: [Project], _ choice: Choice?) {
+        var rules = ShrinkFolders.Rules.load()
+        var sizes = rules.sizes ?? [:]
+        for project in projects { sizes[ShrinkFolders.Rules.key(project.folder, share: project.share)] = choice }
+        rules.sizes = sizes.isEmpty ? nil : sizes
+        rules.save()
+        refreshChoices()
+    }
+
     var canStart: Bool {
         !picked.isEmpty && !center.running && (destination != nil || folders.allSatisfy { FileManager.default.isWritableFile(atPath: $0.path) })
     }
@@ -353,6 +428,7 @@ final class ArchiveModel {
             }
             await center.resume(id, ffmpeg: ffmpeg, ffprobe: ffprobe)
             rescan(cached: false)
+            await refreshSpace()
         }
     }
 
@@ -376,8 +452,8 @@ final class ArchiveModel {
         Task { await center.resume(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe) }
     }
 
-    func putBack(_ run: ShrinkFolders.Run) { Task { await center.putBack(run.id) } }
-    func moveOriginals(_ run: ShrinkFolders.Run) { Task { problems = await center.moveOriginals(run.id) } }
+    func putBack(_ run: ShrinkFolders.Run) { Task { await center.putBack(run.id); await refreshSpace() } }
+    func moveOriginals(_ run: ShrinkFolders.Run) { Task { problems = await center.moveOriginals(run.id); await refreshSpace() } }
 
     /// The folders a run's originals (or masters, in a destination) are in.
     func places(_ run: ShrinkFolders.Run) -> [URL] {

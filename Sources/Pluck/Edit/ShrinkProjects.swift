@@ -63,6 +63,9 @@ extension ShrinkFolders {
         enum Mark: String, Codable, Sendable { case project, part }
         var marks: [String: Mark] = [:]
         var names: [String: String] = [:]
+        /// A project's own size: Keep 4K, or Skip (never archived). (Optional: older files have none.)
+        enum Choice: String, Codable, Sendable { case k4, skip }
+        var sizes: [String: Choice]?
 
         static var url: URL {
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Shrink/projects.json")
