@@ -84,8 +84,14 @@ final class SendSync {
 
     /// Where a pass sends: the paired host, then the other chosen office Macs still in its group.
     private var destinations: [UUID?] {
-        let members = Set(client.members.map(\.id))
-        return [nil] + offices.dropFirst().filter { members.contains($0) }.map { Optional($0) }
+        Self.destinations(offices: offices, members: client.members.map(\.id), primary: client.primary)
+    }
+
+    /// With other office Macs chosen, the paired one is asked by its own id: asked as "wherever", another member would
+    /// answer while it's away and the paired one's record would say it has files it never got.
+    nonisolated static func destinations(offices: [UUID], members: [UUID], primary: UUID?) -> [UUID?] {
+        let others = offices.dropFirst().filter { members.contains($0) && $0 != primary }
+        return [others.isEmpty ? nil : primary] + others.map { Optional($0) }
     }
 
     /// The paired host isn't the one these were set up for (an invitation replaced it).
@@ -202,7 +208,7 @@ final class SendSync {
                     do {
                         try await upload(folder.url.appendingPathComponent(change.relative), as: folder.url.lastPathComponent + "/" + change.relative, to: target)
                         if let index = folders.firstIndex(where: { $0.id == folder.id }) {
-                            if let target { folders[index].sentTo = folders[index].sentTo ?? [:]; folders[index].sentTo![target.uuidString, default: [:]][change.relative] = change.stamp }
+                            if place > 0, let target { folders[index].sentTo = folders[index].sentTo ?? [:]; folders[index].sentTo![target.uuidString, default: [:]][change.relative] = change.stamp }
                             else { folders[index].sent[change.relative] = change.stamp }
                             save()
                         }

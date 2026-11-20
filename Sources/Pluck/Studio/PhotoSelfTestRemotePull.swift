@@ -192,6 +192,11 @@ extension PhotoSelfTest {
         let one = UUID(), two = UUID()
         check("send: the single office of builds before becomes the list", SendSync.offices(list: nil, single: one.uuidString) == [one]
               && SendSync.offices(list: [one.uuidString, two.uuidString], single: one.uuidString) == [one, two] && SendSync.offices(list: nil, single: nil).isEmpty)
+        let three = UUID()
+        check("send: with others chosen the paired office Mac is asked by its id, never \"wherever\"",
+              SendSync.destinations(offices: [UUID(), two, three], members: [one, two], primary: one) == [one, two]
+              && SendSync.destinations(offices: [UUID()], members: [one, two], primary: one) == [nil]
+              && SendSync.destinations(offices: [UUID(), one], members: [one], primary: one) == [nil])
         let oldFolder = #"{"path":"/x","sent":{"a.mov":{"size":1,"modified":2}}}"#
         let folder = try? JSONDecoder().decode(SendSync.Folder.self, from: Data(oldFolder.utf8))
         check("send: a folder from before keeps what the first office has, none for others", folder?.sent(at: nil, first: true).count == 1 && folder?.sent(at: two, first: false).isEmpty == true)
