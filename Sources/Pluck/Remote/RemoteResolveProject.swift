@@ -76,7 +76,7 @@ enum RemoteResolveProject {
             let proxies = (arguments["proxies"] as? [[String: Any]] ?? []).prefix(20_000).compactMap { value -> RemoteRenderQueue.Proxy? in
                 guard let file = value["file"] as? String, let share = value["share"] as? String, let path = value["path"] as? String,
                       file.count < 2000, share.count <= 40, path.count < 2000 else { return nil }
-                return .init(file: file, share: share, path: path)
+                return .init(file: file, share: share, path: path, piece: value["piece"] as? Bool == true ? true : nil)
             }
             let item = queue.add(.init(project: id, projectName: project.name, version: version, timeline: try OfficeActions.text(arguments["timeline"], 300),
                                        preset: try OfficeActions.text(arguments["preset"], 300), share: project.share, proxies: Array(proxies),
@@ -257,7 +257,8 @@ enum RemoteResolveProject {
     /// Which clips to swap for which original (clip id → original path) and what's wrong.
     /// `swaps`: a clip's file (a proxy on the editor's Mac) → the original's path on the host.
     /// `originals`: files on the host that are there and usable (originals, and files already in a share).
-    nonisolated static func conform(_ clips: [Clip], swaps: [String: String], originals: [String: Original]) -> (swaps: [String: String], problems: [String]) {
+    nonisolated static func conform(_ clips: [Clip], swaps: [String: String], originals: [String: Original],
+                                    pieces: Set<String> = []) -> (swaps: [String: String], problems: [String]) {
         var result: [String: String] = [:], problems: [String] = [], told: Set<String> = []
         func tell(_ clip: Clip, _ problem: String) {
             if told.insert(clip.file).inserted { problems.append(problem) }
@@ -272,7 +273,9 @@ enum RemoteResolveProject {
                 tell(clip, String(localized: "\(clip.name): the original is missing on the host Mac."))
                 continue
             }
-            if let a = clip.duration, let b = info.duration, abs(a - b) > max(2 / (clip.fps ?? 25), 0.1) {
+            // (A pulled part of the original is shorter and starts later: its timecode puts it in place.)
+            if pieces.contains(clip.file) {
+            } else if let a = clip.duration, let b = info.duration, abs(a - b) > max(2 / (clip.fps ?? 25), 0.1) {
                 tell(clip, String(localized: "\(clip.name): the original has another length."))
             } else if let a = clip.audio, let b = info.audio, a != b {
                 tell(clip, String(localized: "\(clip.name): \(a) audio channels, the original has \(b)."))
@@ -302,7 +305,7 @@ enum RemoteResolveProject {
         for clip in clips where !clip.file.isEmpty && swaps[clip.file] == nil {
             if let real = RemoteEditHost.realPath(clip.file), trusted || roots.contains(where: { real.hasPrefix($0 + "/") }) { originals[clip.file] = Original() }
         }
-        return conform(clips, swaps: swaps, originals: originals)
+        return conform(clips, swaps: swaps, originals: originals, pieces: Set(proxies.filter { $0.piece == true }.map(\.file)))
     }
 
     // MARK: - What Fusion and grades reach

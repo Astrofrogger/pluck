@@ -16,6 +16,8 @@ final class RemoteRenderQueue {
         var file: String
         var share: String
         var path: String
+        /// A part of the original pulled to the editor's Mac (RemotePieces), not a proxy.
+        var piece: Bool?
     }
 
     struct Item: Codable, Identifiable {

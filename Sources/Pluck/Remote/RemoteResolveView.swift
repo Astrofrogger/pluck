@@ -16,6 +16,7 @@ struct RemoteResolvePane: View {
     @State private var working = false
     @State private var problem: String?
     @State private var downloading: [String: Double] = [:]
+    @State private var pullingParts = false
 
     private var project: RemoteResolve.HostProject? { model.projects.first { $0.id == projectID } }
 
@@ -117,6 +118,11 @@ struct RemoteResolvePane: View {
                 }
                 .disabled(model.presets.isEmpty)
                 Spacer(minLength: 0)
+                Button { pullingParts = true } label: { Label("Pull originals…", systemImage: "scissors") }
+                    .buttonStyle(StudioFlatButtonStyle())
+                    .disabled(model.local == nil || timeline.isEmpty || working)
+                    .help("Pulls only the parts of the originals this timeline uses, to finish on this Mac")
+                    .sheet(isPresented: $pullingParts) { RemotePiecesSheet(timeline: timeline) }
                 Button { act { try await model.render(project, timeline: timeline, preset: preset) } } label: {
                     Label("Render on \(host)", systemImage: "play.fill")
                 }

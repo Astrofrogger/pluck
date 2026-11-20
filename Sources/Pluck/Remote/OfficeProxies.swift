@@ -512,6 +512,8 @@ final class OfficeProxies {
             && !jobs.contains(where: { $0.share == item.share && $0.format == item.format && ($0.watch || $0.state == .queued || $0.state == .making) }) {
             await delete(item, trash: false)
         }
+        let keep = Self.keepDays
+        await Task.detached { RemotePieces.tidy(keepDays: keep) }.value
     }
 
     /// One proxy, waiting its turn (one encode at a time on this Mac); one the other worker made meanwhile counts as made.

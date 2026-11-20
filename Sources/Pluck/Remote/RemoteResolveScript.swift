@@ -18,7 +18,7 @@ import Foundation
 /// Project.GetSetting("nodeStackLayers")/GetColorGroupsList, ColorGroup.GetPre/PostClipNodeGraph; Fusion (fusion_api.pyi):
 /// Composition.GetToolList(False)/CopySettings(tools)/MapPath/GetPrefs("Comp"); for the check of what a project reaches
 /// also ProjectManager.ExportProject (read back as a .drp), Timeline.DuplicateTimeline, TimelineItem.FlattenMulticam
-/// (resolve.FLATTEN_MULTICAM_COPY_GRADE).
+/// (resolve.FLATTEN_MULTICAM_COPY_GRADE); for the used ranges TimelineItem.GetSourceStartFrame/GetSourceEndFrame/GetDuration.
 @MainActor
 enum RemoteResolveScript {
     static func run(_ instruction: [String: Any]) async throws -> [String: Any] {
@@ -607,6 +607,52 @@ if action == "open":
     if pm.LoadProject(name) is None:
         out({"error": "DaVinci Resolve couldn't open the project."})
     out({"project": name})
+
+if action == "ranges":
+    # The source frames each file is used for on the timeline (current, or cmd["timeline"]), to pull only those parts.
+    # A retimed item (its length differs from its source span) takes the whole clip. Files inside compound and
+    # multicam clips come from the exported project and are taken whole; if none can be matched to them, every media
+    # file of the project is (never guess).
+    project = pm.GetCurrentProject()
+    if project is None:
+        out({"error": "No project is open in DaVinci Resolve."})
+    timeline = project.GetCurrentTimeline()
+    if cmd.get("timeline"):
+        timeline = next((t for t in (project.GetTimelineByIndex(i) for i in range(1, project.GetTimelineCount() + 1)) if t and t.GetName() == cmd["timeline"]), None)
+    if timeline is None:
+        out({"error": "No timeline is open in DaVinci Resolve."})
+    items, nested = [], set()
+    for kind in ("video", "audio"):
+        for n in range(1, (timeline.GetTrackCount(kind) or 0) + 1):
+            for it in timeline.GetItemListInTrack(kind, n) or []:
+                mp = it.GetMediaPoolItem()
+                if mp is None:
+                    continue
+                path = prop(mp, "File Path")
+                if not path:
+                    nested.add(it.GetName() or mp.GetName())
+                    continue
+                try:
+                    start, end = int(it.GetSourceStartFrame()), int(it.GetSourceEndFrame())
+                    retimed = abs(abs(end - start) - float(it.GetDuration())) > 1
+                except Exception:
+                    start, end, retimed = 0, 0, True
+                items.append({"file": path, "start": start, "end": end, "retimed": retimed})
+    whole = []
+    if nested:
+        import tempfile
+        drp = os.path.join(tempfile.gettempdir(), "pluck-ranges-" + str(os.getpid()) + ".drp")
+        notes = Notes()
+        if pm.ExportProject(project.GetName(), drp, False):
+            drp_uses(drp, notes, project.GetName())
+            try:
+                os.remove(drp)
+            except OSError:
+                pass
+        media = [r for r in notes.found["refs"] if r.get("regid") == "media"]
+        inside = [r["path"] for r in media if r.get("item") in nested]
+        whole = sorted(set(inside or [r["path"] for r in media]))
+    out({"items": items, "whole": whole, "timeline": timeline.GetName(), "nested": sorted(nested)})
 
 if action == "link":
     # Clips of the host's originals get their local proxy linked; proxies not in the project yet are

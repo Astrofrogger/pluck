@@ -209,6 +209,10 @@ enum RemoteEditHost {
             }
             file = OfficeProxies.shared.proxy(relative(original, in: root), folder: id, format: format)
             OfficeProxies.shared.used(id, format: format)
+        case "piece":
+            // (A part of the original `originalPiece` cut before.)
+            try OfficeActions.require(\.originals, device)
+            file = try RemotePieces.served(share: id, relative: relative(original, in: root), arguments)
         case "thumb":
             try OfficeActions.require(\.browse, device)
             let picture = try await thumb(original)

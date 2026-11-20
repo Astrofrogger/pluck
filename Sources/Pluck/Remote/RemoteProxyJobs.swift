@@ -125,6 +125,7 @@ final class RemoteProxyJobs {
             else { RemoteShares.shared.removeWatch(watch, in: root) }
             return ["on": RemoteShares.shared.share(root)?.watch.contains(watch) ?? false]
         }
+        RemotePieces.register()
         RemoteKeepAwake.start()
         shared.startWatching()
         Task { await RemoteShares.shared.sync() }

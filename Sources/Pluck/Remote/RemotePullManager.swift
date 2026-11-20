@@ -42,6 +42,21 @@ enum RemotePullClient {
         }
         return (entries, (answer["pending"] as? NSNumber)?.intValue ?? 0)
     }
+
+    /// {share, path, first, last} → the piece the office Mac cut (RemotePieces), or why it comes whole. An office Mac from
+    /// before pieces doesn't know the action: whole too. (Cutting a long clip off a NAS takes a while: a long timeout.)
+    static func piece(share: String, path: String, first: Int, last: Int) async throws -> (piece: RemotePieces.Piece?, whole: String?) {
+        let answer: [String: Any]
+        do {
+            answer = try await client.ask(RemotePieces.action, ["share": share, "path": path, "first": first, "last": last], timeout: 1800)
+        } catch OfficeLink.Failure.office {
+            return (nil, String(localized: "the office Mac’s Pluck sends whole files"))
+        }
+        if let why = answer["whole"] as? String { return (nil, why) }
+        guard let size = (answer["size"] as? NSNumber)?.int64Value, let checksum = answer["checksum"] as? String,
+              let start = (answer["first"] as? NSNumber)?.intValue, let end = (answer["last"] as? NSNumber)?.intValue else { throw OfficeLink.Failure.garbled }
+        return (RemotePieces.Piece(size: size, checksum: checksum, first: start, last: end, timecode: answer["timecode"] as? String), nil)
+    }
 }
 
 /// Proxies (or single originals) pulled from the host's shares to a folder here: four files at
@@ -85,6 +100,8 @@ final class RemotePullManager {
         var waiting = false
         var finished = false
         var problem: String?
+        /// A quiet line: some parts came as whole files, and why.
+        var note: String?
     }
 
     private(set) var jobs: [Job] = []
@@ -176,6 +193,43 @@ final class RemotePullManager {
         guard !entries.isEmpty else { throw OfficeLink.Failure.office(String(localized: "That file isn’t ready on the host Mac (yet).")) }
         add(Job(share: share.id, shareName: share.name, format: .original, paths: [path],
                 destination: root.appendingPathComponent(String(localized: "Originals"), isDirectory: true).path, originals: entries))
+    }
+
+    /// The parts of originals an edit uses (RemotePieces.plan), each original as one piece or whole, into "Originals" in
+    /// the share's folder. `sizes`: each original's size (for the whole ones and the estimate until the piece is cut).
+    func pullPieces(share: OfficeRenderClient.RemoteShare, items: [RemotePieces.Item], sizes: [String: Int64], into root: URL) {
+        let entries = items.filter { $0.share == share.id && ProxySync.isSafe($0.path) }.map { item in
+            let size = sizes[item.path] ?? 0
+            return RemoteManifestEntry(share: share.id, path: item.path, proxy: item.path, reel: (item.path as NSString).lastPathComponent,
+                                       size: RemotePieces.estimate(item, size: size), pieceOf: item.path, range: item.range.map { [$0.lowerBound, $0.upperBound] })
+        }
+        guard !entries.isEmpty else { return }
+        add(Job(share: share.id, shareName: share.name, format: .original, paths: entries.map(\.path),
+                destination: root.appendingPathComponent(String(localized: "Originals"), isDirectory: true).path, originals: entries))
+    }
+
+    /// A piece not cut yet: asked of the office Mac, its entry in the pull made exact (or whole, with the reason kept).
+    private func prepared(_ entry: RemoteManifestEntry, of job: Job) async throws -> RemoteManifestEntry {
+        guard let range = entry.range, range.count == 2, entry.checksum == nil else { return entry }
+        var ready = entry
+        let answer = try await RemotePullClient.piece(share: job.share, path: entry.path, first: range[0], last: range[1])
+        if let piece = answer.piece {
+            ready.size = piece.size
+            ready.checksum = piece.checksum
+            ready.range = [piece.first, piece.last]
+            ready.timecode = piece.timecode
+        } else {
+            ready.range = nil
+            ready.size = try await client.fileData(share: job.share, path: entry.path, kind: .original, offset: 0, length: 1).size
+            progress[job.id]?.note = String(localized: "Some clips come as whole files: \(answer.whole ?? "")")
+        }
+        if let index = jobs.firstIndex(where: { $0.id == job.id }), var originals = jobs[index].originals,
+           let at = originals.firstIndex(where: { $0.path == entry.path }) {
+            originals[at] = ready
+            jobs[index].originals = originals
+            save()
+        }
+        return ready
     }
 
     private func add(_ job: Job) {
@@ -273,12 +327,19 @@ final class RemotePullManager {
             }
         }
 
-        guard jobs.contains(where: { $0.id == job.id }) else { return false }
-        let here = entries.filter { Self.isHere($0, in: root) }
+        guard let now = jobs.first(where: { $0.id == job.id }) else { return false }
+        // (Pieces got their real size when they were cut.)
+        let final = now.originals?.filter { ProxySync.isSafe($0.proxy) } ?? entries
+        let here = final.filter { Self.isHere($0, in: root) }
         if job.originals == nil, !here.isEmpty {
             do { try writeManifest(here, of: job, in: root) } catch { progress[job.id]?.problem = error.localizedDescription }
+        } else if let originals = jobs.first(where: { $0.id == job.id })?.originals?.filter({ $0.pieceOf != nil && Self.isHere($0, in: root) }), !originals.isEmpty {
+            // Pulled parts of originals go in the share's manifest too (as "Originals/…"): a render on the office Mac maps them back.
+            let folder = root.lastPathComponent
+            let pieces = originals.map { var entry = $0; entry.proxy = folder + "/" + entry.proxy; return entry }
+            do { try writeManifest(pieces, of: job, in: root.deletingLastPathComponent()) } catch { progress[job.id]?.problem = error.localizedDescription }
         }
-        let done = !entries.isEmpty && here.count == entries.count && pending == 0
+        let done = !final.isEmpty && here.count == final.count && pending == 0
         progress[job.id]?.filesHere = here.count
         progress[job.id]?.finished = done
         return !done && isRunning(job)
@@ -292,6 +353,7 @@ final class RemotePullManager {
         defer { progress[job.id]?.current.remove(entry.proxy) }
         for attempt in 1...Self.tries {
             do {
+                let entry = try await prepared(entry, of: job)
                 guard try await fetch(entry, of: job, to: root.appendingPathComponent(entry.proxy)) else { return }
                 progress[job.id]?.failed[entry.proxy] = nil
                 progress[job.id]?.filesHere += 1
@@ -317,13 +379,14 @@ final class RemotePullManager {
         var offset = Int64(try handle.seekToEnd())
         // (A part bigger than the file is of another version: started again.)
         if offset > entry.size { try handle.truncate(atOffset: 0); progress[job.id]?.bytesHere -= min(offset, entry.size); offset = 0 }
-        let kind: OfficeRenderClient.FileKind = job.format == .original ? .original : .proxy
+        let piece = entry.range.flatMap { $0.count == 2 ? ["first": $0[0], "last": $0[1]] : nil }
+        let kind: OfficeRenderClient.FileKind = job.format == .original ? (piece == nil ? .original : .piece) : .proxy
         while offset < entry.size {
             guard isRunning(job) else { return false }
             let length = chunk
             await throttle(length)
             let piece = try await client.fileData(share: job.share, path: entry.path, kind: kind, format: kind == .proxy ? job.format : .light,
-                                                  offset: offset, length: length)
+                                                  offset: offset, length: length, extra: piece ?? [:])
             // The host's file changed since the manifest: started again from the next one.
             guard piece.size == entry.size else {
                 try handle.truncate(atOffset: 0)
