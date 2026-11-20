@@ -787,11 +787,13 @@ final class OfficeRenderServer {
             // Edit Anywhere no longer looks at or searches footage: an older Mac asking is told so.
             throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t search footage any more. Update Pluck on this Mac."))
         case "sendState":
+            try OfficeActions.require(\.render, device, refusal: OfficeActions.sendRefusal)
             let have = try OfficeInbox.shared.have(try text(arguments["path"], 1000), size: try number(arguments["size"]),
                                                    modified: arguments["modified"] as? Double ?? 0,
                                                    from: OfficeInbox.folderName(device.name, id: device.id))
             return ["have": have]
         case "send":
+            try OfficeActions.require(\.render, device, refusal: OfficeActions.sendRefusal)
             guard let data = (arguments["data"] as? String).flatMap({ Data(base64Encoded: $0) }), data.count <= OfficeLink.uploadChunk else {
                 throw OfficeLink.Failure.office(String(localized: "The request wasn’t complete."))
             }

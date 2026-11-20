@@ -37,10 +37,17 @@ enum OfficeActions {
 
     // MARK: - Checks for handlers
 
-    static func require(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device) throws {
+    static func require(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device,
+                        refusal: String? = nil) throws {
         guard device.allowed[keyPath: right] else {
-            throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t allow this Mac to do that."))
+            throw OfficeLink.Failure.office(refusal ?? String(localized: "The host Mac doesn’t allow this Mac to do that."))
         }
+    }
+
+    /// Sending files into the office (inbox or a folder) is an Editor's right. Said in full, so an older home Mac that
+    /// only shows the host's words still tells its user what to do.
+    static var sendRefusal: String {
+        String(localized: "Sending files to the office needs the Editor role. Ask the office to change this Mac’s role.")
     }
 
     static func incomplete() -> OfficeLink.Failure {
