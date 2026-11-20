@@ -252,11 +252,12 @@ final class RemotePullManager {
     }
 
     /// The parts of originals an edit uses (RemotePieces.plan), each original as one piece or whole, into "Originals" in
-    /// the share's folder. `sizes`: each original's size (for the whole ones and the estimate until the piece is cut).
+    /// the share's folder (under RemotePieces.folder). `sizes`: each original's size (for the whole ones and the estimate until the piece is cut).
     func pullPieces(share: OfficeRenderClient.RemoteShare, items: [RemotePieces.Item], sizes: [String: Int64], into root: URL) {
         let entries = items.filter { $0.share == share.id && ProxySync.isSafe($0.path) }.map { item in
             let size = sizes[item.path] ?? 0
-            return RemoteManifestEntry(share: share.id, path: item.path, proxy: item.path, reel: (item.path as NSString).lastPathComponent,
+            // (In their own folder: a piece never replaces the whole original pulled before, and keeps its name for relinking.)
+            return RemoteManifestEntry(share: share.id, path: item.path, proxy: RemotePieces.folder + "/" + item.path, reel: (item.path as NSString).lastPathComponent,
                                        size: RemotePieces.estimate(item, size: size), pieceOf: item.path, range: item.range.map { [$0.lowerBound, $0.upperBound] })
         }
         guard !entries.isEmpty else { return }

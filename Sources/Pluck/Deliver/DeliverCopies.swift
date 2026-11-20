@@ -174,12 +174,20 @@ final class DeliverCopies {
         switch kind {
         case .video:
             guard let probe = await probe(source, ffprobe: ffprobe), probe.width > 0 else { return (nil, nil) }
-            let inputs = input(source), tools = await tools(ffmpeg)
+            let inputs = input(source)
+            var tools = await tools(ffmpeg)
             if probe.isHDR && !tools.tonemap { NSLog("Pluck copies: this ffmpeg has no zscale/tonemap, so the SDR copies of an HDR source may look flat") }
             let list = renditions(for: probe, uhd: uhd, hevc: tools.hevc != nil)
             for (index, rendition) in list.enumerated() {
                 let share = { @Sendable (done: Double) in progress((Double(index) + done) / (Double(list.count) + 0.2)) }
-                guard await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, tools: tools, progress: share) else {
+                var done = await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, tools: tools, progress: share)
+                // (A tone map this ffmpeg can't do for this file: the plain BT.709 re-tag instead, as before 4.1, so the copies still come.)
+                if !done, probe.isHDR, tools.tonemap, rendition != "2160h" {
+                    NSLog("Pluck copies: the tone map failed for \(rendition), made without it")
+                    tools.tonemap = false
+                    done = await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, tools: tools, progress: share)
+                }
+                guard done else {
                     // (A 4K copy that didn't work leaves the usual ones.)
                     if rendition.hasPrefix("2160") { continue }
                     return (probe, nil)
@@ -532,6 +540,10 @@ final class DeliverCopies {
     /// No zscale/tonemap: the frames re-tagged BT.709 (the encoder takes the frames' tags over -color_trc); colours may look flat.
     nonisolated static let untoned = "format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     nonisolated static let toneMap = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+    /// The tone map for this source: one tagged with only its transfer is taken as BT.2020 (zscale finds no path otherwise).
+    nonisolated static func toneMap(_ probe: Deliver.Probe) -> String {
+        probe.primaries.map { $0 != "unknown" && !$0.isEmpty } == true ? toneMap : "setparams=color_primaries=bt2020:colorspace=bt2020nc," + toneMap
+    }
 
     /// One video rendition's longer side, H.264 level and codec, -b:v/-maxrate/-bufsize and AAC rate.
     /// 360 is ≤ 0.4 Mbit/s in all (mono sound), for slow lossy links (WebRTC goodput there is ~0.2–0.35 Mbit/s).
@@ -566,7 +578,7 @@ final class DeliverCopies {
         let video = spec(rendition, fast: probe.fps > 30.5), rates = video.rates
         let (width, height) = fit(probe.width, probe.height, box: video.box)
         let g = String(Int((2 * probe.fps).rounded()))
-        let sdr = !probe.isHDR ? "format=yuv420p" : tools.tonemap ? toneMap : untoned
+        let sdr = !probe.isHDR ? "format=yuv420p" : tools.tonemap ? toneMap(probe) : untoned
         // An HDR source's SDR copies are tagged BT.709 even when this ffmpeg can't tone-map (else they'd keep the PQ/HLG tag).
         let bt709 = probe.isHDR ? ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"] : []
         if rendition.hasPrefix("2160"), let hevc = tools.hevc {

@@ -38,7 +38,13 @@ enum RemoteSendInto {
         guard nameOK(name) else { throw OfficeInbox.Problem.badPath }
         let size = try OfficeActions.number(arguments["size"])
         guard size <= largest else { throw OfficeInbox.Problem.tooBig }
-        return (folder, name, size, arguments["modified"] as? Double ?? 0)
+        return (folder, name, size, seconds(arguments["modified"]))
+    }
+
+    /// A modification time from the network: finite and in a sane range (0: none).
+    nonisolated static func seconds(_ value: Any?) -> Double {
+        guard let time = value as? Double, time.isFinite else { return 0 }
+        return min(max(time, -1e12), 1e12).rounded()
     }
 
     nonisolated static let largest: Int64 = 500_000_000_000
@@ -52,7 +58,7 @@ enum RemoteSendInto {
     }
 
     nonisolated static func partial(_ folder: URL, name: String, size: Int64, modified: Double) -> URL {
-        folder.appendingPathComponent(".\(name).\(size)-\(Int64(modified)).pluckpart")
+        folder.appendingPathComponent(".\(name).\(size)-\(Int64(seconds(modified))).pluckpart")
     }
 
     nonisolated private static func bytes(_ url: URL) -> Int64? {
@@ -63,7 +69,8 @@ enum RemoteSendInto {
     /// `publish`: puts the checked partial in place itself (the drive's writes, RemoteDriveWriteHost), instead of `place`.
     nonisolated static func receive(into folder: URL, name: String, size: Int64, modified: Double, offset: Int64, data: Data,
                                     sha256: String?, publish: ((URL) throws -> [String: Any])? = nil) throws -> [String: Any] {
-        guard offset >= 0, offset + Int64(data.count) <= size else { throw OfficeInbox.Problem.tooBig }
+        // (Subtracted, not added: an offset near the largest number can't overflow.)
+        guard offset >= 0, size >= 0, offset <= size - Int64(data.count) else { throw OfficeInbox.Problem.tooBig }
         let part = partial(folder, name: name, size: size, modified: modified)
         let fm = FileManager.default
         // (A link put where the partial goes would write outside the folder: refused.)

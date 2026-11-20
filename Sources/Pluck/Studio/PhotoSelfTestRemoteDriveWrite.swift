@@ -51,6 +51,32 @@ extension PhotoSelfTest {
         RemoteDriveWriteHost.cleanup(root)
         check("drive write: versions and trash older than the setting go", !fm.fileExists(atPath: old.path) && !trash.isEmpty
               && fm.fileExists(atPath: root.appendingPathComponent(RemoteDriveWriteHost.trashName).path))
+        let stalePart = RemoteSendInto.partial(folder, name: "gone.mov", size: 10, modified: 1), freshPart = RemoteSendInto.partial(folder, name: "going.mov", size: 10, modified: 2)
+        fm.createFile(atPath: stalePart.path, contents: Data(count: 4)); fm.createFile(atPath: freshPart.path, contents: Data(count: 4))
+        try? fm.setAttributes([.modificationDate: Date.now.addingTimeInterval(-2 * 86_400)], ofItemAtPath: stalePart.path)
+        RemoteDriveWriteHost.cleanup(root, folder: folder)
+        check("drive write: uploads left unfinished for a day go, newer ones stay", !fm.fileExists(atPath: stalePart.path) && fm.fileExists(atPath: freshPart.path))
+
+        // Hostile numbers at the boundary: refused, never a crash.
+        let odd = [Double.nan, .infinity, -.infinity, 1e300].map { RemoteSendInto.partial(folder, name: "a", size: 1, modified: $0).lastPathComponent }
+        check("drive write: odd modification times make a plain partial name", odd.allSatisfy { $0.hasPrefix(".a.1-") && $0.hasSuffix(".pluckpart") }, "\(odd)")
+        check("drive write: an offset or size that would overflow is refused",
+              (try? RemoteSendInto.receive(into: folder, name: "a", size: 100, modified: 0, offset: Int64.max - 2, data: Data(count: 10), sha256: nil)) == nil
+              && (try? RemoteSendInto.receive(into: folder, name: "a", size: -5, modified: 0, offset: 0, data: Data(count: 10), sha256: nil)) == nil)
+        let longName = RemoteDriveWriteHost.conflictName("x." + String(repeating: "e", count: 200), mac: String(repeating: "M", count: 60))
+        check("drive write: a conflict name for a very long extension doesn't break", longName.contains("(MMMM"))
+
+        // A renamed folder the office gave another name: what's in it follows.
+        let units = RemoteDriveOverlay(office: "test-\(UUID().uuidString)", share: "units")
+        defer { try? fm.removeItem(at: units.folder) }
+        _ = try? units.create("F", folder: true)
+        _ = try? units.create("F/x.txt", folder: false)
+        units.sent(spool: nil, path: "F", version: 0, remote: "F", base: nil, conflict: false)
+        units.sent(spool: units.snapshot.items["F/x.txt"]?.spool, path: "F/x.txt", version: 0, remote: "F/x.txt", base: nil, conflict: false)
+        try? units.rename("F", to: "G")
+        if let op = units.nextOp() { units.opDone(op, renamed: "G (M)") }
+        check("drive write: a folder renamed under another name at the office takes its files' office paths along",
+              units.snapshot.items["G"]?.remote == "G (M)" && units.snapshot.items["G/x.txt"]?.remote == "G (M)/x.txt", "\(units.snapshot.items.mapValues { $0.remote })")
     }
 
     /// Over the real mount (`point`, a paired office on this Mac sharing `root`, share `id`).
@@ -180,5 +206,41 @@ extension PhotoSelfTest {
         let sent = await RemoteDriveWrites.pass(after)
         check("drive write: and go once the office answers", sent && (try? String(contentsOf: root.appendingPathComponent("Day 1/offline.txt"), encoding: .utf8)) == "written offline"
               && after.snapshot.items["Day 1/offline.txt"]?.state == .sent)
+
+        // Saved again (to a temporary name, renamed over) while the first save went: the newer one stays waiting and goes.
+        _ = try? after.create("Day 1/race.txt", folder: false)
+        _ = try? await after.write("Day 1/race.txt", offset: 0, data: Data("old".utf8))
+        after.commit("Day 1/race.txt")
+        let picked = after.snapshot.items["Day 1/race.txt"]
+        _ = try? after.create("Day 1/.race.tmp", folder: false)
+        _ = try? await after.write("Day 1/.race.tmp", offset: 0, data: Data("new".utf8))
+        after.commit("Day 1/.race.tmp")
+        try? after.rename("Day 1/.race.tmp", to: "Day 1/race.txt")
+        after.commit("Day 1/race.txt")
+        after.sent(spool: picked?.spool, path: "Day 1/race.txt", version: picked?.version ?? 0, remote: "Day 1/race.txt", base: nil, conflict: false)
+        let racing = after.snapshot.items["Day 1/race.txt"]
+        check("drive write: a save during an upload stays waiting (the office path kept)", racing?.state == .pending && racing?.remote == "Day 1/race.txt"
+              && racing?.spool != picked?.spool, "\(String(describing: racing))")
+        let raced = await RemoteDriveWrites.pass(after)
+        check("drive write: and the newer save is what reaches the office", raced && (try? String(contentsOf: root.appendingPathComponent("Day 1/race.txt"), encoding: .utf8)) == "new"
+              && after.snapshot.items["Day 1/race.txt"]?.state == .sent)
+
+        // A sent file written again: fetched back once however many writes wait, which hear "busy" (JUKEBOX) meanwhile.
+        after.dropSentSpools()
+        let fetches = FetchCount()
+        after.fetch = { _, offset, count in
+            fetches.add()
+            try await Task.sleep(for: .milliseconds(1500))
+            return Data("written offline".utf8).subdata(in: Int(offset)..<min(15, Int(offset) + count))
+        }
+        async let one: Bool = (try? await after.write("Day 1/offline.txt", offset: 0, data: Data("W".utf8))) == nil
+        async let two: Bool = (try? await after.write("Day 1/offline.txt", offset: 1, data: Data("R".utf8))) == nil
+        let busy = await [one, two]
+        try? await Task.sleep(for: .milliseconds(1200))
+        let then = try? await after.write("Day 1/offline.txt", offset: 0, data: Data("W".utf8))
+        let backAgain = try? await after.read("Day 1/offline.txt", offset: 0, count: 100)
+        check("drive write: one fetch back for waiting writes, busy meanwhile, then written", busy == [true, true] && fetches.value == 1 && then != nil
+              && backAgain == Data("Written offline".utf8), "\(busy) \(fetches.value) \(String(describing: backAgain.map { String(decoding: $0, as: UTF8.self) }))")
+        _ = await RemoteDriveWrites.pass(after)
     }
 }

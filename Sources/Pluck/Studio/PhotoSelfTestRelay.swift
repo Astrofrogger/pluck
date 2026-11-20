@@ -59,6 +59,9 @@ extension PhotoSelfTest {
             note("SKIP relay: the Proxmox script (no source tree here)")
         }
         check("relay: the allowlist holds only node ids", RelaySetup.allowlist().allSatisfy(PrivateNetwork.isNodeID))
+        let testIDs = (try? RelaySetup.testKeys().map(\.id)) ?? []
+        check("relay: the test's two kept keys are in the allowlist (same ids each time)", testIDs.count == 2 && testIDs.allSatisfy(PrivateNetwork.isNodeID)
+              && Set(testIDs).isSubset(of: RelaySetup.allowlist()) && testIDs == ((try? RelaySetup.testKeys().map(\.id)) ?? []))
 
         // A relay-only round trip through a local iroh-relay (http on this Mac).
         let binary = source.deletingLastPathComponent().appendingPathComponent("x410/relay/bin/iroh-relay")

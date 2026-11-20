@@ -52,7 +52,7 @@ enum RemoteDriveWriteHost {
         // {share, path, size, modified} → {have}
         OfficeActions.register("driveWriteState") { arguments, device in
             let (folder, name) = try target(arguments, device)
-            let size = try OfficeActions.number(arguments["size"]), modified = arguments["modified"] as? Double ?? 0
+            let size = try OfficeActions.number(arguments["size"]), modified = RemoteSendInto.seconds(arguments["modified"])
             let part = RemoteSendInto.partial(folder, name: name, size: size, modified: modified)
             return ["have": (try? FileManager.default.attributesOfItem(atPath: part.path)[.size] as? NSNumber)?.int64Value ?? 0]
         }
@@ -61,7 +61,7 @@ enum RemoteDriveWriteHost {
         OfficeActions.register("driveWrite") { arguments, device in
             let place = try RemoteEditHost.share(arguments["share"])
             let (folder, name) = try target(arguments, device)
-            let size = try OfficeActions.number(arguments["size"]), modified = (arguments["modified"] as? Double ?? 0).rounded()
+            let size = try OfficeActions.number(arguments["size"]), modified = RemoteSendInto.seconds(arguments["modified"])
             guard size <= RemoteSendInto.largest else { throw OfficeInbox.Problem.tooBig }
             guard let data = (arguments["data"] as? String).flatMap({ Data(base64Encoded: $0) }), data.count <= OfficeLink.uploadChunk else {
                 throw OfficeActions.incomplete()
@@ -123,7 +123,7 @@ enum RemoteDriveWriteHost {
     nonisolated static func conflictName(_ name: String, mac: String) -> String {
         let stem = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
         let who = String(Folders.sanitize(mac, fallback: "Mac").prefix(40))
-        let base = String(stem.prefix(120 - who.count - ext.count - 5))
+        let base = String(stem.prefix(max(0, 120 - who.count - ext.count - 5)))
         return "\(base) (\(who))" + (ext.isEmpty ? "" : "." + ext)
     }
 
@@ -157,7 +157,7 @@ enum RemoteDriveWriteHost {
         }
         let file = folder.appendingPathComponent(placed)
         try? FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: modified)], ofItemAtPath: file.path)
-        cleanup(root)
+        cleanup(root, folder: folder)
         let now = stamp(of: file) ?? RemoteDriveOverlay.Stamp(size: 0, modified: modified)
         return ["name": placed, "size": now.size, "modified": now.modified, "conflict": conflict]
     }
@@ -208,8 +208,16 @@ enum RemoteDriveWriteHost {
         guard Darwin.rename(item.path, folder.appendingPathComponent(freeName(name, in: folder)).path) == 0 else { throw OfficeInbox.Problem.badPath }
     }
 
-    /// Days older than `keepDays` leave the share's versions and trash.
-    nonisolated static func cleanup(_ root: URL, now: Date = .now) {
+    /// Days older than `keepDays` leave the share's versions and trash; in `folder`, uploads left unfinished for a day
+    /// (a sender that gave up, or a file that changed while it went) go too.
+    nonisolated static func cleanup(_ root: URL, folder written: URL? = nil, now: Date = .now) {
+        if let written {
+            for name in (try? FileManager.default.contentsOfDirectory(atPath: written.path)) ?? [] where name.hasPrefix(".") && name.hasSuffix(".pluckpart") {
+                let part = written.appendingPathComponent(name)
+                let date = (try? FileManager.default.attributesOfItem(atPath: part.path)[.modificationDate] as? Date) ?? now
+                if now.timeIntervalSince(date) > 86_400 { try? FileManager.default.removeItem(at: part) }
+            }
+        }
         let day = DateFormatter()
         day.dateFormat = "yyyy-MM-dd"
         day.locale = Locale(identifier: "en_US_POSIX")
@@ -282,8 +290,16 @@ final class RemoteDriveOverlay: @unchecked Sendable {
     private var touched: [String: Date] = [:]
     private var checked: [String: Date] = [:]
     private var settling = false
-    /// How long a file is left alone before it goes (COMMIT sends sooner).
+    /// Sent files being fetched back from the office (one fetch per path, however many WRITEs wait), and fetches that failed.
+    private var fetching: Set<String> = []
+    private var fetchFailed: Set<String> = []
+    /// Files that changed while they went (slow writers): left alone longer before they go again.
+    private var slow: Set<String> = []
+    /// How long a file is left alone before it goes (COMMIT sends sooner); five times that for a big or slowly written one.
     nonisolated(unsafe) static var quiet: TimeInterval = 2
+    private func quiet(_ path: String) -> TimeInterval {
+        slow.contains(path) || (saved.items[path]?.size ?? 0) > 100_000_000 ? Self.quiet * 5 : Self.quiet
+    }
 
     /// Whether a path is one of the office's own (a proxy, the manifest or a folder of them): never written here.
     var known: @Sendable (String) -> Bool = { _ in false }
@@ -433,29 +449,58 @@ final class RemoteDriveOverlay: @unchecked Sendable {
         return node
     }
 
-    /// The file's bytes on this Mac (a sent file's are fetched back first, unless it's being emptied anyway).
+    /// The file's bytes on this Mac (a sent file's are fetched back first, unless it's being emptied anyway). A fetch runs
+    /// once per path; a WRITE that comes while it runs waits a second at most, then hears "busy, try again" (JUKEBOX)
+    /// rather than holding the NFS call for a big file.
     private func ensureSpool(_ path: String, emptying: Bool) async throws -> URL {
-        let (spoolName, remote, size) = try lock.withLock { () -> (String?, String?, Int64) in
+        let (spoolName, remote, size, start) = try lock.withLock { () -> (String?, String?, Int64, Bool) in
             guard let item = saved.items[path] else { throw RemoteDriveError.noEntry }
             guard !item.folder else { throw RemoteDriveError.isFolder }
-            return (item.spool, item.remote, item.size)
+            if item.spool == nil, fetchFailed.remove(path) != nil { throw RemoteDriveError.io }
+            if item.spool == nil, fetching.contains(path), emptying { throw RemoteDriveError.busy }
+            let start = item.spool == nil && !emptying && item.remote != nil && !fetching.contains(path)
+            if start { fetching.insert(path) }
+            return (item.spool, item.remote, item.size, start)
         }
         if let spoolName { return spool.appendingPathComponent(spoolName) }
+        guard let remote, !emptying else {
+            let name = UUID().uuidString, file = spool.appendingPathComponent(name)
+            guard FileManager.default.createFile(atPath: file.path, contents: nil) else { throw RemoteDriveError.io }
+            lock.withLock { saved.items[path]?.spool = name }
+            return file
+        }
+        if start { Task.detached { [self] in await fetchBack(path, remote: remote, size: size) } }
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(50))
+            let (name, running) = lock.withLock { (saved.items[path]?.spool, fetching.contains(path)) }
+            if let name { return spool.appendingPathComponent(name) }
+            if !running { break }
+        }
+        throw lock.withLock { fetchFailed.remove(path) != nil } ? RemoteDriveError.io : RemoteDriveError.busy
+    }
+
+    private func fetchBack(_ path: String, remote: String, size: Int64) async {
         let name = UUID().uuidString, file = spool.appendingPathComponent(name)
-        guard FileManager.default.createFile(atPath: file.path, contents: nil) else { throw RemoteDriveError.io }
-        if !emptying, let remote {
-            let handle = try FileHandle(forWritingTo: file)
-            defer { try? handle.close() }
+        var done = FileManager.default.createFile(atPath: file.path, contents: nil)
+        if done, let handle = try? FileHandle(forWritingTo: file) {
             var offset: Int64 = 0
-            while offset < size {
-                let piece = try await fetch(remote, offset, Int(min(Int64(OfficeLink.fileChunk), size - offset)))
-                guard !piece.isEmpty else { throw RemoteDriveError.io }
-                try handle.write(contentsOf: piece)
+            while done, offset < size {
+                guard let piece = try? await fetch(remote, offset, Int(min(Int64(OfficeLink.fileChunk), size - offset))), !piece.isEmpty,
+                      (try? handle.write(contentsOf: piece)) != nil else { done = false; break }
                 offset += Int64(piece.count)
             }
+            try? handle.close()
+        } else { done = false }
+        let kept = lock.withLock { () -> Bool in
+            fetching.remove(path)
+            guard done, saved.items[path] != nil, saved.items[path]?.spool == nil else {
+                if !done { fetchFailed.insert(path) }
+                return false
+            }
+            saved.items[path]?.spool = name
+            return true
         }
-        lock.withLock { saved.items[path]?.spool = name }
-        return file
+        if !kept { try? FileManager.default.removeItem(at: file) }
     }
 
     func write(_ path: String, offset: Int64, data: Data) async throws -> RemoteDriveNode {
@@ -512,7 +557,7 @@ final class RemoteDriveOverlay: @unchecked Sendable {
             while true {
                 try? await Task.sleep(for: .seconds(Self.quiet))
                 let left = lock.withLock { () -> Int in
-                    touched = touched.filter { Date.now.timeIntervalSince($0.value) < Self.quiet }
+                    touched = touched.filter { Date.now.timeIntervalSince($0.value) < quiet($0.key) }
                     if touched.isEmpty { settling = false }
                     return touched.count
                 }
@@ -632,9 +677,17 @@ final class RemoteDriveOverlay: @unchecked Sendable {
 
     func clearProblems() { lock.withLock { saved.problems = [] }; save(); changed() }
 
-    fileprivate func nextOp() -> Op? { lock.withLock { saved.ops.first } }
+    func nextOp() -> Op? { lock.withLock { saved.ops.first } }
 
-    fileprivate func opDone(_ op: Op, problem: String? = nil, renamed: String? = nil) {
+    /// Whether the file being sent is still the one picked (same bytes, same version, same place).
+    fileprivate func unchanged(_ path: String, spool name: String, version: Int) -> Bool {
+        lock.withLock { saved.items[path].map { $0.spool == name && $0.version == version } ?? false }
+    }
+
+    /// It changed while it went: it waits longer before it goes again.
+    fileprivate func slowed(_ path: String) { lock.withLock { _ = slow.insert(path) } }
+
+    func opDone(_ op: Op, problem: String? = nil, renamed: String? = nil) {
         lock.withLock {
             guard saved.ops.first == op else { return }
             saved.ops.removeFirst()
@@ -642,9 +695,14 @@ final class RemoteDriveOverlay: @unchecked Sendable {
             // The office gave the renamed file another name (its own was there): this Mac follows.
             if case .rename(_, let to, _) = op, let renamed, renamed != (to as NSString).lastPathComponent {
                 let now = (Self.parent(to).isEmpty ? "" : Self.parent(to) + "/") + renamed
-                for (path, item) in saved.items where item.remote == to {
-                    saved.items[path]?.remote = now
-                    saved.items[path]?.conflict = renamed
+                for (path, item) in saved.items {
+                    if item.remote == to {
+                        saved.items[path]?.remote = now
+                        saved.items[path]?.conflict = renamed
+                    } else if let remote = item.remote, remote.hasPrefix(to + "/") {
+                        // (A renamed folder's own files and folders are under its new name too.)
+                        saved.items[path]?.remote = now + remote.dropFirst(to.count)
+                    }
                 }
             }
         }
@@ -671,7 +729,7 @@ final class RemoteDriveOverlay: @unchecked Sendable {
     }
 
     /// A folder made or a file placed at the office (`version`: the one sent; changed since, it goes again).
-    fileprivate func sent(spool: String?, path: String, version: Int, remote: String, base: Stamp?, conflict: Bool) {
+    func sent(spool: String?, path: String, version: Int, remote: String, base: Stamp?, conflict: Bool) {
         lock.withLock {
             let found = spool.flatMap { name in saved.items.first { $0.value.spool == name }?.key } ?? (saved.items[path] != nil ? path : nil)
             guard let key = found, var item = saved.items[key] else {
@@ -682,7 +740,9 @@ final class RemoteDriveOverlay: @unchecked Sendable {
             item.remote = remote
             item.base = base
             if conflict { item.conflict = (remote as NSString).lastPathComponent }
-            if item.state == .pending, item.version == version { item.state = .sent }
+            // (Only the bytes that went: a save meanwhile (a new spool, perhaps the same version number) still goes, over this one.)
+            if item.state == .pending, item.version == version, spool == nil || item.spool == spool { item.state = .sent }
+            if item.state == .sent { slow.remove(key) }
             saved.items[key] = item
         }
         save(); changed()
@@ -917,6 +977,8 @@ final class RemoteDriveWrites {
         let handle = try FileHandle(forReadingFrom: copy)
         defer { try? handle.close() }
         while true {
+            // Written again meanwhile (a slow writer): this copy is old, the newer one goes once it's left alone.
+            guard overlay.unchanged(path, spool: spoolName, version: item.version) else { return overlay.slowed(path) }
             try handle.seek(toOffset: UInt64(have))
             let chunk = try handle.read(upToCount: OfficeLink.uploadChunk) ?? Data()
             var piece = file.merging(base) { a, _ in a }

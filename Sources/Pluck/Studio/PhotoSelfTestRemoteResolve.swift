@@ -47,6 +47,18 @@ extension PhotoSelfTest {
         check("resolve: conform reports length, channels, timecode, missing and offline (not the good, kept or a clip without a file)",
               plan.problems.count == 5 && zip(plan.problems, named).allSatisfy { $0.hasPrefix($1 + ":") }, "\(plan.problems)")
 
+        // Pulled pieces: their timecode must be the original's (none: 0) plus the piece's first frame.
+        let pieceClips = [Clip(id: "p1", name: "right", file: "/p/r.mov", frames: 50, fps: 25, timecode: "01:00:06:00"),
+                          Clip(id: "p2", name: "wrong", file: "/p/w.mov", frames: 50, fps: 25, timecode: "01:00:00:00"),
+                          Clip(id: "p3", name: "zero", file: "/p/z.mov", frames: 50, fps: 25, timecode: "00:00:06:10")]
+        let pieceSwaps = ["/p/r.mov": "/NAS/r.mov", "/p/w.mov": "/NAS/w.mov", "/p/z.mov": "/NAS/z.mov"]
+        let pieceOriginals: [String: RemoteResolveProject.Original] = ["/NAS/r.mov": .init(duration: 20, timecode: "01:00:00:00"),
+                                                                        "/NAS/w.mov": .init(duration: 20, timecode: "01:00:00:00"), "/NAS/z.mov": .init(duration: 20)]
+        let piecePlan = RemoteResolveProject.conform(pieceClips, swaps: pieceSwaps, originals: pieceOriginals, pieces: Set(pieceSwaps.keys),
+                                                     starts: ["/p/r.mov": 150, "/p/w.mov": 150, "/p/z.mov": 160])
+        check("resolve: conform checks a piece's timecode against the original's plus its start", piecePlan.swaps.count == 3
+              && piecePlan.problems.count == 1 && piecePlan.problems.first?.hasPrefix("wrong:") == true, "\(piecePlan.problems)")
+
         remoteResolveUses(base)
 
         // The render queue: in order, cancel, and what a restart keeps.

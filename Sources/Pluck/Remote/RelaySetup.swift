@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -34,9 +35,9 @@ enum RelaySetup {
     /// The relay image of this Pluck's release (signed host-release.json); nil until one with a relay is published.
     static var image: String? { DeliverHostUpdate.shared.release?.relayImage }
 
-    /// Who may use the relay: the paired Macs, the office group's Macs and this Mac itself.
+    /// Who may use the relay: the paired Macs, the office group's Macs, this Mac itself and the two helpers of its test.
     static func allowlist() -> [String] {
-        var ids = OfficeRenderServer.shared.allowedNodes + OfficeGroup.shared.members.compactMap(\.iroh)
+        var ids = OfficeRenderServer.shared.allowedNodes + OfficeGroup.shared.members.compactMap(\.iroh) + ((try? testKeys().map(\.id)) ?? [])
         if case .running(_, let own) = Tunnel.irohOffice.state { ids.append(own) }
         return Array(Set(ids.map { $0.lowercased() }.filter(PrivateNetwork.isNodeID))).sorted()
     }
@@ -139,25 +140,42 @@ enum RelaySetup {
 
     // MARK: - Test relay
 
-    /// Mbit/s from a helper here to another helper here through the relay only (both with throwaway keys, no direct path).
-    static func measure(_ relay: String, bytes: Int = 16 << 20) async throws -> Double {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-relay-test-\(UUID().uuidString)", isDirectory: true)
+    /// The test's two helper keys (office, home), kept so their ids are in the allowlist the relay was given. pluck-iroh's
+    /// key file is the 32-byte Ed25519 secret; its id the public key in hex.
+    nonisolated static func testKeys() throws -> [(file: URL, id: String)] {
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pluck/Edit Anywhere/Relay Test", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        return try ["office.key", "home.key"].map { name in
+            let file = folder.appendingPathComponent(name)
+            var secret = (try? Data(contentsOf: file)).flatMap { $0.count == 32 ? $0 : nil }
+            if secret == nil {
+                let made = Curve25519.Signing.PrivateKey().rawRepresentation
+                try? FileManager.default.removeItem(at: file)
+                guard FileManager.default.createFile(atPath: file.path, contents: made, attributes: [.posixPermissions: 0o600]) else {
+                    throw PrivateNetwork.Failure.timeout
+                }
+                secret = made
+            }
+            let key = try Curve25519.Signing.PrivateKey(rawRepresentation: secret!)
+            return (file, key.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined())
+        }
+    }
+
+    /// Mbit/s from a helper here to another helper here through the relay only (no direct path), with the test's own
+    /// keys: the relay lets only allowlisted ids in.
+    static func measure(_ relay: String, bytes: Int = 16 << 20) async throws -> Double {
+        let keys = try testKeys()
         let sink = try Sink()
         defer { sink.close() }
         let office = Tunnel(.office, .iroh), home = Tunnel(.home, .iroh)
         defer { office.stop(); home.stop() }
-        office.testSettings = ["keyFile": folder.appendingPathComponent("o.key").path, "port": Int(sink.port), "relay": relay, "relayOnly": true]
-        home.testSettings = ["keyFile": folder.appendingPathComponent("h.key").path, "relay": relay, "relayOnly": true]
-        office.setAllow([])
+        office.testSettings = ["keyFile": keys[0].file.path, "port": Int(sink.port), "relay": relay, "relayOnly": true]
+        home.testSettings = ["keyFile": keys[1].file.path, "relay": relay, "relayOnly": true]
+        office.setAllow([keys[1].id])
         try await office.start()
-        guard case .running(_, let officeNode) = office.state else { throw PrivateNetwork.Failure.timeout }
-        // The home helper dials at once: its id (from its key) is let in first, then it starts again with the same key.
-        try await home.start(office: officeNode, officeRelay: relay)
-        guard case .running(_, let homeNode) = home.state else { throw PrivateNetwork.Failure.timeout }
-        home.stop()
-        office.setAllow([homeNode])
+        // (The helper's id must be the one worked out from its key, or the relay's allowlist doesn't have it.)
+        guard case .running(_, let officeNode) = office.state, officeNode.lowercased() == keys[0].id else { throw PrivateNetwork.Failure.timeout }
         try await home.start(office: officeNode, officeRelay: relay)
         guard let listen = home.listen else { throw PrivateNetwork.Failure.timeout }
         let started = Date.now

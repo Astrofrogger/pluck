@@ -75,6 +75,18 @@ extension PhotoSelfTest {
         check("drive: writing is a read-only file system", (try? write?.u32()) == 30)
         check("drive: handles stable per path", server.handle("Day 1/A001.mov") == RemoteDriveServer(backend: drive).handle("Day 1/A001.mov")
               && server.handle("a") != server.handle("b"))
+        // Renames move a folder's children's handles too; a name made again, or a deleted file, never aliases an old handle.
+        let renamed = server.handle("Ren/a"), inside = server.handle("Ren/a/x.drp")
+        server.moved("Ren/a", to: "Ren/b")
+        let remade = server.handle("Ren/a")
+        check("drive: a rename keeps the handles of the folder and what's in it", server.path(renamed) == "Ren/b" && server.path(inside) == "Ren/b/x.drp"
+              && server.handle("Ren/b") == renamed && server.handle("Ren/b/x.drp") == inside && remade != renamed && server.path(remade) == "Ren/a")
+        server.removed("Ren/b")
+        check("drive: a deleted file's handle goes stale, its name made again gets a new one", server.path(renamed) == nil && server.path(inside) == nil
+              && server.handle("Ren/b") != renamed)
+        let goneHandle = server.handle("Day 1/not here.mov")
+        var goneReply = parts(await call(100003, 3, 1) { $0.opaque(goneHandle) }).1
+        check("drive: a handle whose file is gone is stale", (try? goneReply?.u32()) == 70)
 
         // Blocks: exact bytes across block edges, fetched once, then from the cache.
         let entry = entries[0]

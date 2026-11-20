@@ -29,6 +29,9 @@ extension PhotoSelfTest {
         let written = folder.appendingPathComponent("tx")
         DeliverCopies.writeTranscript(transcript, into: written)
         check("media: transcript files written", fm.fileExists(atPath: written.appendingPathComponent("captions.vtt").path) && fm.fileExists(atPath: written.appendingPathComponent("transcript.json").path))
+        try? "WEBVTT\n\nsidecar".write(to: written.appendingPathComponent("captions.vtt"), atomically: true, encoding: .utf8)
+        DeliverCopies.writeTranscript(transcript, into: written, keepCaptions: true)
+        check("media: subtitles beside the original keep their captions.vtt", (try? String(contentsOf: written.appendingPathComponent("captions.vtt"), encoding: .utf8)) == "WEBVTT\n\nsidecar")
 
         // 4K/HDR strings and arguments.
         check("media: 4K codecs", DeliverCopies.codecs("2160", audio: true) == "hvc1.1.6.L153.B0,mp4a.40.2" && DeliverCopies.codecs("2160h", audio: false) == "hvc1.2.4.L153.B0"
@@ -73,6 +76,17 @@ extension PhotoSelfTest {
         check("media: 2160h is HEVC 10-bit PQ", top.contains("hevc,yuv420p10le,smpte2084"), top)
         check("media: 2160h index", DeliverCopies.index(out.appendingPathComponent("2160h"))?.codecs.hasPrefix("hvc1.2.4.L153.B0") == true
               && DeliverCopies.index(out.appendingPathComponent("2160"))?.width == 3200)
+
+        // PQ tagged with only its transfer (no primaries, no matrix): still tone-mapped, the H.264 ladder made.
+        let bare = folder.appendingPathComponent("pq-bare.mp4")
+        _ = await DeliveryCheck.output(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=1", "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
+                                                "-x265-params", "log-level=none:transfer=smpte2084", "-tag:v", "hvc1", bare.path])
+        let bareOut = folder.appendingPathComponent("copies-bare")
+        let bareMade = await DeliverCopies.make(bare, kind: .video, into: bareOut, ffmpeg: ffmpeg, ffprobe: ffprobe) { _ in }
+        let bareArgs = bareMade.probe.map { DeliverCopies.arguments(bare, rendition: "1080", probe: $0, folder: folder, tools: tools) } ?? []
+        check("media: PQ with only its transfer tagged is tone-mapped as BT.2020, the ladder made", bareMade.probe?.isHDR == true
+              && bareMade.renditions == ["1080", "540", "360"] && bareArgs.contains { $0.contains("setparams=color_primaries=bt2020:colorspace=bt2020nc,zscale") },
+              "\(String(describing: bareMade.renditions)) \(String(describing: bareMade.probe?.primaries))")
 
         // Quick Look: a file ImageIO can't read gets page 1 as a picture; nothing to show stays download only.
         let text = folder.appendingPathComponent("notes.txt")
