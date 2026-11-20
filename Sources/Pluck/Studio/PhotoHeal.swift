@@ -137,14 +137,18 @@ enum PhotoHeal {
         square.origin.x = min(max(square.minX, e.minX), e.maxX - side)
         square.origin.y = min(max(square.minY, e.minY), e.maxY - side)
         let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: square)
-        guard let fill = PhotoRemove.fill(image, mask: paint(1.15).composited(over: black), square: square, context: PhotoEngine.context) else { return image }
-        // Blended in over the painted area with a soft edge (Feather), at Opacity.
-        let soft = paint(1.05).composited(over: black).applyingGaussianBlur(sigma: Double(r) * max(spot.feather, 0.05) * 0.3)
-            .cropped(to: square)
+        let hole = paint(1.2).composited(over: black)
+        guard let fill = PhotoRemove.fill(image, mask: hole, square: square, context: PhotoEngine.context) else { return image }
+        // Shown over the hole with a soft edge (Feather) that ends inside it (the model's own copy of the photo round the
+        // hole is softer than the photo), at Opacity; the fill's fine detail made the photo's own (PhotoRemoveDetail).
+        let sigma = max(1, r * max(spot.feather, 0.05) * 0.06)
+        let alpha = paint(max(1.2 - 2.5 * sigma / r, 1)).composited(over: black).applyingGaussianBlur(sigma: Double(sigma)).cropped(to: square)
             .applyingFilter("CIColorMatrix", parameters: ["inputRVector": CIVector(x: spot.opacity, y: 0, z: 0, w: 0),
                                                           "inputGVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBVector": CIVector(x: 0, y: 0, z: 0, w: 0)])
-        return fill.cropped(to: square).applyingFilter("CIBlendWithRedMask", parameters: [kCIInputBackgroundImageKey: image, kCIInputMaskImageKey: soft])
-            .cropped(to: e)
+        let holeBox = box.insetBy(dx: -0.2 * r - 1, dy: -0.2 * r - 1).intersection(square)
+        let band = paint(1.2 + (6 + 0.1 * r) / r).composited(over: black)
+        return PhotoRemoveDetail.blended(image, fill: fill, hole: hole, band: band, alpha: alpha, holeBox: holeBox, square: square,
+                                         pixel: square.width / CGFloat(PhotoRemove.side), context: PhotoEngine.context)
     }
 
     /// A kept decode's key with the spots on it (the local-tone layers worked out from it are then its own). None: unchanged.
