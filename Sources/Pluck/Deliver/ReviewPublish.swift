@@ -440,6 +440,10 @@ final class ReviewPublish {
             var wire: [String: Any] = ["id": asset.id.uuidString, "name": asset.name, "folder": asset.folder.map { $0.uuidString as Any } ?? NSNull(),
                                        "kind": asset.kind.rawValue, "status": asset.status.rawValue, "versions": versions, "created": DeliverServer.date(asset.created)]
             if let fields = asset.fields, let data = try? Deliver.encoder.encode(fields), let json = try? JSONSerialization.jsonObject(with: data) { wire["fields"] = json }
+            // Custom fields ride in `fields` as "cf:<id>": a host passes them on to links that list them, as it does the others.
+            if let custom = asset.customFields, !custom.isEmpty {
+                wire["fields"] = ((wire["fields"] as? [String: Any]) ?? [:]).merging(Dictionary(uniqueKeysWithValues: custom.map { ("cf:" + $0.key, $0.value as Any) })) { $1 }
+            }
             return wire.merging(Self.stamp(asset)) { $1 }
         }
         let wireLinks: [[String: Any]] = links.compactMap { link in
@@ -471,6 +475,7 @@ final class ReviewPublish {
             wire["created"] = DeliverServer.date(link.created)
             wire["deadline"] = link.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()
             if let madeOn = link.madeOn { wire["madeOn"] = madeOn }
+            if link.customStatuses == true { wire["customStatuses"] = true }
             return wire.merging(Self.stamp(link)) { $1 }
         }
         let folders = content.folders.map { folder -> [String: Any] in

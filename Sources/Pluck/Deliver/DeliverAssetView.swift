@@ -30,6 +30,7 @@ struct DeliverAssetView: View {
     @State private var sharing = false
     @State private var publishing = false
     @State private var markers = false
+    @State private var pulling = false
     /// "Upload to <NAS>…": the server whose uploads folder is being chosen.
     @State private var uploadingTo: Deliver.Host?
 
@@ -88,6 +89,7 @@ struct DeliverAssetView: View {
             .sheet(isPresented: $sharing) { DeliverShareSheet(scope: .asset(asset, project: store.find(asset)?.project ?? UUID())) }
             .sheet(isPresented: $publishing) { DeliverPublishSheet(scope: .asset(asset, project: store.find(asset)?.project ?? UUID())) }
             .sheet(isPresented: $markers) { DeliverResolveMarkersSheet(asset: found, version: current) }
+            .sheet(isPresented: $pulling) { DeliverResolvePullSheet(asset: found, version: current) }
             .sheet(item: $uploadingTo) { host in
                 DeliverUploadPicker(host: host, project: store.find(asset)?.project, done: { folder in
                     uploadingTo = nil
@@ -141,7 +143,7 @@ struct DeliverAssetView: View {
             }
             compareMenu(found, current)
             Menu {
-                ForEach(Deliver.Status.allCases, id: \.self) { status in
+                ForEach(store.statusList, id: \.self) { status in
                     Button(DeliverStatusPill.title(status)) { store.setStatus(status, of: asset, by: DeliverSettings.author) }
                 }
             } label: {
@@ -162,7 +164,10 @@ struct DeliverAssetView: View {
                     .buttonStyle(StudioFlatButtonStyle()).help("Show every drawing on this frame")
             }
             Menu {
-                if found.kind == .video { Button("Send to Resolve Timeline…") { markers = true } }
+                if found.kind == .video {
+                    Button("Send to Resolve Timeline…") { markers = true }
+                    Button("Update from Resolve Timeline…") { pulling = true }
+                }
                 if let approval = latestApproval(found) { Button("Approval Proof…") { saveProof(approval, found) } }
                 ForEach(ReviewPublish.shared.hosts.filter { $0.kind == .nas && $0.role != "backup" }) { host in
                     Button("Upload to \(host.name)…") { uploadingTo = host }

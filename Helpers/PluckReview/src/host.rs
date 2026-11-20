@@ -29,8 +29,9 @@ pub const PALETTE: [&str; 8] = ["#E0605E", "#E0A15E", "#F2D14B", "#7CC294", "#6F
 pub const EMOJI: [&str; 12] = ["👍", "👎", "❤️", "😂", "😮", "🎉", "🔥", "👀", "✅", "❌", "🙏", "💯"];
 const STATUSES: [&str; 4] = ["needsReview", "inProgress", "needsChanges", "approved"];
 /// Link fields passed to browsers in `ready.link` as they are (the browser treats them as data).
-const LINK_FIELDS: [&str; 12] = ["description", "layout", "requireName", "askEmail", "allowProxy", "audience", "recipient",
-    "watermark", "fields", "featuredField", "uploads", "header"];
+/// (4.1: "order", "statusDefs", "fieldDefs": the link's own order, custom statuses' and fields' names; optional.)
+const LINK_FIELDS: [&str; 15] = ["description", "layout", "requireName", "askEmail", "allowProxy", "audience", "recipient",
+    "watermark", "fields", "featuredField", "uploads", "header", "order", "statusDefs", "fieldDefs"];
 const ACTIVITY_CAP: usize = 20_000; // per link, oldest dropped
 const ACTIVITY_DAYS: i64 = 90; // when the manifest has no "activityDays" (Pluck's setting, R8; 0 = forever)
 const UPLOADS_PER_HOUR: usize = 60; // per link
@@ -2348,6 +2349,11 @@ impl Host {
             "due" if x.is_null() => Value::Null,
             "due" => json!(x.as_str().filter(|d| date(d)).ok_or("invalid")?),
             "notes" => json!(clean(x.as_str().ok_or("invalid")?, 2000)),
+            // A custom field (4.1) the link names in `fieldDefs` (a client link: also in `fields`); the Mac checks the
+            // value by its kind when it syncs.
+            f if f.starts_with("cf:") && Self::arr(l, "fieldDefs").any(|d| d["id"] == f) && (team(l) || Self::arr(l, "fields").any(|x| x == f)) => {
+                if x.is_null() { Value::Null } else { json!(clean(x.as_str().ok_or("invalid")?, 2000)) }
+            }
             _ => return Err("invalid"),
         };
         if !rate(&mut self.peers.get_mut(peer).unwrap().writes, Duration::from_secs(60), 30) {
@@ -3287,6 +3293,43 @@ mod tests {
         assert_eq!(answer(&mut rx, "p1", 9)["error"]["code"], "invalid", "a fixed set of 12");
         let stored = h.comments.iter().find(|x| x["id"] == c["id"]).unwrap();
         assert_eq!(stored["reactions"]["👍"], json!(["t1"]), "stored by author token");
+    }
+
+    #[test]
+    fn custom_statuses_fields_and_order_pass_through() {
+        let (mut h, mut rx) = test_host();
+        let mut t = link("LT", "RT", json!({"kind": "project", "id": "P"}));
+        t["audience"] = json!("team");
+        t["fields"] = json!(["status", "cf:shot"]);
+        t["order"] = json!(["B", "A"]);
+        t["statusDefs"] = json!([{"id": "c:lock", "name": "Picture lock", "colour": "violet"}]);
+        t["fieldDefs"] = json!([{"id": "cf:shot", "name": "Shot", "kind": "text"}]);
+        let old = link("LO", "RO", json!({"kind": "project", "id": "P"}));
+        let mut m = sample(json!([t, old]));
+        m["projects"][0]["assets"][0]["status"] = json!("c:lock");
+        m["projects"][0]["assets"][0]["fields"] = json!({"cf:shot": "Wide", "notes": "n"});
+        h.publish(&m, &json!({}));
+        let l = h.links().find(|l| l["id"] == "LT").unwrap().clone();
+        named_peer(&mut h, "pt", "RT", "tt", "Editor");
+        h.ready("pt", &Value::Null, &l);
+        let ready = sent(&mut rx).into_iter().find(|s| s["msg"]["t"] == "ready").unwrap()["msg"]["link"].clone();
+        assert_eq!((ready["order"].clone(), ready["statusDefs"][0]["id"].clone(), ready["fieldDefs"][0]["id"].clone()),
+                   (json!(["B", "A"]), json!("c:lock"), json!("cf:shot")));
+        h.request("pt", &json!({"id": 1, "t": "list", "folder": null}));
+        let a = answer(&mut rx, "pt", 1)["assets"][0].clone();
+        assert_eq!((a["status"].clone(), a["fields"]["cf:shot"].clone()), (json!("c:lock"), json!("Wide")), "an unknown status id passes through");
+        h.request("pt", &json!({"id": 2, "t": "field-set", "asset": "A", "field": "cf:shot", "value": "Close"}));
+        assert_eq!(answer(&mut rx, "pt", 2)["asset"]["fields"]["cf:shot"], "Close");
+        h.request("pt", &json!({"id": 3, "t": "field-set", "asset": "A", "field": "cf:other", "value": "x"}));
+        h.request("pt", &json!({"id": 4, "t": "field-set", "asset": "A", "field": "status", "value": "c:lock"}));
+        let msgs = sent(&mut rx);
+        let code = |re: u64| msgs.iter().find(|s| s["msg"]["re"] == re).unwrap()["msg"]["error"]["code"].clone();
+        assert_eq!((code(3), code(4)), (json!("invalid"), json!("invalid")), "unlisted fields and custom statuses aren't set from links");
+        let o = h.links().find(|l| l["id"] == "LO").unwrap().clone();
+        named_peer(&mut h, "po", "RO", "to", "Anna");
+        h.ready("po", &Value::Null, &o);
+        let r = sent(&mut rx).into_iter().find(|s| s["msg"]["t"] == "ready").unwrap()["msg"]["link"].clone();
+        assert!(r.get("order").is_none() && r.get("statusDefs").is_none(), "an old link has none of them");
     }
 
     #[test]

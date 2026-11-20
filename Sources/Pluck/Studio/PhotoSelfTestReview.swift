@@ -761,6 +761,7 @@ extension PhotoSelfTest {
         check("review: delete project", store.project(project.id) == nil && store.links.allSatisfy { $0.project != project.id } && fm.fileExists(atPath: drop.path), "")
         await reviewParityTest()
         await reviewRound3Test()
+        await reviewFlowTest()
     }
 
     /// The Frame.io-parity additions (§6.1): parts for big messages, personal and team links, a name first, pausing, internal
