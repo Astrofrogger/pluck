@@ -69,6 +69,8 @@ if [[ "$EDITION" == studio ]]; then
   codesign --force --options runtime --sign "$SIGN_ID" "$TYPES_APP"
   # The pictures on What's New's feature cards (WhatsNewStudio.swift).
   cp -R Resources/WhatsNew "$APP/Contents/Resources/WhatsNew"
+  # Deliver's Share Builder preview: the review page in one file (pluck-site: npm run build:preview).
+  cp -R Resources/SharePreview "$APP/Contents/Resources/SharePreview"
 fi
 
 if [[ "$EDITION" == studio ]]; then

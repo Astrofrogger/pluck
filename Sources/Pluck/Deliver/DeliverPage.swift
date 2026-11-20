@@ -17,10 +17,8 @@ struct DeliverPage: View {
                 .studioPanel()
         }
         .navigationTitle("")
+        .onChange(of: nav.deliver) { _, now in ShareBuilder.shared.navigated(to: now, nav: nav) }
     }
-
-    /// Screenshots: the share sheet drawn in the page (off-screen pictures show the window only).
-    @MainActor static var sheetInPage: Deliver.Scope?
 
     /// Screenshots: a project with comments and a link, made once in the test home, and the view asked for.
     @MainActor static func snapshot(files: [URL], view: String) {
@@ -65,7 +63,10 @@ struct DeliverPage: View {
             switch view {
             case "project": nav.deliver = .project(project.id, folder: nil)
             case "asset": if let asset { nav.deliver = .asset(asset.id, version: nil, comment: store.comments(asset.id).first?.id) }
-            case "share": sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
+            case "share", "sharephone":
+                nav.deliver = .project(project.id, folder: nil)
+                ShareBuilder.shared.new(.project(project.id))
+                ShareBuilder.shared.session?.phone = view == "sharephone"
             case "inbox":
                 // A few comments and an approval from the last days (once).
                 if store.inbox.isEmpty, asset != nil {
@@ -80,8 +81,16 @@ struct DeliverPage: View {
                 nav.deliver = .inbox
             case "links": nav.deliver = .links(project.id, link: nil)
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
-            case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
-            case "shareedit": DeliverLinkRow.editOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
+            case "sharemore", "shareedit", "shareeditphone":
+                // A live link open, its watermark and layout changed but not updated yet ("Unsaved changes").
+                nav.deliver = .project(project.id, folder: nil)
+                if let link = store.links.first(where: { $0.project == project.id && $0.recipient == nil }) {
+                    ShareBuilder.shared.open(link.id)
+                    if let session = ShareBuilder.shared.session {
+                        session.phone = view == "shareeditphone"
+                        if view != "shareedit" { session.draft.watermark = .init(); session.draft.layout = "list" }
+                    }
+                }
             case "hostupdate":
                 // Update Now on a NAS that didn't move (no TrueNAS API key here): the message and the key field.
                 let sample = Deliver.Host(name: "Studio NAS", kind: .nas, address: "192.0.2.10:8790", pin: Array(repeating: "AB", count: 32).joined(separator: ":"), role: "main")
@@ -260,8 +269,8 @@ struct DeliverPage: View {
     @ViewBuilder private var main: some View {
         if let panel = Self.panelInPage {
             ScrollView { panel.frame(maxWidth: .infinity) }.clipShape(.rect(cornerRadius: Design.Studio.panelRadius))
-        } else if let scope = Self.sheetInPage {
-            DeliverShareSheet(scope: scope).clipShape(.rect(cornerRadius: Design.Studio.panelRadius)).frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let session = ShareBuilder.shared.session {
+            DeliverShareBuilderView(session: session).id(session.id)
         } else {
             pageMain
         }
@@ -372,13 +381,6 @@ struct DeliverProjectCover: View {
 
 struct DeliverSidebar: View {
     /// The links the sidebar lists under a project: none unless that project is open (no global list of links).
-    /// Under its project the project name is noise: "Spring campaign – cuts · Client" shows as "cuts · Client".
-    static func shortTitle(_ title: String, project: String) -> String {
-        guard title.hasPrefix(project) else { return title }
-        let rest = title.dropFirst(project.count).drop { " –-·:".contains($0) }
-        return rest.isEmpty ? title : String(rest)
-    }
-
     static func links(of project: UUID, store: DeliverStore, selection: Deliver.Selection) -> [Deliver.ShareLink] {
         selection.project == project ? store.links.filter { $0.isLive && $0.project == project } : []
     }
@@ -426,7 +428,7 @@ struct DeliverSidebar: View {
                                     set: { if !$0 { pairing.pending = nil; pairing.askMove = nil; pairing.unreadable = false } })) {
             DeliverPairingSheet()
         }
-        .sheet(item: Binding(get: { request.scope.map(DeliverShareTarget.init) }, set: { request.scope = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
+        .onChange(of: request.scope) { _, scope in if let scope { request.scope = nil; ShareBuilder.shared.new(scope, nav: nav) } }
         .sheet(item: Binding(get: { actions.deadline.map(DeliverProjectID.init) }, set: { actions.deadline = $0?.id })) { item in
             DeliverDeadlineSheet(title: "Feedback Deadline", initial: store.project(item.id)?.deadline) { store.setDeadline($0, project: item.id) }
         }
@@ -447,7 +449,7 @@ struct DeliverSidebar: View {
         } message: {
             Text("Its review copies, comments and links go. The original files stay where they are.")
         }
-        .sheet(item: Binding(get: { actions.sharing.map(DeliverShareTarget.init) }, set: { actions.sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
+        .onChange(of: actions.sharing) { _, scope in if let scope { actions.sharing = nil; ShareBuilder.shared.new(scope, nav: nav) } }
         .sheet(isPresented: $settingUp) { DeliverServerChooser() }
         .sheet(item: $newView) { DeliverViewEditor(view: $0, project: $0.projects?.first) }
         .sheet(item: $inviting) { DeliverInviteSheet(host: $0) }
@@ -642,13 +644,14 @@ struct DeliverSidebar: View {
             .padding(.horizontal, 8).padding(.bottom, 4)
             ScrollView {
                 VStack(spacing: 2) {
-                    linkRow(Text("All Share Links (\(all))"), thumb: AnyView(linkTile("list.bullet")), on: nav.deliver == .links(project.id, link: nil)) {
-                        nav.deliver = .links(project.id, link: nil)
+                    linkRow(Text("All Share Links (\(all))"), thumb: AnyView(linkTile("list.bullet")), on: nav.deliver == .links(project.id, link: nil) && ShareBuilder.shared.session == nil) {
+                        ShareBuilder.shared.leave { nav.deliver = .links(project.id, link: nil) }
                     }
+                    // (The same title as everywhere else: the link's own, cut at the end only when it must be.)
                     ForEach(links) { link in
-                        linkRow(Text(verbatim: Self.shortTitle(link.title, project: project.name)), thumb: thumb(link.scope), on: nav.deliver == .links(project.id, link: link.id),
+                        linkRow(Text(verbatim: link.title), thumb: thumb(link.scope), on: ShareBuilder.shared.session?.linkID == link.id,
                                 count: server.viewers(link: link.id)) {
-                            nav.deliver = .links(project.id, link: link.id)
+                            ShareBuilder.shared.open(link.id, nav: nav)
                         }
                     }
                 }
@@ -1004,17 +1007,28 @@ struct DeliverLinksView: View {
         _open = State(initialValue: opened)
     }
 
+    /// All Share Links: a table (title, what it shares, people, opened, last viewed, expiry, on/off, Edit / Duplicate / Copy);
+    /// a row's activity under it when chosen.
     var body: some View {
-        let links = store.links.filter { $0.project == project }
+        let links = DeliverLinkRow.rows(store.links, project: project)
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(verbatim: store.project(project)?.name ?? "").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text).padding(.bottom, 8)
-                if links.isEmpty { Text("No links yet").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet) }
-                ForEach(links.reversed()) { link in
-                    VStack(spacing: 0) {
-                        DeliverLinkRow(link: link, viewers: server.viewers(link: link.id), expanded: open == link.id)
-                            .onTapGesture { open = open == link.id ? nil : link.id }
-                        if open == link.id { DeliverActivityFeed(link: link).padding(.top, 6) }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(verbatim: store.project(project)?.name ?? "").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
+                    Spacer()
+                    Button("New Link") { ShareBuilder.shared.new(.project(project), nav: nav) }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                }
+                .padding(.bottom, 12)
+                if links.isEmpty {
+                    Text("No links yet").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                } else {
+                    DeliverLinkRow.header
+                    ForEach(links) { link in
+                        VStack(spacing: 0) {
+                            DeliverLinkRow(link: link, viewers: server.viewers(link: link.id), expanded: open == link.id, nav: nav)
+                                .onTapGesture { open = open == link.id ? nil : link.id }
+                            if open == link.id { DeliverActivityFeed(link: link).padding(.vertical, 6) }
+                        }
                     }
                 }
             }
@@ -1081,20 +1095,50 @@ struct DeliverActivityFeed: View {
     }
 }
 
-/// A link: its title, what it shares, mode, expiry, opens and people, who serves it, viewers now; Copy, Turn Off and a menu
-/// (pause, duplicate, QR code, email, notifications, send an update).
+/// A row of All Share Links: title, what it shares, people, opened, last viewed, expiry, on (pause) or its state, viewers
+/// now; Edit (the Share Builder), Duplicate, Copy and a menu (QR code, email, notifications, send an update, turn off).
 struct DeliverLinkRow: View {
     let link: Deliver.ShareLink
     var viewers = 0
     var expanded = false
+    var nav: StudioNavigator = .shared
     @State private var store = DeliverStore.shared
     @State private var qr = false
     @State private var reopening = false
     @State private var deleting = false
     @State private var renewing = false
-    @State private var editing = DeliverLinkRow.editOpen
-    /// Screenshots: a link's settings open.
-    @MainActor static var editOpen = false
+
+    /// The table's rows: a project's links, live ones first, newest first.
+    static func rows(_ links: [Deliver.ShareLink], project: UUID) -> [Deliver.ShareLink] {
+        links.filter { $0.project == project }.enumerated()
+            .sorted { ($0.element.isLive ? 0 : 1, -$0.offset) < ($1.element.isLive ? 0 : 1, -$1.offset) }.map(\.element)
+    }
+
+    /// What a link shares, in a word: never the project's name again (every link here is that project's).
+    @MainActor static func shares(_ link: Deliver.ShareLink, store: DeliverStore) -> String {
+        switch link.scope {
+        case .project: String(localized: "Whole project")
+        case .folder, .asset: store.name(link.scope)
+        case .assets(let ids, _): String(localized: "\(ids.count) assets")
+        }
+    }
+
+    private static let widths: (shares: CGFloat, number: CGFloat, date: CGFloat, on: CGFloat, actions: CGFloat) = (130, 54, 96, 70, 196)
+
+    static var header: some View {
+        HStack(spacing: 10) {
+            Text("Title").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Shares").frame(width: widths.shares, alignment: .leading)
+            Text("People").frame(width: widths.number, alignment: .trailing)
+            Text("Opened").frame(width: widths.number, alignment: .trailing)
+            Text("Last viewed").frame(width: widths.date, alignment: .leading)
+            Text("Expires").frame(width: widths.date, alignment: .leading)
+            Text("On").frame(width: widths.on, alignment: .leading)
+            Color.clear.frame(width: widths.actions, height: 1)
+        }
+        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+        .padding(.horizontal, 12).frame(height: 24)
+    }
 
     /// With a NAS or always-on Mac, a link no host holds yet: it's being put on one, or that didn't work (Publish).
     private var unplaced: (host: String, failed: Bool)? {
@@ -1125,59 +1169,50 @@ struct DeliverLinkRow: View {
     var body: some View {
         let _ = store.activityChanged
         let views = store.views(link.id)
+        let w = Self.widths
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                StudioTile(symbol: link.recipient != nil ? "person.crop.circle" : link.mode == .review ? "text.bubble" : "play.rectangle",
-                           colour: link.isLive && !link.isPaused ? Design.Studio.text : Design.Studio.textFaint, size: 32)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(verbatim: link.title).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
-                        if link.isTeam { StudioChip(text: Text("Team")) }
-                        if link.watermark != nil { Image(systemName: "drop.halffull").font(.system(size: 10)).foregroundStyle(Design.Studio.textQuiet).help("Watermarked") }
-                        if link.muted == true { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(Design.Studio.textQuiet) }
-                    }
-                    HStack(spacing: 6) {
-                        Text(verbatim: store.name(link.scope))
-                        Text(verbatim: "·")
-                        Text(link.mode == .review ? "Review" : "Presentation")
-                        if let expires = link.expires { Text(verbatim: "·"); Text("Until \(expires.formatted(date: .abbreviated, time: .shortened))") }
-                        if views.opened > 0 { Text(verbatim: "·"); Text("Opened \(views.opened)×") }
-                        if views.people > 0 { Text(verbatim: "·"); Text("\(views.people) people") }
-                        if let opened = link.lastOpened { Text(verbatim: "·"); Text("Last \(opened.formatted(.relative(presentation: .named)))") }
-                        if link.isLive, let served = served { Text(verbatim: "·"); Text(verbatim: served) }
-                        if let deadline = DeliverDeadlines.effective(link, store: store), deadline > .now {
-                            Text(verbatim: "·"); Text("Feedback by \(deadline.formatted(date: .abbreviated, time: .shortened))")
-                        }
-                    }
-                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: link.recipient != nil ? "person.crop.circle" : link.mode == .review ? "text.bubble" : "play.rectangle")
+                        .font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet).frame(width: 14)
+                    Text(verbatim: link.title).font(Design.Studio.body).foregroundStyle(link.isLive ? Design.Studio.text : Design.Studio.textQuiet)
+                        .lineLimit(1).truncationMode(.tail)
+                    if link.isTeam { StudioChip(text: Text("Team")) }
+                    if link.watermark != nil { Image(systemName: "drop.halffull").font(.system(size: 10)).foregroundStyle(Design.Studio.textQuiet).help("Watermarked") }
+                    if link.muted == true { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(Design.Studio.textQuiet) }
+                    if viewers > 0 { StudioChip(text: Text(verbatim: "\(viewers)"), symbol: "eye") }
                 }
-                Spacer()
-                if viewers > 0 { StudioChip(text: Text(verbatim: "\(viewers)"), symbol: "eye") }
-                if link.revoked != nil {
-                    StudioChip(text: Text("Off"))
-                } else if link.isLive, DeliverDeadlines.shared.isClosed(link) {
-                    StudioChip(text: Text("Closed: feedback deadline"), colour: Design.Studio.warn, tinted: true)
-                    Button("Reopen…") { reopening = true }.buttonStyle(StudioFlatButtonStyle())
-                } else if !link.isLive {
-                    StudioChip(text: Text("Expired"))
-                } else {
-                    if link.isPaused { StudioChip(text: Text("Paused"), colour: Design.Studio.warn, tinted: true) }
-                    if store.key(link.id) == nil, let device = link.madeOn, device != Host.current().localizedName {
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(Text(verbatim: [link.title, link.isLive ? served : nil].compactMap { $0 }.joined(separator: "\n")))
+                Group {
+                    Text(verbatim: Self.shares(link, store: store)).frame(width: w.shares, alignment: .leading)
+                    Text(verbatim: views.people > 0 ? "\(views.people)" : "–").frame(width: w.number, alignment: .trailing)
+                    Text(verbatim: views.opened > 0 ? "\(views.opened)" : "–").frame(width: w.number, alignment: .trailing)
+                    Text(verbatim: link.lastOpened?.formatted(.relative(presentation: .named)) ?? "–").frame(width: w.date, alignment: .leading)
+                    Text(verbatim: link.expires?.formatted(date: .abbreviated, time: .omitted) ?? String(localized: "Never")).frame(width: w.date, alignment: .leading)
+                }
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                on.frame(width: w.on, alignment: .leading)
+                HStack(spacing: 6) {
+                    Spacer(minLength: 0)
+                    if link.isLive, link.revoked == nil {
+                        if unplaced?.failed == true {
+                            Button("Publish") {
+                                if DeliverSync.shared.dataHost != nil { DeliverNASAlert.shared.retry() } else { Task { await ReviewPublish.shared.placeLinks(retry: true) } }
+                            }
+                            .buttonStyle(StudioFlatButtonStyle(prominent: true))
+                        }
+                        if !store.isForeign(link) { Button("Edit") { ShareBuilder.shared.open(link.id, nav: nav) }.buttonStyle(StudioFlatButtonStyle()) }
+                    }
+                    Button { _ = try? store.duplicate(link.id) } label: { Image(systemName: "plus.square.on.square") }.buttonStyle(StudioFlatButtonStyle()).help("Duplicate")
+                    if link.isLive, store.key(link.id) == nil, let device = link.madeOn, device != Host.current().localizedName {
                         StudioChip(text: Text("Made on \(device)"))
-                    } else if let url = DeliverServer.shared.shareURL(link) {
-                        Button("Copy") { DeliverLinkShare.copy(url) }.buttonStyle(StudioFlatButtonStyle())
+                    } else if link.isLive, let url = DeliverServer.shared.shareURL(link) {
+                        Button { DeliverLinkShare.copy(url) } label: { Image(systemName: "link") }.buttonStyle(StudioFlatButtonStyle()).help("Copy Link")
                     }
-                    if !store.isForeign(link) {
-                        Button("Edit") { editing.toggle() }.buttonStyle(StudioFlatButtonStyle(prominent: editing))
-                    }
-                    if unplaced?.failed == true {
-                        Button("Publish") {
-                            if DeliverSync.shared.dataHost != nil { DeliverNASAlert.shared.retry() } else { Task { await ReviewPublish.shared.placeLinks(retry: true) } }
-                        }
-                        .buttonStyle(StudioFlatButtonStyle(prominent: true))
-                    }
-                    menu
+                    if link.isLive, link.revoked == nil { menu }
                 }
+                .frame(width: w.actions)
             }
             if link.isLive, store.key(link.id) != nil, DeliverServer.shared.shareURL(link) == nil || DeliverServer.shared.isTaken(link) {
                 DeliverLinkPending(link: link)
@@ -1185,13 +1220,8 @@ struct DeliverLinkRow: View {
             if qr, let url = DeliverServer.shared.shareURL(link), let image = DeliverLinkShare.qr(url) {
                 Image(nsImage: image).interpolation(.none).resizable().frame(width: 150, height: 150).padding(8).background(.white, in: .rect(cornerRadius: 8))
             }
-            // Changed here, live: the hosts and open browsers get it at once (ReviewPublish.sendLinks, DeliverSync).
-            if editing, link.isLive {
-                DeliverLinkOptions(link: Binding(get: { store.link(link.id) ?? link }, set: { DeliverLinkOptions.save($0) }), editing: true)
-                    .padding(.top, 4).onTapGesture {}   // (a tap in here isn't the row's)
-            }
         }
-        .padding(12)
+        .padding(.horizontal, 12).padding(.vertical, 8)
         .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
         .overlay { if expanded { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Design.Studio.textFaint, lineWidth: 1) } }
         .contentShape(.rect)
@@ -1206,10 +1236,22 @@ struct DeliverLinkRow: View {
         } message: { Text("The link stops working. Its activity log and what pluck.tools keeps for it are deleted. Comments stay.") }
     }
 
+    /// On (a switch: off pauses it, so it can come back), or why it's not on.
+    @ViewBuilder private var on: some View {
+        if link.revoked != nil {
+            StudioChip(text: Text("Off"))
+        } else if !link.isLive {
+            StudioChip(text: Text("Expired"))
+        } else if DeliverDeadlines.shared.isClosed(link) {
+            Button("Reopen…") { reopening = true }.buttonStyle(StudioFlatButtonStyle()).help("Closed: feedback deadline")
+        } else {
+            Toggle("On", isOn: Binding(get: { !link.isPaused }, set: { on in store.updateLink(link.id) { $0.paused = on ? nil : true } }))
+                .toggleStyle(StudioSwitchStyle()).help(link.isPaused ? "Paused" : "On")
+        }
+    }
+
     private var menu: some View {
         Menu {
-            Button(link.isPaused ? "Resume" : "Pause") { store.updateLink(link.id) { $0.paused = $0.isPaused ? nil : true } }
-            Button("Duplicate") { _ = try? store.duplicate(link.id) }
             if store.code(link.id) == nil, store.key(link.id) != nil, ReviewPublish.shared.linkLevel == 3 { Button("Make a New Link…") { renewing = true } }
             Button(qr ? "Hide QR Code" : "QR Code") { qr.toggle() }
             if let url = DeliverServer.shared.shareURL(link) { Button("Email…") { DeliverLinkShare.email(link, url: url) } }
