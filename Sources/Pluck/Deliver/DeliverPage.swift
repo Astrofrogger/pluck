@@ -679,7 +679,7 @@ struct DeliverSidebar: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 thumb.frame(width: 48, height: 28).clipShape(.rect(cornerRadius: 4, style: .continuous))
-                title.font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                title.font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(2)
                 Spacer(minLength: 4)
                 if count > 0 {
                     HStack(spacing: 3) { Image(systemName: "eye").font(.system(size: 9)); Text(verbatim: "\(count)") }
