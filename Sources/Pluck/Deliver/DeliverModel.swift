@@ -292,6 +292,9 @@ enum Deliver {
             var folder: UUID?
             var maxBytes: Int64 = 21_474_836_480
             var types = ["video", "audio", "image", "document", "other"]
+            /// Ask for Files (RemoteAskFiles): the files go straight into this folder of a NAS media root, not the project.
+            var into: Into?
+            struct Into: Codable, Hashable { var root: String; var folder: String }
         }
 
         var project: UUID { scope.project }

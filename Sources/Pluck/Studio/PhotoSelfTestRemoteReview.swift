@@ -52,6 +52,13 @@ extension PhotoSelfTest {
         let noList = await deniedByRights("projects", [:])
         let noSwitch = await deniedByRights("project", ["name": "Other", "folder": ""])
         check("audit: project and projects need the render right", noList && noSwitch)
+        // Sending into the inbox is an Editor's (render) right too, refused in words an older home Mac shows as they are.
+        func deniedSend(_ action: String) async -> Bool {
+            do { _ = try await client.ask(action, ["path": "a.mov", "size": 4, "modified": 0, "offset": 0, "data": Data(count: 4).base64EncodedString()]); return false }
+            catch { return error.localizedDescription == OfficeActions.sendRefusal }
+        }
+        let noSendState = await deniedSend("sendState"), noSend = await deniedSend("send")
+        check("audit: send and sendState need the Editor (render) right", noSendState && noSend, "\(noSendState) \(noSend)")
         // The inbox never becomes shared content: no share around it, nothing in it through a share.
         let inbox = OfficeInbox.shared.folder, around = inbox.deletingLastPathComponent()
         try? fm.createDirectory(at: inbox.appendingPathComponent("Mac A", isDirectory: true), withIntermediateDirectories: true)

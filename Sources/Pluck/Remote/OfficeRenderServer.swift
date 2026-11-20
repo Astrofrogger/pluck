@@ -35,6 +35,10 @@ final class OfficeRenderServer {
         /// Its own public key (a home Mac's, registered once; another office Mac's, from the group): from then on only a
         /// question sealed with the secret this Mac and it work out from their keys gets in, never `secret`.
         var key: Data?
+        /// Its role (OfficeAccess.Role raw value); nil: "Custom", its `rights` as they are.
+        var role: String?
+        /// The Deliver team person it belongs to (accounts id): that person's role counts for it.
+        var person: String?
 
         /// What this Mac may do here (Edit Anywhere's remote editing).
         struct Rights: Codable, Hashable {
@@ -366,6 +370,8 @@ final class OfficeRenderServer {
                 if let index = list.firstIndex(where: { $0.id == device.id }) {
                     if (device.changed ?? .distantPast) > (list[index].changed ?? .distantPast) {
                         list[index].rights = device.rights
+                        list[index].role = device.role
+                        list[index].person = device.person
                         list[index].changed = device.changed
                     }
                     let more = Set((list[index].irohMore ?? []) + (device.irohMore ?? []))
@@ -737,12 +743,52 @@ final class OfficeRenderServer {
     var isRendering: Bool { rendering != nil }
 
     /// Sets what a paired Mac may do here, kept with its pairing.
+    /// Its own flags ("Custom": no role from now on).
     func setRights(_ rights: Device.Rights, for id: UUID) {
         guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
         devices[index].rights = rights
+        devices[index].role = nil
         devices[index].changed = .now
         saveDevices()
+        OfficeAccess.shared.changed()
     }
+
+    /// Gives a paired Mac a role. Its flags become the role's too, so an office Mac from before roles enforces it
+    /// (only folder roles are missing there). Full Trust stays as it was.
+    func setRole(_ role: OfficeAccess.Role, for id: UUID) {
+        guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
+        var rights = role.rights
+        rights.fullTrust = devices[index].allowed.fullTrust
+        devices[index].rights = rights
+        devices[index].role = role.rawValue
+        devices[index].changed = .now
+        saveDevices()
+        OfficeAccess.shared.changed()
+    }
+
+    /// Full Trust on or off (the role stays).
+    func setFullTrust(_ on: Bool, for id: UUID) {
+        guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
+        var rights = devices[index].allowed
+        rights.fullTrust = on
+        devices[index].rights = rights
+        devices[index].changed = .now
+        saveDevices()
+        OfficeAccess.shared.changed()
+    }
+
+    /// Ties a paired Mac to a Deliver team person (nil: to no one).
+    func setPerson(_ person: String?, for id: UUID) {
+        guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
+        devices[index].person = person
+        devices[index].changed = .now
+        saveDevices()
+        OfficeAccess.shared.changed()
+    }
+
+    /// The actions `perform` answers itself (the others are OfficeActions handlers).
+    static let builtInActions = ["hello", "projects", "project", "render", "jobs", "cancel", "preview", "archive", "archiveSearch", "archiveClip",
+                                 "archiveClipData", "sendState", "send", "proxyFolders", "proxyMake", "proxyStatus", "proxyData"]
 
     private func perform(_ action: String, _ arguments: [String: Any], from device: Device) async throws -> [String: Any] {
         switch action {
@@ -787,11 +833,13 @@ final class OfficeRenderServer {
             // Edit Anywhere no longer looks at or searches footage: an older Mac asking is told so.
             throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t search footage any more. Update Pluck on this Mac."))
         case "sendState":
+            try OfficeActions.require(\.render, device, refusal: OfficeActions.sendRefusal)
             let have = try OfficeInbox.shared.have(try text(arguments["path"], 1000), size: try number(arguments["size"]),
                                                    modified: arguments["modified"] as? Double ?? 0,
                                                    from: OfficeInbox.folderName(device.name, id: device.id))
             return ["have": have]
         case "send":
+            try OfficeActions.require(\.render, device, refusal: OfficeActions.sendRefusal)
             guard let data = (arguments["data"] as? String).flatMap({ Data(base64Encoded: $0) }), data.count <= OfficeLink.uploadChunk else {
                 throw OfficeLink.Failure.office(String(localized: "The request wasn’t complete."))
             }
@@ -809,9 +857,18 @@ final class OfficeRenderServer {
             return ["started": true]
         case "proxyStatus":
             try OfficeActions.require(\.proxies, device)
-            return try await OfficeProxies.shared.status(try text(arguments["folder"], 40), format: try proxyFormat(arguments["format"]))
+            var status = try await OfficeProxies.shared.status(try text(arguments["folder"], 40), format: try proxyFormat(arguments["format"]))
+            // (An older home Mac's folder list: clips in folders it may not have proxies of left out.)
+            if let place = try? RemoteEditHost.share(arguments["folder"]), let files = status["files"] as? [[String: Any]] {
+                status["files"] = files.filter { OfficeActions.allowed(\.proxies, device, share: place, relative: $0["path"] as? String ?? "") }
+            }
+            return status
         case "proxyData":
-            try OfficeActions.require(try proxyFormat(arguments["format"]) == .original ? \.originals : \.proxies, device)
+            let right: KeyPath<Device.Rights, Bool> = try proxyFormat(arguments["format"]) == .original ? \.originals : \.proxies
+            try OfficeActions.require(right, device)
+            guard OfficeActions.allowed(right, device, share: try RemoteEditHost.share(arguments["folder"]), relative: try text(arguments["path"], 1000)) else {
+                throw OfficeActions.refused()
+            }
             let piece = try await OfficeProxies.shared.data(try text(arguments["folder"], 40), format: try proxyFormat(arguments["format"]),
                                                             path: try text(arguments["path"], 1000), offset: arguments["offset"] as? Int ?? 0)
             return ["data": piece.data.base64EncodedString(), "size": piece.size]

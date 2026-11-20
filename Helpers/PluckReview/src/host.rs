@@ -91,6 +91,7 @@ struct HUp {
     part: PathBuf,
     sha: Option<String>,          // the helper's hash, once every byte is on disk
     end: Option<(Value, String)>, // upload-end waiting for that: (request id, the browser's hash)
+    into: Value,                  // the link's uploads.into ({"root","folder"}) for an asset upload, else null
 }
 
 pub struct Host {
@@ -132,6 +133,7 @@ pub struct Host {
     root_ups: HashMap<(String, u64), accounts_ops::RootUp>,       // (peer, upload id) → a team upload into it
     pub devices: Option<Arc<crate::devices::Devices>>, // the paired Macs: admins count for the last-admin guard (roles)
     pub mail: crate::mail::Mail, // email settings, subscribers and the queue (host_mail.rs)
+    pub drops: HashMap<String, PathBuf>, // media root id → where clients' uploads may be written into it (--drop)
 }
 
 /// Who this host is: shown to Pluck, written into tombstones and proofs.
@@ -399,6 +401,7 @@ impl Host {
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
             accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), devices: None,
             mail: crate::mail::Mail::load(data),
+            drops: HashMap::new(),
         };
         let _ = std::fs::create_dir_all(&h.dir);
         h.sweep_tmp(Duration::ZERO); // nothing is in flight yet: stills, proofs and link-upload partials of the last run go
@@ -1753,6 +1756,9 @@ impl Host {
                 wire[k] = x.clone();
             }
         }
+        if let Some(u) = wire["uploads"].as_object_mut() {
+            u.remove("into"); // where files land on the NAS is the team's business
+        }
         if let Some(d) = self.deadline(link) {
             wire["deadline"] = json!(d);
         }
@@ -2542,6 +2548,7 @@ impl Host {
     /// `upload-begin`: checked against the link's upload settings and limits, then the helper is
     /// told to accept the bytes (before the reply, so it knows the id when the first frame comes).
     fn upload_begin(&mut self, peer: &str, id: &Value, l: &Value, m: &Value) {
+        let into_ok = self.into_dir(&l["uploads"]["into"], false).is_some();
         let r = (|| -> Result<(u64, HUp), &'static str> {
             // A backup takes them only while its main can take them on afterwards (§13.25; a 4.0.3 main can't: off, §13.3).
             let backup_ok = self.outage.as_ref().is_some_and(|o| o.accepting());
@@ -2557,6 +2564,11 @@ impl Host {
             if name.is_empty() || !types.contains(&cat) {
                 return Err("invalid");
             }
+            // Asset uploads into a folder of a media root (a backup has none: its main's Pluck places them).
+            let into = match up.get("into") {
+                Some(i) if !i.is_null() && !attachment && !self.ident.backup => if into_ok { i.clone() } else { return Err("scope") },
+                _ => Value::Null,
+            };
             let size = m["size"].as_u64().ok_or("invalid")?;
             let cap = if attachment { MAX_ATTACHMENT } else { up.get("maxBytes").and_then(Value::as_u64).unwrap_or(MAX_UPLOAD).min(crate::sync::MAX_PUT) };
             if size > cap {
@@ -2580,7 +2592,7 @@ impl Host {
             if crate::upload_root::free_space(&dir).unwrap_or(0) < size.saturating_add(LINK_UPLOAD_RESERVE) {
                 return Err("limit");
             }
-            Ok((uid, HUp { link: lid, name, ext, kind: mime.into(), size, attachment, part: dir.join(format!("{}.part", uuid())), sha: None, end: None }))
+            Ok((uid, HUp { link: lid, name, ext, kind: mime.into(), size, attachment, part: dir.join(format!("{}.part", uuid())), sha: None, end: None, into }))
         })();
         match r {
             Ok((uid, u)) => {
@@ -2622,8 +2634,14 @@ impl Host {
             return self.err(peer, &id, "internal");
         }
         let by = self.peers.get(peer).map(|p| p.name.clone()).unwrap_or_default();
-        let entry = json!({"id": fid, "link": u.link, "name": u.name, "path": rel, "size": u.size, "sha256": theirs, "type": u.kind,
+        let mut entry = json!({"id": fid, "link": u.link, "name": u.name, "path": rel, "size": u.size, "sha256": theirs, "type": u.kind,
             "for": if u.attachment { "attachment" } else { "asset" }, "by": by, "at": now_iso()});
+        if !u.into.is_null() {
+            entry["into"] = u.into.clone();
+            if let Some(p) = self.place_into(&u, &dest, &fid) {
+                entry["placed"] = json!(p); // moved out of the quarantine: `path` is gone, Pluck adds `placed` by reference
+            }
+        }
         if !self.append(json!({"upload": entry.clone()})) {
             return self.err(peer, &id, "internal");
         }
@@ -2641,6 +2659,31 @@ impl Host {
             r["later"] = json!(true); // a backup in an outage: the page says the editor gets it once the office is back (§13.25)
         }
         self.send(peer, r);
+    }
+
+    /// A link's `uploads.into` as a real folder inside that media root (never the quarantine or the uploads root);
+    /// `write`: inside the place --drop lets it be written instead (None when the root isn't droppable).
+    fn into_dir(&self, into: &Value, write: bool) -> Option<PathBuf> {
+        let root = into["root"].as_str()?;
+        let folder = match &into["folder"] { Value::Null => "", Value::String(f) => f.as_str(), _ => return None };
+        if root == crate::roots::QUARANTINE || self.upload_root.as_ref().is_some_and(|u| u.id == root) {
+            return None;
+        }
+        let base = if write { self.drops.get(root)? } else { &self.roots.0.iter().find(|(i, _)| i == root)?.1 };
+        crate::upload_root::subdir(base, folder)
+    }
+
+    /// A finished asset upload (in the quarantine at `from`) moved into its droppable `into` folder, checked again now:
+    /// "<root>/<folder>/<name>". None leaves it in the quarantine (not droppable, gone, full…): never lost.
+    fn place_into(&self, u: &HUp, from: &Path, fid: &str) -> Option<String> {
+        if u.attachment || self.ident.backup {
+            return None;
+        }
+        let dir = self.into_dir(&u.into, true)?;
+        let name = if crate::upload_root::name_ok(&u.name) { u.name.clone() } else { format!("{fid}.{}", u.ext) };
+        let placed = crate::upload_root::place(from, &dir, &name).map_err(|e| log(format!("host: upload {fid} stays in the quarantine: {e}"))).ok()?;
+        let (root, folder) = (u.into["root"].as_str()?, u.into["folder"].as_str().unwrap_or(""));
+        Some(if folder.is_empty() { format!("{root}/{placed}") } else { format!("{root}/{folder}/{placed}") })
     }
 }
 
@@ -3985,5 +4028,123 @@ mod tests {
         h.sync(&json!({"op": "append", "entries": [{"comment": {"id": "NEW2", "asset": "A", "version": "V", "frame": 1, "text": "new", "author": "X",
             "replies": [], "created": now_iso(), "rev": 1}}]}));
         assert_eq!(h.mail.queue.len(), n + 1);
+    }
+
+    /// A host with the media root "m1" (holding "Clients" and a link "Out" to a folder outside it).
+    fn drop_host(droppable: bool) -> (Host, mpsc::UnboundedReceiver<Ev>, PathBuf) {
+        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("pluck-drop-{}", uuid()));
+        let media = dir.join("media");
+        std::fs::create_dir_all(media.join("Clients")).unwrap();
+        std::fs::create_dir_all(dir.join("outside")).unwrap();
+        std::os::unix::fs::symlink(dir.join("outside"), media.join("Out")).unwrap();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut h = Host::new(&dir.join("data"), Arc::new(Roots(vec![("m1".into(), media.clone())])), tx, None);
+        if droppable {
+            h.drops.insert("m1".into(), media.clone());
+        }
+        (h, rx, media)
+    }
+
+    /// Publishes an "Ask for Files" link (no assets, uploads only) with `into`, and a ready peer "p1" on it.
+    fn ask_link(h: &mut Host, rx: &mut mpsc::UnboundedReceiver<Ev>, into: Value) {
+        let mut l = link("L1", "R1", json!({"kind": "assets", "assets": []}));
+        l["uploads"] = json!({"folder": null, "maxBytes": 1000, "into": into});
+        let mut m = sample(json!([l]));
+        m["projects"][0]["assets"] = json!([]);
+        assert_eq!(h.publish(&m, &json!({}))["ok"], true);
+        named_peer(h, "p1", "R1", "t1", "Anna");
+        sent(rx);
+    }
+
+    /// A whole upload of `bytes` as `name`: the entry it logged (or the error code as {"error": code}).
+    fn upload(h: &mut Host, rx: &mut mpsc::UnboundedReceiver<Ev>, re: u64, name: &str, bytes: &[u8]) -> Value {
+        h.request("p1", &json!({"id": re, "t": "upload-begin", "name": name, "size": bytes.len(), "for": "asset"}));
+        let c = cmds(rx);
+        let Some(part) = c.iter().find_map(|c| c["accept"]["path"].as_str().map(PathBuf::from)) else {
+            return json!({"error": c.iter().find(|c| c["send"]["msg"]["re"] == re).unwrap()["send"]["msg"]["error"]["code"]});
+        };
+        std::fs::write(&part, bytes).unwrap();
+        let sha = keys::sha256_b64(bytes);
+        h.report(&json!({"upload": {"peer": "p1", "upload": re, "state": "done", "bytes": bytes.len(), "sha256": sha}}));
+        h.request("p1", &json!({"id": re + 1000, "t": "upload-end", "upload": re, "sha256": sha}));
+        assert_eq!(answer(rx, "p1", re + 1000)["uploaded"]["name"], name, "the browser hears it as today");
+        h.entries.iter().rev().find_map(|e| e.get("upload")).unwrap().clone()
+    }
+
+    #[test]
+    fn uploads_into_a_folder_outside_the_root_are_refused() {
+        for into in [json!({"root": "m1", "folder": "../outside"}), json!({"root": "m1", "folder": "Out"}), json!({"root": "nope", "folder": ""}),
+                     json!({"root": ".uploads", "folder": ""}), json!({"root": "m1", "folder": "Missing"}), json!({"root": "m1", "folder": "Clients/"}),
+                     json!({"root": "m1", "folder": 5}), json!({"folder": "Clients"})] {
+            let (mut h, mut rx, _) = drop_host(true);
+            ask_link(&mut h, &mut rx, into.clone());
+            assert_eq!(upload(&mut h, &mut rx, 1, "a.mov", b"x")["error"], "scope", "{into}");
+        }
+    }
+
+    #[test]
+    fn a_read_only_root_leaves_the_upload_in_the_quarantine() {
+        let (mut h, mut rx, media) = drop_host(false);
+        let into = json!({"root": "m1", "folder": "Clients"});
+        ask_link(&mut h, &mut rx, into.clone());
+        let e = upload(&mut h, &mut rx, 1, "Hero.mov", b"hello");
+        assert_eq!((&e["into"], &e["placed"]), (&into, &Value::Null));
+        assert_eq!(std::fs::read(h.data.join(e["path"].as_str().unwrap())).unwrap(), b"hello");
+        assert!(!media.join("Clients/Hero.mov").exists());
+    }
+
+    #[test]
+    fn a_droppable_root_takes_the_upload_and_never_overwrites() {
+        let (mut h, mut rx, media) = drop_host(true);
+        std::fs::write(media.join("Clients/Hero.mov"), b"theirs").unwrap();
+        let into = json!({"root": "m1", "folder": "Clients"});
+        ask_link(&mut h, &mut rx, into.clone());
+        let e = upload(&mut h, &mut rx, 1, "Hero.mov", b"hello");
+        assert_eq!((&e["into"], &e["placed"]), (&into, &json!("m1/Clients/Hero 2.mov")));
+        assert_eq!(std::fs::read(media.join("Clients/Hero.mov")).unwrap(), b"theirs", "the existing file is untouched");
+        assert_eq!(std::fs::read(media.join("Clients/Hero 2.mov")).unwrap(), b"hello");
+        assert!(!h.data.join(e["path"].as_str().unwrap()).exists(), "moved out of the quarantine");
+        assert!(h.roots.resolve("m1/Clients/Hero 2.mov", false).is_some(), "Pluck can add it by reference");
+        // The root itself (no folder), and the link the browser sees doesn't show where files go.
+        let (mut h, mut rx, media) = drop_host(true);
+        ask_link(&mut h, &mut rx, json!({"root": "m1", "folder": ""}));
+        assert_eq!(upload(&mut h, &mut rx, 1, "b.mov", b"x")["placed"], "m1/b.mov");
+        assert!(media.join("b.mov").is_file());
+        let l = h.link("R1").unwrap().clone();
+        h.ready("p1", &json!(9), &l);
+        let ready = answer(&mut rx, "p1", 9);
+        assert!(ready["link"]["uploads"].is_object() && ready["link"]["uploads"]["into"].is_null(), "{ready}");
+    }
+
+    #[tokio::test]
+    async fn ask_for_files_links_keep_their_caps_and_checks() {
+        let (mut h, mut rx, _) = drop_host(true);
+        ask_link(&mut h, &mut rx, json!({"root": "m1", "folder": "Clients"}));
+        // No assets: listing works, an oversize file doesn't.
+        h.request("p1", &json!({"id": 1, "t": "list"}));
+        assert_eq!(answer(&mut rx, "p1", 1)["assets"], json!([]));
+        assert_eq!(upload(&mut h, &mut rx, 2, "big.mov", &[0; 1001])["error"], "tooLarge");
+        // Expired: refused before upload-begin is looked at.
+        let mut l = link("L1", "R1", json!({"kind": "assets", "assets": []}));
+        l["uploads"] = json!({"into": {"root": "m1", "folder": "Clients"}});
+        l["expires"] = json!("2000-01-01T00:00:00Z");
+        let mut m = sample(json!([l.clone()]));
+        m["projects"][0]["assets"] = json!([]);
+        h.publish(&m, &json!({}));
+        ready_peer(&mut h, "p2", "R1");
+        h.request("p2", &json!({"id": 3, "t": "upload-begin", "name": "a.mov", "size": 1, "for": "asset"}));
+        assert_eq!(answer(&mut rx, "p2", 3)["error"]["code"], "expired");
+        // A password link: a wrong password leaves the peer unable to upload.
+        l["expires"] = Value::Null;
+        l["passwordHash"] = json!(keys::hash_password("right"));
+        m["links"] = json!([l]);
+        h.publish(&m, &json!({}));
+        h.report(&json!({"peer": {"peer": "p3", "state": "open", "room": "R1"}}));
+        h.peers.get_mut("p3").unwrap().authed = true;
+        h.request("p3", &json!({"id": 4, "t": "password", "password": "wrong"}));
+        assert_eq!(answer(&mut rx, "p3", 4)["error"]["code"], "password");
+        h.request("p3", &json!({"id": 5, "t": "upload-begin", "name": "a.mov", "size": 1, "for": "asset"}));
+        assert_eq!(answer(&mut rx, "p3", 5)["error"]["code"], "auth");
+        assert!(cmds(&mut rx).iter().all(|c| c.get("accept").is_none()));
     }
 }

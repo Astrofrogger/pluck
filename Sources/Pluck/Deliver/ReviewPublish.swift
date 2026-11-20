@@ -473,6 +473,11 @@ final class ReviewPublish {
             var info = DeliverServer.linkInfo(link, store: store)
             for key in ["title", "mode", "allowDownload", "latestOnly", "expires", "header"] { info[key] = nil }
             wire.merge(info) { a, _ in a }
+            // Ask for Files: where the NAS puts the files (only the host hears it, never the page).
+            if let into = link.uploads?.into, var uploads = wire["uploads"] as? [String: Any] {
+                uploads["into"] = ["root": into.root, "folder": into.folder]
+                wire["uploads"] = uploads
+            }
             if case let (key, secret)? = keys {
                 wire.merge(["reg": DeliverKeys.registerKey(root: secret), "auth": DeliverKeys.base64url(DeliverKeys.authKey(key)), "join": DeliverKeys.joinHash(key)]) { $1 }
                 // Level 3 (§13.24) has no room signing key; the host sends a MAC hello for it.
@@ -855,7 +860,9 @@ final class ReviewPublish {
     /// Clients' uploads on a NAS (kept apart there): fetched with `get`, added to the project, then deleted on the host.
     /// shortcut: a Mac host's uploads stay on the office Mac (no file op through Edit Anywhere yet).
     func importUploads(_ entries: [[String: Any]], project: UUID, host: Deliver.Host) async {
-        let uploads = entries.compactMap { $0["upload"] as? [String: Any] }
+        RemoteAskFiles.shared.arrived(entries, host: host)
+        // (Ask for Files uploads go to their NAS folder, never into the project: RemoteAskFiles.)
+        let uploads = entries.compactMap { $0["upload"] as? [String: Any] }.filter { $0["into"] == nil }
         guard !uploads.isEmpty else { return }
         try? await ReviewHostClient.session(host) { session in
             for upload in uploads where upload["for"] as? String != "attachment" { // (a comment's attachment stays with its comment)
@@ -895,8 +902,9 @@ final class ReviewPublish {
     /// with the upload's own id (every Mac of the team makes the same one) whose original stays on the NAS, which makes its
     /// copies: a file in its quarantine as ".uploads/<link>/<file>", one from an outage where the server put it.
     func referenceUploads(_ entries: [[String: Any]], host: Deliver.Host) {
+        RemoteAskFiles.shared.arrived(entries, host: host)
         for entry in entries {
-            guard let upload = entry["upload"] as? [String: Any], upload["for"] as? String == "asset",
+            guard let upload = entry["upload"] as? [String: Any], upload["for"] as? String == "asset", upload["into"] == nil,
                   let id = (upload["id"] as? String).flatMap(UUID.init(uuidString:)), let raw = upload["path"] as? String,
                   !raw.split(separator: "/").contains(".."), raw.hasPrefix("uploads/") || upload["root"] as? Bool == true,
                   let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ store.link($0) }) else { continue }

@@ -32,15 +32,57 @@ enum OfficeActions {
         RemoteResolveProject.register()
         ReviewHosting.register()
         OfficeGroup.register()
+        RemoteSendInto.register()
+        RemoteAskFiles.register()
+        OfficeAccess.register()
         // B1–B4 add one line each here, e.g. RemoteShares.register()
     }
 
     // MARK: - Checks for handlers
 
-    static func require(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device) throws {
-        guard device.allowed[keyPath: right] else {
-            throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t allow this Mac to do that."))
+    static func require(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device,
+                        refusal: String? = nil) throws {
+        guard OfficeAccess.shared.rights(for: device)[keyPath: right] else {
+            throw OfficeLink.Failure.office(refusal ?? String(localized: "The host Mac doesn’t allow this Mac to do that."))
         }
+    }
+
+    /// The check for every action that takes a path in a share: the path resolved inside the share (`..`, absolute
+    /// paths and links out refused), then the right as the Mac has it in that folder (OfficeAccess: role, person,
+    /// nearest folder role). Gives the resolved file.
+    @discardableResult
+    static func require(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device,
+                        share: (root: URL, id: String), path: String, refusal: String? = nil) throws -> URL {
+        let file = try RemoteEditHost.resolve(path, in: share.root)
+        guard allowed(right, device, share: share, file: file) else {
+            throw OfficeLink.Failure.office(refusal ?? String(localized: "The host Mac doesn’t allow this Mac to do that."))
+        }
+        return file
+    }
+
+    /// Whether a Mac has a right at an already resolved file of a share (listing and manifests hide what it hasn't).
+    static func allowed(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device,
+                        share: (root: URL, id: String), file: URL) -> Bool {
+        allowed(right, device, share: share, relative: RemoteEditHost.relative(file, in: share.root))
+    }
+
+    /// The same for a checked path inside the share ("Day 1/A001.mov").
+    static func allowed(_ right: KeyPath<OfficeRenderServer.Device.Rights, Bool>, _ device: OfficeRenderServer.Device,
+                        share: (root: URL, id: String), relative: String) -> Bool {
+        OfficeAccess.shared.rights(for: device, place: OfficeAccess.folderKey(root: share.root, share: share.id, relative: relative))[keyPath: right]
+    }
+
+    static func refused() -> OfficeLink.Failure {
+        OfficeLink.Failure.office(String(localized: "The host Mac doesn’t allow this Mac to do that."))
+    }
+
+    /// Every action name the host answers to (the built-in ones of OfficeRenderServer.perform too), for the test that
+    /// each one taking a path checks it.
+    static var names: [String] { Array(handlers.keys) + OfficeRenderServer.builtInActions }
+    /// Sending files into the office (inbox or a folder) is an Editor's right. Said in full, so an older home Mac that
+    /// only shows the host's words still tells its user what to do.
+    static var sendRefusal: String {
+        String(localized: "Sending files to the office needs the Editor role. Ask the office to change this Mac’s role.")
     }
 
     static func incomplete() -> OfficeLink.Failure {

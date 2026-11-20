@@ -113,7 +113,7 @@ final class RemotePullManager {
     /// At launch: the hook for the Resolve round trip, and pulls cut short carry on.
     static func install() {
         RemoteHooks.pulledProxyRoot = { shared.pulledRoot(for: $0) }
-        Task { try? await Task.sleep(for: .seconds(10)); shared.resume() }
+        Task { try? await Task.sleep(for: .seconds(10)); shared.resume(); RemotePins.shared.start() }
     }
 
     private func save() {

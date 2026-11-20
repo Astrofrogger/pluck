@@ -66,6 +66,8 @@ final class OfficeGroup {
         var updated: Date
         /// Its own public key (`identity`): the others ask it, and it them, with secrets of their own (`link`).
         var key: Data?
+        /// Its Pluck version; nil: from before roles (it enforces only each Mac's flags, not folder roles).
+        var version: String?
     }
 
     /// How a home Mac reaches one office Mac (no keys).
@@ -94,6 +96,8 @@ final class OfficeGroup {
         var devices: [OfficeRenderServer.Device] = []
         var removedDevices: [UUID] = []
         var proxyFolder: Place?
+        /// People's and folders' roles (OfficeAccess); nil from an office Mac before roles, which keeps nothing of it.
+        var access: [OfficeAccess.Grant]?
     }
 
     private struct Saved: Codable {
@@ -141,6 +145,10 @@ final class OfficeGroup {
     }
 
     var members: [Member] { state?.members ?? [] }
+    /// This build's version, as the other office Macs see it (Member.version).
+    nonisolated static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
+    /// Office Macs from before roles: they enforce each Mac's flags but not folder roles.
+    var older: [Member] { others.filter { $0.version == nil } }
     var isGrouped: Bool { members.count > 1 }
     var others: [Member] { members.filter { $0.id != me } }
 
@@ -190,6 +198,8 @@ final class OfficeGroup {
             guard var have = devices[device.id] else { devices[device.id] = device; continue }
             if (device.changed ?? .distantPast) > (have.changed ?? .distantPast) {
                 have.rights = device.rights
+                have.role = device.role
+                have.person = device.person
                 have.changed = device.changed
             }
             let more = Set((have.irohMore ?? []) + (device.irohMore ?? []))
@@ -200,6 +210,7 @@ final class OfficeGroup {
         out.devices = devices.values.filter { !removedDevices.contains($0.id) && !$0.isPeer }
             .sorted { ($0.added, $0.id.uuidString) < ($1.added, $1.id.uuidString) }
         if (b.proxyFolder?.changed ?? .distantPast) > (a.proxyFolder?.changed ?? .distantPast) { out.proxyFolder = b.proxyFolder }
+        out.access = OfficeAccess.merge(a.access, b.access)
         return out
     }
 
@@ -234,11 +245,12 @@ final class OfficeGroup {
         var mine = shared.members.first { $0.id == me } ?? Member(id: me, name: "", addresses: [], updated: .distantPast)
         let fresh = Member(id: me, name: Host.current().localizedName ?? "Mac", addresses: testAddresses ?? OfficeRenderServer.addresses(),
                            iroh: ownNode,
-                           relay: server.network.relay, shares: ownShares(), updated: mine.updated, key: publicKey)
+                           relay: server.network.relay, shares: ownShares(), updated: mine.updated, key: publicKey, version: Self.version)
         if fresh != mine { mine = fresh; mine.updated = .now }
         shared.members.removeAll { $0.id == me }
         shared.members.append(mine)
         shared.devices = Self.merge(shared, Shared(key: shared.key, members: [], devices: server.pairedMacs)).devices
+        shared.access = OfficeAccess.merge(shared.access, OfficeAccess.shared.grants)
         return shared
     }
 
@@ -413,6 +425,7 @@ final class OfficeGroup {
     /// The group's state put to use here: paired Macs and the key, share ids, the proxy folder.
     func apply() {
         OfficeRenderServer.shared.adoptGroup(state)
+        OfficeAccess.shared.adopt(state?.access)
         updateAliases()
         adoptProxyFolder()
         guard state != savedState || state == nil else { return }

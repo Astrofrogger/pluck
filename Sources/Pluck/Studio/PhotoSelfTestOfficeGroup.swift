@@ -11,6 +11,7 @@ extension PhotoSelfTest {
     /// a home Mac paired on another office Mac let in here, groupNode, failover to the live office Mac.
     static func officeGroupTest() async {
         mergeChecks()
+        accessGroupChecks()
         await claimChecks()
         choiceChecks()
         queueChecks()
@@ -20,6 +21,36 @@ extension PhotoSelfTest {
     }
 
     private typealias Group = OfficeGroup
+
+    /// Roles travel with the group: `access` merged both ways round, an older office Mac's state (no `access`, no
+    /// role on its copy of a Mac) never wiping it, and a Mac's role and person going with its rights.
+    private static func accessGroupChecks() {
+        let key = OfficeGroup.Key(device: UUID(), secret: Data(count: 32), version: 1)
+        let grant = OfficeAccess.Grant(subject: "person:p1", folder: nil, role: "editor", changed: .now)
+        var home = OfficeRenderServer.Device(id: UUID(), name: "Home", secret: Data(), added: .now, rights: OfficeAccess.Role.viewer.rights,
+                                             changed: .now)
+        home.role = "viewer"
+        home.person = "p1"
+        let mine = OfficeGroup.Shared(key: key, members: [], devices: [home], access: [grant])
+        // An office Mac from before roles: its JSON has no access and no role (decoded the way it sends them).
+        var oldHome = home
+        oldHome.role = nil
+        oldHome.person = nil
+        let old = OfficeGroup.Shared(key: key, members: [], devices: [oldHome])
+        let ab = OfficeGroup.merge(mine, old), ba = OfficeGroup.merge(old, mine)
+        check("group access: an older office Mac's state keeps the roles, either way round", ab.access == [grant] && ba.access == [grant]
+              && ab.devices.first?.role == "viewer" && ab.devices.first?.person == "p1", "\(String(describing: ab.access)) \(String(describing: ba.access))")
+        var changed = home
+        changed.role = "editor"
+        changed.rights = OfficeAccess.Role.editor.rights
+        changed.changed = .now + 5
+        let later = OfficeGroup.merge(mine, OfficeGroup.Shared(key: key, members: [], devices: [changed]))
+        check("group access: a newer role for a Mac comes with its flags", later.devices.first?.role == "editor" && later.devices.first?.allowed.render == true)
+        let decoded = (try? JSONEncoder().encode(mine)).flatMap { try? JSONDecoder().decode(OfficeGroup.Shared.self, from: $0) }
+        check("group access: the access list survives the wire", decoded?.access == [grant])
+        let older = OfficeGroup.Member(id: UUID(), name: "Older", addresses: [], updated: .now)
+        check("group access: a member without a version is from before roles", older.version == nil)
+    }
 
     private static func member(_ name: String, _ shares: [OfficeGroup.ShareKey] = []) -> OfficeGroup.Member {
         OfficeGroup.Member(id: UUID(), name: name, addresses: [], shares: shares, updated: .now)

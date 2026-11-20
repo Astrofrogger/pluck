@@ -117,18 +117,22 @@ async fn main() {
         println!("{r}");
         std::process::exit(if r["ok"] == true { 0 } else { 1 });
     }
-    // `pluck-review --host <data> [--media <id>=<path>]… [--uploads <id>=<path>] [--listen <addr:port>]
+    // `pluck-review --host <data> [--media <id>=<path>]… [--drop <id>[=<path>]]… [--uploads <id>=<path>] [--listen <addr:port>]
     // [--admin <addr:port>] [--signal <url>] [--local] [--iroh] [--iroh-bin <path>] [--iroh-relay <url>]
     // [--backup --main-link <link> --max-storage 50G --quality 1080-low] [--name <name>] [--turn-url <url>]…`:
     // an always-on host (the NAS container), configured by arguments (or the PLUCK_* environment)
     // and running until stopped. Otherwise Pluck's settings line on stdin.
     let cfg: Value = if let Some(dir) = arg("--host") {
         let backup = args.iter().any(|a| a == "--backup") || env("PLUCK_ROLE").as_deref() == Some("backup");
+        let mut drop = all("--drop");
+        drop.extend(env("PLUCK_DROP").iter().flat_map(|d| d.split(',')).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()));
         json!({"signal": arg("--signal").unwrap_or("wss://pluck.tools/signal".into()),
                "stun": ["stun.cloudflare.com:3478"], "maxPeers": 50, // the Worker lets 50 wait at once too
                "local": args.iter().any(|a| a == "--local"),
                "host": {"dir": dir, "listen": arg("--listen"), "admin": arg("--admin"), "daemon": true, "media": all("--media"),
                         "uploads": arg("--uploads").or_else(|| env("PLUCK_UPLOADS")),
+                        // Media roots clients' uploads may be placed into (a link's uploads.into); "id=path": the same folder mounted writable elsewhere.
+                        "drop": drop,
                         "iroh": args.iter().any(|a| a == "--iroh") || env("PLUCK_IROH").as_deref() == Some("1"),
                         "irohBin": arg("--iroh-bin"), "irohRelay": arg("--iroh-relay").or_else(|| env("PLUCK_IROH_RELAY")),
                         "name": arg("--name").or_else(|| env("PLUCK_HOST_NAME")), "backup": backup,
@@ -147,6 +151,27 @@ async fn main() {
         report(json!({"error": format!("{e:#}")}));
         std::process::exit(1);
     }
+}
+
+/// `--drop <id>` or `--drop <id>=<path>`: a media root (not the uploads root) whose folders clients' uploads may be written
+/// into. A path must be the root's own folder mounted again (same device and inode), e.g. writable beside a read-only mount.
+fn drops(hc: &Value, media: &[String], roots: &roots::Roots) -> std::collections::HashMap<String, std::path::PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let mut out = std::collections::HashMap::new();
+    for spec in hc["drop"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        let (id, path) = spec.split_once('=').map_or((spec, None), |(i, p)| (i, Some(p)));
+        let Some((_, root)) = roots.0.iter().find(|(i, _)| i == id).filter(|_| media.iter().any(|m| m == id)) else {
+            log(format!("drop {spec}: not a media root"));
+            continue;
+        };
+        let dir = path.map_or_else(|| std::fs::canonicalize(root), std::fs::canonicalize);
+        let same = |a: &std::path::Path, b: &std::path::Path| matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(x), Ok(y)) if x.dev() == y.dev() && x.ino() == y.ino());
+        match dir {
+            Ok(d) if same(&d, root) => { out.insert(id.to_owned(), d); }
+            _ => log(format!("drop {spec}: not that media root's folder")),
+        }
+    }
+    out
 }
 
 /// <data>/host.json: this host's stable id, and its name (the flag/env wins, else the stored one).
@@ -304,6 +329,9 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         let mut h = host::Host::new(&data, roots.clone(), ev_tx.clone(), copies_on.then_some(job_tx));
         h.upload_root = uploads.clone().filter(|_| !backup); // a main's only (a backup's is for its main's Macs, §13.25)
         h.devices = Some(devices.clone()); // its paired Macs: the last-admin guard (roles)
+        if !backup {
+            h.drops = drops(hc, &ids, &roots); // (ids: the media roots only)
+        }
         (h.ident, h.busy, h.back) = (me.clone(), busy.clone(), Some(prog_tx));
         // Tests only (accounts plan §1.1): a localhost passkey origin, honoured only with a loopback signaling URL.
         if let Some(o) = hc["webauthnOrigin"].as_str() {

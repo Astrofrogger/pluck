@@ -161,6 +161,21 @@ extension PhotoSelfTest {
                   first?.checksum != nil && first?.checksum == RemoteProxyJobs.checksum(proxy1))
             let whole = try await client.ask("shareManifest", ["share": id, "path": "", "format": "light"])
             check("shares: the manifest of the whole share", (whole["entries"] as? [Any])?.count == 2)
+            // Folder roles: No Access on "Day 1/A" hides it from browsing and the manifest, and its files are refused.
+            let access = OfficeAccess.shared, lockedKey = OfficeAccess.folderKey(root: root, share: id, relative: "day 1/a")
+            access.set(subject: device.id.uuidString, folder: lockedKey, role: OfficeAccess.Role.none)
+            let hiddenWhole = try await client.ask("shareManifest", ["share": id, "path": "", "format": "light"])
+            let day1 = try await client.browse(share: id, path: "Day 1")
+            check("shares: a No Access folder is left out of the manifest", (hiddenWhole["entries"] as? [[String: Any]])?.count == 1
+                  && (hiddenWhole["entries"] as? [[String: Any]])?.contains { ($0["path"] as? String)?.hasPrefix("Day 1/A/") == true } == false, "\(hiddenWhole["entries"] ?? "")")
+            check("shares: a No Access folder isn't listed when browsing", !day1.contains { $0.name == "A" } && day1.contains { $0.name == "clip2.mov" },
+                  "\(day1.map(\.name))")
+            let lockedFile = await refused({ _ = try await client.fileData(share: id, path: "Day 1/A/clip1.mov", kind: .proxy, offset: 0) })
+            let lockedList = await refused({ _ = try await client.browse(share: id, path: "Day 1/A") })
+            check("shares: a No Access folder's files and listing are refused", lockedFile && lockedList)
+            access.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
+            let shownAgain = try await client.ask("shareManifest", ["share": id, "path": "", "format": "light"])
+            check("shares: taking the folder role away shows it again", (shownAgain["entries"] as? [Any])?.count == 2)
             check("shares: a manifest of a path out of the share is refused",
                   await refused({ _ = try await client.ask("shareManifest", ["share": id, "path": "../Gone", "format": "light"]) }))
 

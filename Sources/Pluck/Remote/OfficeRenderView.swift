@@ -253,7 +253,7 @@ private struct HomeRenderView: View {
     @AppStorage("editAnywherePane") private var pane = Pane.proxies
 
     /// (`proxies` is Browse; the raw values are what's stored.)
-    enum Pane: String { case render, proxies, resolve, review }
+    enum Pane: String { case render, proxies, resolve, review, kept }
 
     var body: some View {
         HStack(spacing: Design.Studio.panelGap) {
@@ -266,6 +266,7 @@ private struct HomeRenderView: View {
                         NavRow(symbol: "play.rectangle", title: "Render", selected: pane == .render) { pane = .render }
                         NavRow(symbol: "film.stack", title: "DaVinci Resolve", selected: pane == .resolve) { pane = .resolve }
                         NavRow(symbol: "text.bubble", title: "Review", selected: pane == .review) { pane = .review }
+                        NavRow(symbol: "pin", title: "Kept on This Mac", selected: pane == .kept) { pane = .kept }
                     }
                 }
             }
@@ -279,6 +280,7 @@ private struct HomeRenderView: View {
                     case .render: renderPane(office)
                     case .resolve: RemoteResolvePane(host: office.name)
                     case .review: RemoteReviewPane()
+                    case .kept: RemotePinsPane()
                     }
                     activity
                 }
@@ -943,6 +945,10 @@ private struct HostMacsPane: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name).font(Design.Studio.body)
                 status(device).font(Design.Studio.hint).lineLimit(1)
+                // (Flagged, never cut off: an unreachable review server must not take rights away.)
+                if let person = device.person, let team = DeliverPeople.shared.people.people, !team.contains(where: { $0.id == person }) {
+                    Text("Its person isn’t on the team any more").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(1)
+                }
             }
             Spacer()
             RemoteRightsMenu(device: device)
@@ -1341,6 +1347,9 @@ private struct HostFoldersPane: View {
                     .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
             }
             if let problem { ProblemLine(text: problem) }
+            ForEach(OfficeGroup.shared.older) { member in
+                ProblemLine(text: String(localized: "\(member.name) runs an older Pluck: folder limits apply there once it’s updated."), colour: Design.Studio.warn)
+            }
             if archive.folders.isEmpty {
                 Text("No folders yet. Add one.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             }
