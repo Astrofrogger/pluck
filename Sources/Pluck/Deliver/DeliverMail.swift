@@ -117,10 +117,15 @@ final class DeliverMail {
     /// A link's "Mute Notifications" also mutes this Mac's person's emails about it (their team row's `mute`).
     func mute(_ link: UUID, _ on: Bool) async {
         guard available, let me = DeliverNotify.me(), let row = subscribers.first(where: { $0.kind == "team" && $0.person == me }) else { return }
-        let mute = Self.muted(row.mute, link.uuidString, on)
-        guard mute != row.mute else { return }
-        _ = await ask(["op": "subscriber-set", "id": row.id, "kind": "team", "email": row.email, "mode": row.mode, "mute": mute])
+        _ = await ask(Self.muteOp(row, link.uuidString, on))
         await refresh()
+    }
+
+    /// `muteLink` + `muted` is the one change the host merges into the row's list (so the web page's mutes stay); the whole
+    /// `mute` list is for hosts older than 4.0.7, which replace the list as before.
+    nonisolated static func muteOp(_ row: Subscriber, _ link: String, _ on: Bool) -> [String: Any] {
+        ["op": "subscriber-set", "id": row.id, "kind": "team", "email": row.email, "mode": row.mode,
+         "mute": muted(row.mute, link, on), "muteLink": link, "muted": on]
     }
 
     nonisolated static func muted(_ list: [String], _ link: String, _ on: Bool) -> [String] {

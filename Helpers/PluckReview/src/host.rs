@@ -3982,6 +3982,19 @@ mod tests {
             "from": "Studio <studio@example.com>", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"))["ok"], true);
         // The owner without accounts: a team row by hand.
         assert_eq!(h.sync(&json!({"op": "subscriber-set", "kind": "team", "email": "owner@example.com", "mode": "instant"}))["ok"], true);
+        // A Mac's per-link mute merges into the row's list (the web page's mutes stay); an old Mac's whole list still replaces it.
+        let owner = h.mail.subs.iter().find(|r| r["email"] == "owner@example.com").unwrap()["id"].clone();
+        let set = |h: &mut Host, extra: Value| {
+            let mut op = json!({"op": "subscriber-set", "id": owner, "kind": "team", "mode": "instant"});
+            op.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            assert_eq!(h.sync(&op)["ok"], true);
+            h.mail.subs.iter().find(|r| r["id"] == owner).unwrap()["mute"].clone()
+        };
+        assert_eq!(set(&mut h, json!({"mute": ["LW"]})), json!(["LW"]));
+        assert_eq!(set(&mut h, json!({"mute": ["LM"], "muteLink": "LM", "muted": true})), json!(["LW", "LM"]), "web mute kept");
+        assert_eq!(set(&mut h, json!({"mute": [], "muteLink": "LM", "muted": false})), json!(["LW"]));
+        assert_eq!(set(&mut h, json!({"mute": [], "muteLink": "LX", "muted": false})), json!(["LW"]), "unmuting a link not muted");
+        assert_eq!(set(&mut h, json!({"mute": []})), json!([]));
         named_peer(&mut h, "c1", "RC", "t1", "Client one");
         named_peer(&mut h, "c2", "RC", "t2", "Client two");
         named_peer(&mut h, "p1", "RP", "t3", "Plain");

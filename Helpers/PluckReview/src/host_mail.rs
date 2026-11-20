@@ -568,7 +568,18 @@ impl Host {
         r["mode"] = json!(mode);
         if let Some(e) = email { r["email"] = json!(e) }
         if let Some(n) = op["name"].as_str() { r["name"] = json!(clean(n, 80)) }
-        if let Some(m) = mute { r["mute"] = json!(m) }
+        // `muteLink` + `muted`: one link's change merged into the list (a Mac's toggle must not undo the web page's mutes);
+        // the whole `mute` list beside it is only for hosts older than this.
+        if let Some(l) = op["muteLink"].as_str().filter(|l| !l.is_empty() && l.len() < 100) {
+            let mut m: Vec<Value> = r["mute"].as_array().into_iter().flatten().filter(|x| x.as_str() != Some(l)).cloned().collect();
+            if op["muted"] == true {
+                m.push(json!(l));
+            }
+            m.truncate(500);
+            r["mute"] = json!(m);
+        } else if let Some(m) = mute {
+            r["mute"] = json!(m)
+        }
         if let Some(l) = op["lang"].as_str() { r["lang"] = json!(mail::lang(l)) }
         let id = r["id"].clone();
         if !self.mail.save_subs() {

@@ -55,6 +55,10 @@ extension PhotoSelfTest {
               && ReviewHosting.mailOps.contains("mail-set") && !ReviewHosting.mailOps.contains("unsubscribe"), "mode \(String(mode, radix: 8))")
         check("gap: link mute list for this Mac's person's emails", DeliverMail.muted(["a"], "b", true) == ["a", "b"] && DeliverMail.muted(["a", "b"], "a", false) == ["b"]
               && DeliverMail.muted(["a"], "a", true) == ["a"])
+        let muteRow = DeliverMail.Subscriber(id: "r1", kind: "team", email: "a@example.com", name: "", mode: "daily", mute: ["web"])
+        let muteOp = DeliverMail.muteOp(muteRow, "mac", true)
+        check("gap: a link's mute goes as one change (old hosts get the list)", muteOp["muteLink"] as? String == "mac" && muteOp["muted"] as? Bool == true
+              && muteOp["mute"] as? [String] == ["web", "mac"] && DeliverMail.muteOp(muteRow, "web", false)["muted"] as? Bool == false)
         // Folder order: a folder's own order for links without one (folders by name, ids still in that folder only),
         // carried by the folder's wire form; the share link's info gets it.
         let f1 = UUID(), f2 = UUID(), a1 = UUID(), a2 = UUID(), a3 = UUID(), gone = UUID()
