@@ -114,7 +114,7 @@ enum RelaySetup {
         saved = done
     }
 
-    @ObservationIgnored private static var pushing: Task<Void, Never>?
+    private static var pushing: Task<Void, Never>?
 
     /// The office's allowlist changed (Tunnel.setAllow): a TrueNAS relay gets it a little later (several changes, one push).
     static func allowChanged() {

@@ -443,14 +443,14 @@ final class RemotePullManager {
         var offset = Int64(try handle.seekToEnd())
         // (A part bigger than the file is of another version: started again.)
         if offset > entry.size { try handle.truncate(atOffset: 0); progress[job.id]?.bytesHere -= min(offset, entry.size); offset = 0 }
-        let piece = entry.range.flatMap { $0.count == 2 ? ["first": $0[0], "last": $0[1]] : nil }
-        let kind: OfficeRenderClient.FileKind = job.format == .original ? (piece == nil ? .original : .piece) : .proxy
+        let range = entry.range.flatMap { $0.count == 2 ? ["first": $0[0], "last": $0[1]] : nil }
+        let kind: OfficeRenderClient.FileKind = job.format == .original ? (range == nil ? .original : .piece) : .proxy
         while offset < entry.size {
             guard isRunning(job) else { return false }
             let length = chunk
             await throttle(length)
             let piece = try await client.fileData(share: job.share, path: entry.path, kind: kind, format: kind == .proxy ? job.format : .light,
-                                                  offset: offset, length: length, extra: piece ?? [:])
+                                                  offset: offset, length: length, extra: range ?? [:])
             // The host's file changed since the manifest: started again from the next one.
             guard piece.size == entry.size else {
                 try handle.truncate(atOffset: 0)

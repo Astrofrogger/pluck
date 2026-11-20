@@ -212,7 +212,9 @@ enum RemotePieces {
             timecode = RawPlayer.timecode(base + start, rate: Int(fps.rounded()), dropFrame: source.contains(";"))
             arguments += ["-timecode", timecode!]
         }
-        arguments += ["-metadata:s:v:0", "reel_name=" + (probed.reel ?? original.deletingPathExtension().lastPathComponent)]
+        // (QuickTime keeps the reel on the timecode track: read from every stream, as OfficeProxies does.)
+        let reel = OfficeProxies.probe(original, ffprobe: ffprobe).3 ?? probed.reel
+        arguments += ["-metadata:s:v:0", "reel_name=" + (reel ?? original.deletingPathExtension().lastPathComponent)]
         let fm = FileManager.default
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString.prefix(8)).\(original.pathExtension)")

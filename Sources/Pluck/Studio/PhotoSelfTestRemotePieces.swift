@@ -80,9 +80,9 @@ extension PhotoSelfTest {
             let exact = try RemotePieces.make(prores, share: share.id, relative: "Cuts/P.mov", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
             let exactFile = RemotePieces.file(share: share.id, relative: "Cuts/P.mov", first: 160, last: 190)
             check("pieces: ProRes piece is frame exact", exact.first == 160 && exact.last == 190 && frames(exactFile) == 31, "\(exact) \(frames(exactFile))")
-            let exactProbe = RemotePieces.probe(exactFile, ffprobe: ffprobe)
-            check("pieces: ProRes piece timecode and reel", exact.timecode == "01:00:06:10" && exactProbe.timecode == "01:00:06:10" && exactProbe.reel == "RP",
-                  "\(String(describing: exact.timecode)) \(String(describing: exactProbe.reel))")
+            let exactProbe = OfficeProxies.probe(exactFile, ffprobe: ffprobe)
+            check("pieces: ProRes piece timecode and reel", exact.timecode == "01:00:06:10" && exactProbe.1 == "01:00:06:10" && exactProbe.3 == "RP",
+                  "\(String(describing: exact.timecode)) \(String(describing: exactProbe.3))")
         } catch {
             check("pieces: cut", false, "\(error)")
         }
