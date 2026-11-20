@@ -21,6 +21,8 @@ final class DeliverServer {
     /// Email updates (4.1.0): whether the main host can mail, and one op to it (nil: not reachable). Tests replace both.
     @ObservationIgnored var mailActive: () -> Bool = { DeliverMail.shared.active }
     @ObservationIgnored var mailAsk: ([String: Any]) async -> [String: Any]? = { await DeliverMail.shared.ask($0) }
+    /// A comment or reply written here that may @mention this Mac's person (before, after); DeliverLink sets it.
+    @ObservationIgnored var mentioned: (Deliver.Comment?, Deliver.Comment) -> Void = { _, _ in }
     /// Where uploads land (Review/Uploads/<linkID>/) and comment attachments are kept.
     var uploadsFolder: URL { store.root.appendingPathComponent("Uploads", isDirectory: true) }
     var attachmentsFolder: URL { store.root.appendingPathComponent("Attachments", isDirectory: true) }
@@ -315,9 +317,10 @@ final class DeliverServer {
         if let header = store.branding(for: link.project)?.header { info["header"] = "data:image/jpeg;base64," + header.base64EncodedString() }
         if let deadline = DeliverDeadlines.effective(link, store: store) { info["deadline"] = Self.date(deadline) }
         // Workflow plan 3, 5, 6 (optional; old pages ignore them): the link's own order, custom statuses' and fields' names.
-        if let order = link.order, !order.isEmpty {
+        let content = store.content(link.project)
+        if let order = link.order?.isEmpty == false ? link.order : Deliver.folderOrder(content.folders, assets: content.assets) {
             // (Ids of the link's project only; the page orders what it lists and ignores the rest.)
-            let mine = Set(store.content(link.project).assets.map(\.id))
+            let mine = Set(content.assets.map(\.id))
             info["order"] = order.filter(mine.contains).map(\.uuidString)
         }
         if link.customStatuses == true, let defs = store.library.statuses, !defs.isEmpty {
@@ -412,6 +415,7 @@ final class DeliverServer {
                                                page: message["page"] as? Int, anchor: anchor, isInternal: isInternal, attachments: attachments,
                                                mentions: mentions(message, link))
             for id in attachmentIDs { peer.attachments[id] = nil }
+            mentioned(nil, comment)
             reply(peer, id, ["comment": wire(comment, peer)])
             log(peer, "commented", asset: asset.id, version: version.id, detail: frame.map { .init(from: $0) })
             inbox(comment.id, "comment", asset, version.id, comment.text, peer, link)
@@ -421,6 +425,7 @@ final class DeliverServer {
             if isInternal, !link.isTeam { throw Deliver.Failure("scope") }
             let changed = try store.reply(to: found.id, text: message["text"] as? String ?? "", author: author(peer), token: peer.token, isInternal: isInternal,
                                        mentions: mentions(message, link))
+            mentioned(found, changed)
             reply(peer, id, ["comment": wire(changed, peer)])
             log(peer, "commented", asset: found.asset, version: found.version)
             if let asset = store.find(found.asset)?.asset, let made = changed.replies.last {
@@ -1147,6 +1152,34 @@ enum DeliverNotify {
         let content = UNMutableNotificationContent()
         content.title = name.isEmpty ? String(localized: "“\(link.title)” was opened") : String(localized: "\(name) opened “\(link.title)”")
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-open-" + link.id.uuidString, content: content, trigger: nil))
+    }
+
+    // MARK: @mentions (4.1.0)
+
+    /// This Mac's person on the team: the one whose name is the owner's comment name (as "Assigned to Me" matches).
+    static func me(team: [Deliver.Person]? = nil, name: String? = nil) -> String? {
+        let name = name ?? DeliverSettings.author
+        return (team ?? DeliverPeople.shared.team).first { ($0.name ?? "").trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(name) == .orderedSame }?.id
+    }
+
+    /// What in `after` mentions `me` and wasn't there in `before`: the comment itself when new, else a new reply.
+    nonisolated static func newMention(of me: String, before: Deliver.Comment?, after: Deliver.Comment) -> (author: String, text: String)? {
+        if before == nil, after.mentions?.contains(me) == true { return (after.author, after.text) }
+        let old = Set(before?.replies.map(\.id) ?? [])
+        return after.replies.last { !old.contains($0.id) && $0.mentions?.contains(me) == true }.map { ($0.author, $0.text) }
+    }
+
+    /// "You were mentioned on Hero 30s" for a comment or reply that @mentions this Mac's person (not on a muted link).
+    static func mentioned(before: Deliver.Comment?, after: Deliver.Comment, store: DeliverStore? = nil) {
+        let store = store ?? .shared
+        guard let me = me(), let said = newMention(of: me, before: before, after: after),
+              after.link.flatMap(store.link)?.muted != true, let name = store.find(after.asset)?.asset.name else { return }
+        guard ScreenshotMode.scene == nil else { return }
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "You were mentioned on \(name)")
+        content.body = String("\(said.author): \(said.text)".prefix(140))
+        content.userInfo = [assetKey: after.asset.uuidString, versionKey: after.version.uuidString, commentKey: after.id.uuidString]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-mention-" + after.id.uuidString + "-\(after.replies.count)", content: content, trigger: nil))
     }
 
     static func locked(_ link: Deliver.ShareLink) {

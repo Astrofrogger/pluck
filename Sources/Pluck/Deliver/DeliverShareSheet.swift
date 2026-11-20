@@ -362,7 +362,8 @@ struct DeliverLinkOptions: View {
             }))
         }
         if editing {
-            let assets = Deliver.arranged(store.content(link.project).assets.filter { DeliverServer.shared.inScope($0, link) }, order: link.order)
+            let content = store.content(link.project)
+            let assets = Deliver.arranged(content.assets.filter { DeliverServer.shared.inScope($0, link) }, order: link.order ?? Deliver.folderOrder(content.folders, assets: content.assets))
             if assets.count > 1 {
                 StudioField(label: "Order") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -741,10 +742,19 @@ struct DeliverSettings: View {
                     }
                 }
             }
+            if let office = DeliverMail.shared.office, DeliverMail.shared.available {
+                VStack(alignment: .leading, spacing: 6) {
+                    DeliverMailSection(host: office)
+                    Text("Sent by \(office.name). Email works best from a NAS.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
             DeliverRelaySettingsCard()
             SettingsCard("Message") { DeliverMessageEditor() }
         }
-        .task { measure() }
+        .task {
+            measure()
+            if DeliverMail.shared.office != nil { await DeliverMail.shared.refresh() }
+        }
         .sheet(isPresented: $guide) { ReviewNASGuideSheet() }
         .sheet(isPresented: $truenas) { ReviewTrueNASSetupSheet() }
         .sheet(item: $detail) { DeliverHostSheet(host: $0) }

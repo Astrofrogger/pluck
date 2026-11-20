@@ -1217,7 +1217,10 @@ struct DeliverLinkRow: View {
             Button("Feedback Deadline…") { reopening = true }
             Divider()
             Toggle("Tell Me When It’s Opened", isOn: Binding(get: { link.notifyOpened == true }, set: { value in store.updateLink(link.id) { $0.notifyOpened = value ? true : nil } }))
-            Toggle("Mute Notifications", isOn: Binding(get: { link.muted == true }, set: { value in store.updateLink(link.id) { $0.muted = value ? true : nil } }))
+            Toggle("Mute Notifications", isOn: Binding(get: { link.muted == true }, set: { value in
+                store.updateLink(link.id) { $0.muted = value ? true : nil }
+                Task { await DeliverMail.shared.mute(link.id, value) }   // (and this Mac's person's emails about it)
+            }))
             Divider()
             Button("Turn Off", role: .destructive) { store.revoke(link.id) }
             Button("Delete Link and Its Data…", role: .destructive) { deleting = true }

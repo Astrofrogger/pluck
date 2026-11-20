@@ -15,6 +15,7 @@ enum Deliver {
         var hidden: Bool?                // "Browse previews": not in the sidebar or the grid
         var transcripts: Bool?           // review copies get a transcript made on this Mac (off by default)
         var uhd: Bool?                   // 4K (and HDR) review copies too (off by default)
+        var spokenLanguage: String?      // its transcripts' language ("nl-BE"); nil = guessed per file
         var rev: Int?, at: Date?, by: String?
     }
 
@@ -27,6 +28,7 @@ enum Deliver {
         var id = UUID()
         var name: String                 // ≤ 80 chars
         var parent: UUID?                // nil = project root; depth ≤ 8
+        var order: [UUID]?               // its files "As Arranged" (workflow plan 3); links without an order of their own show it
         var rev: Int?, at: Date?, by: String?
     }
 
@@ -78,9 +80,10 @@ enum Deliver {
         struct FieldRule: Codable, Hashable { var id: String; var op: String; var value: String }   // op: is | contains | set
     }
 
-    /// The owner's custom statuses, fields and views, kept in the store's library.json.
+    /// The team's custom statuses, fields and views, kept in the store's library.json (and on the main host, 4.1).
     struct Library: Codable, Hashable {
         var v = 1
+        var at: Date?                    // last changed (whole seconds), for the team's Macs through the main host; newest wins
         var statuses: [StatusDef]?
         var fields: [FieldDef]?
         var views: [SavedView]?

@@ -28,8 +28,13 @@ struct DeliverProjectView: View {
     @State private var info: UUID?
     /// Footage just added, on its way to the NAS: where it goes there (the folder picker).
     @State private var toNAS: DeliverUploadDestination.Offer?
+    /// The languages this Mac can transcribe (for the project's spoken language).
+    @State private var speechLanguages: [Locale] = []
 
     private var content: Deliver.ProjectContent { store.content(project) }
+    /// The folder shown (its own order: "As Arranged").
+    private var here: Deliver.Folder? { content.folders.first { $0.id == folder } }
+    @State private var arranging = false
     private var folders: [Deliver.Folder] { content.folders.filter { $0.parent == folder }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
     private var assets: [Deliver.Asset] {
         // A search looks through the whole project (name, keywords, assignee, notes).
@@ -39,6 +44,7 @@ struct DeliverProjectView: View {
             let haystack = ([asset.name, fields?.assignee ?? "", fields?.notes ?? ""] + (fields?.keywords ?? [])).joined(separator: " ").lowercased()
             return words.allSatisfy(haystack.contains)
         }
+        if sort == "arranged", words.isEmpty, let here { return Deliver.arranged(pool, order: here.order) }
         return pool.sorted {
             sort == "name" ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : $0.created > $1.created
         }
@@ -99,6 +105,7 @@ struct DeliverProjectView: View {
             Button("Cancel", role: .cancel) {}
         }
         .sheet(item: Binding(get: { info.map(DeliverProjectID.init) }, set: { info = $0?.id })) { DeliverFieldsSheet(asset: $0.id) }
+        .sheet(isPresented: $arranging) { if let here { DeliverArrangeSheet(project: project, folder: here) } }
         .alert(Text(verbatim: problem ?? ""), isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) { Button("OK") {} }
         .originalsPicker($toNAS)
     }
@@ -162,9 +169,12 @@ struct DeliverProjectView: View {
                     Picker(selection: $sort) {
                         Text("Date Added").tag("date")
                         Text("Name").tag("name")
+                        if here != nil { Text("As Arranged").tag("arranged") }
                     } label: { EmptyView() }.pickerStyle(.inline)
+                    if here != nil { Button("Arrange…") { sort = "arranged"; arranging = true } }
                 } label: {
-                    DeliverToolLabel(symbol: "line.3.horizontal.decrease", title: "Sorted by", value: sort == "name" ? String(localized: "Name") : String(localized: "Date Added"))
+                    DeliverToolLabel(symbol: "line.3.horizontal.decrease", title: "Sorted by",
+                                     value: sort == "name" ? String(localized: "Name") : sort == "arranged" && here != nil ? String(localized: "As Arranged") : String(localized: "Date Added"))
                 }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 copiesMenu
@@ -302,6 +312,16 @@ struct DeliverProjectView: View {
                     if on { copies.transcribeProject(project) }
                 }))
                 .disabled(!LocalAI.canTranscribe)
+                if options?.transcripts == true {
+                    Picker("Spoken Language", selection: Binding(get: { options?.spokenLanguage }, set: { language in
+                        store.setOption(project: project) { $0.spokenLanguage = language }
+                    })) {
+                        Text("Guess per File").tag(String?.none)
+                        ForEach(speechLanguages, id: \.identifier) { locale in
+                            Text(verbatim: Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(String?.some(locale.identifier))
+                        }
+                    }
+                }
             }
             Section("About 9 GB per hour of 4K on the NAS") {
                 Toggle("4K and HDR Copies", isOn: Binding(get: { options?.uhd == true }, set: { on in
@@ -311,6 +331,10 @@ struct DeliverProjectView: View {
             }
         } label: { DeliverToolLabel(symbol: "film.stack", title: "Review Copies") }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .task {
+                guard #available(macOS 26, *), LocalAI.canTranscribe, speechLanguages.isEmpty else { return }
+                speechLanguages = await OnDeviceSpeech.languages()
+            }
     }
 
     @ViewBuilder private func menu(_ asset: Deliver.Asset) -> some View {
@@ -615,4 +639,40 @@ struct DeliverFieldsSheet: View {
     }
 
     private func set(_ field: String, _ value: Any?) { try? store.setField(field, value, of: asset, by: DeliverSettings.author) }
+}
+
+/// A folder's files in the order the owner drags them into ("As Arranged"; links without an order of their own show it).
+struct DeliverArrangeSheet: View {
+    let project: UUID
+    let folder: Deliver.Folder
+    @Environment(\.dismiss) private var dismiss
+    @State private var store = DeliverStore.shared
+
+    var body: some View {
+        let current = store.content(project).folders.first { $0.id == folder.id } ?? folder
+        let assets = Deliver.arranged(store.content(project).assets.filter { $0.folder == folder.id }, order: current.order)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(verbatim: folder.name).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            List {
+                ForEach(assets) { asset in Text(verbatim: asset.name).font(Design.Studio.body).lineLimit(1) }
+                    .onMove { from, to in
+                        var ids = assets.map(\.id)
+                        ids.move(fromOffsets: from, toOffset: to)
+                        store.setFolderOrder(folder.id, in: project, ids)
+                    }
+            }
+            .frame(height: min(CGFloat(assets.count) * 26 + 8, 360))
+            .scrollContentBackground(.hidden)
+            .studioBox()
+            Text(current.order == nil ? "By name. Drag to arrange." : "As arranged").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            HStack {
+                if current.order != nil { Button("By Name") { store.setFolderOrder(folder.id, in: project, nil) }.buttonStyle(StudioFlatButtonStyle()) }
+                Spacer()
+                Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 400)
+        .background(Design.Studio.panel)
+    }
 }

@@ -112,7 +112,7 @@ extension PhotoSelfTest {
                                        "shareProxyStatus", "resolveRoot", "resolvePresets", "resolveProjects", "resolveCheckout", "resolveRelease",
                                        "resolveUpload", "resolveCheckin", "resolveRestore", "resolveVersionData", "resolveRender", "resolveQueue",
                                        "resolveCancel", "resolvePreview", "reviewComments", "reviewAdd", "reviewResolve", "groupSync", "officeGroup",
-                                       "groupNode", "reviewHost", "reviewReload", "reviewLinks", "reviewPull", "reviewAppend", "reviewUnhost",
+                                       "groupNode", "reviewHost", "reviewMail", "reviewReload", "reviewLinks", "reviewPull", "reviewAppend", "reviewUnhost",
                                        "askFilesList", "wake"]
             let probe: [String: Any] = ["share": id, "folder": id, "path": "B Folder/inner.txt", "paths": ["B Folder/inner.txt"], "kind": "original",
                                         "format": "light", "offset": 0, "size": 2, "modified": 0, "data": Data("in".utf8).base64EncodedString(),

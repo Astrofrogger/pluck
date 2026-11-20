@@ -21,6 +21,7 @@ extension PhotoSelfTest {
         guard let asset = store.find(made.id)?.asset else { return check("flow: asset", false) }
         await resolvePullTest(store: store, asset: asset, probe: probe)
         flowModelTest(store: store, project: project.id, asset: asset.id)
+        await deliverGapTest(store: store, project: project.id, asset: asset.id)
     }
 
     /// Assignments, link order, saved views, custom statuses and fields: maths, persistence, wire, old data.

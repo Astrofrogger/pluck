@@ -17,6 +17,7 @@ final class DeliverMail {
     }
     struct Subscriber: Identifiable, Hashable {
         var id: String, kind: String, email: String, name: String, mode: String
+        var person: String? = nil, mute: [String] = []
     }
 
     private(set) var settings = Settings()
@@ -29,8 +30,16 @@ final class DeliverMail {
     @ObservationIgnored var fake: (([String: Any]) -> [String: Any])?
 
     var host: Deliver.Host? { DeliverSync.shared.dataHost }
-    /// The main host knows mail (its hello said `mail: 1`).
-    var available: Bool { host?.mail == 1 }
+    /// No NAS but an always-on Mac (T11): its hosted reviews send the mail, set up from here through Edit Anywhere
+    /// (`reviewMail`). Never this Mac.
+    var office: Deliver.Host? {
+        let publish = ReviewPublish.shared
+        return host == nil && !publish.hosts.contains { $0.kind == .nas } ? publish.pairedMac : nil
+    }
+    /// The always-on Mac answered `mail-state` (a Pluck that knows it, hosting on); kept for the share sheet.
+    private(set) var officeMail = UserDefaults.standard.bool(forKey: "reviewOfficeMail")
+    /// The main host knows mail (its hello said `mail: 1`), or the always-on Mac does.
+    var available: Bool { host.map { $0.mail == 1 } ?? (office != nil && officeMail) }
     /// Browsers' links may offer email: the host knows mail and has it switched on.
     var active: Bool { available && settings.enabled }
 
@@ -46,7 +55,7 @@ final class DeliverMail {
         subscribers = (answer["subscribers"] as? [[String: Any]] ?? []).compactMap { row in
             guard let id = row["id"] as? String else { return nil }
             return Subscriber(id: id, kind: row["kind"] as? String ?? "client", email: row["email"] as? String ?? "", name: row["name"] as? String ?? "",
-                              mode: row["mode"] as? String ?? "instant")
+                              mode: row["mode"] as? String ?? "instant", person: row["person"] as? String, mute: row["mute"] as? [String] ?? [])
         }
         hooks = (answer["hooks"] as? [String: [String: Any]] ?? [:]).compactMapValues { $0["url"] as? String }
     }
@@ -54,8 +63,14 @@ final class DeliverMail {
     /// One op on the main host; nil when there is no host or it can't be reached.
     func ask(_ op: [String: Any]) async -> [String: Any]? {
         if let fake { return fake(op) }
-        guard let host else { return nil }
-        return try? await ReviewHostClient.ask(host, op)
+        if let host { return try? await ReviewHostClient.ask(host, op) }
+        guard office != nil else { return nil }
+        let answer = try? await OfficeRenderClient.shared.ask("reviewMail", ["op": op], timeout: 60)
+        if op["op"] as? String == "mail-state" {
+            officeMail = answer?["mail"] as? Int == 1
+            UserDefaults.standard.set(officeMail, forKey: "reviewOfficeMail")
+        }
+        return answer
     }
 
     func refresh() async {
@@ -97,6 +112,19 @@ final class DeliverMail {
         if let text = Self.errorText(answer) { return text }
         await refresh()
         return nil
+    }
+
+    /// A link's "Mute Notifications" also mutes this Mac's person's emails about it (their team row's `mute`).
+    func mute(_ link: UUID, _ on: Bool) async {
+        guard available, let me = DeliverNotify.me(), let row = subscribers.first(where: { $0.kind == "team" && $0.person == me }) else { return }
+        let mute = Self.muted(row.mute, link.uuidString, on)
+        guard mute != row.mute else { return }
+        _ = await ask(["op": "subscriber-set", "id": row.id, "kind": "team", "email": row.email, "mode": row.mode, "mute": mute])
+        await refresh()
+    }
+
+    nonisolated static func muted(_ list: [String], _ link: String, _ on: Bool) -> [String] {
+        list.filter { $0 != link } + (on ? [link] : [])
     }
 
     // MARK: Mentions
