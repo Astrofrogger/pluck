@@ -630,7 +630,12 @@ final class ReviewPublish {
             }
         }
         for comment in order.compactMap({ latest[$0] }) where !gone.contains(comment.id) && store.find(comment.asset)?.project == project {
-            switch store.merge(comment) {
+            let before = store.comment(comment.id)
+            let merged = store.merge(comment)
+            if merged != .same, comment.authorToken != nil || comment.replies.contains(where: { $0.authorToken != nil }) {
+                DeliverNotify.mentioned(before: before, after: store.comment(comment.id) ?? comment, store: store)
+            }
+            switch merged {
             case .added:
                 added += 1
                 if comment.authorToken != nil {

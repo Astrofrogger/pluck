@@ -34,6 +34,7 @@ final class DeliverLink {
             let number = DeliverStore.shared.find(item.asset)?.asset.versions.first { $0.id == item.version }?.number
             DeliverNotify.post(item, assetName: name, versionNumber: number)
         }
+        server.mentioned = { DeliverNotify.mentioned(before: $0, after: $1) }
         server.markMaker = { DeliverCopies.shared.enqueueMark(asset: $0, version: $1, link: $2) }
         server.store.listeners.append { [weak self] event in
             if case .linksChanged = event { self?.update() }
