@@ -227,6 +227,7 @@ struct DeliverProjectView: View {
             DeliverPoster(asset: asset).frame(width: 64, height: 36).clipShape(.rect(cornerRadius: 4))
             Text(verbatim: asset.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
             Spacer()
+            DeliverOverdueChip(asset: asset)
             DeliverStatusPill(status: asset.status)
             Text(verbatim: "v\(asset.current.number)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).frame(width: 30)
             Label { Text(verbatim: "\(store.comments(asset.id).count)") } icon: { Image(systemName: "text.bubble") }
@@ -269,7 +270,7 @@ struct DeliverProjectView: View {
                 Text("\(chosen.count) selected").foregroundStyle(Design.Studio.text)
                 Spacer()
                 Menu {
-                    ForEach(Deliver.Status.allCases, id: \.self) { status in
+                    ForEach(store.statusList, id: \.self) { status in
                         Button(DeliverStatusPill.title(status)) { for id in chosen { store.setStatus(status, of: id, by: DeliverSettings.author) } }
                     }
                 } label: { StudioMenuLabel(title: String(localized: "Set Status")) }
@@ -302,7 +303,7 @@ struct DeliverProjectView: View {
         }
         Button("Reveal in Finder") { if let url = store.original(asset.current) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
         Menu("Set Status") {
-            ForEach(Deliver.Status.allCases, id: \.self) { status in
+            ForEach(store.statusList, id: \.self) { status in
                 Button(DeliverStatusPill.title(status)) { store.setStatus(status, of: asset.id, by: DeliverSettings.author) }
             }
         }
@@ -428,7 +429,7 @@ struct DeliverAssetCard<Actions: View>: View {
 
     private var statusBox: some View {
         Menu {
-            ForEach(Deliver.Status.allCases, id: \.self) { status in
+            ForEach(store.statusList, id: \.self) { status in
                 Button(DeliverStatusPill.title(status)) { store.setStatus(status, of: asset.id, by: DeliverSettings.author) }
             }
         } label: {
@@ -438,6 +439,7 @@ struct DeliverAssetCard<Actions: View>: View {
                 Text(asset.status == .none ? "Status" : DeliverStatusPill.title(asset.status))
                     .foregroundStyle(asset.status == .none ? Design.Studio.textQuiet : Design.Studio.text)
                 Spacer(minLength: 4)
+                DeliverOverdueChip(asset: asset)
                 if let rating = asset.fields?.rating, rating > 0 { Text(verbatim: String(repeating: "★", count: rating)).foregroundStyle(Design.Studio.warn) }
                 let count = store.comments(asset.id, version: asset.current.id).count
                 if count > 0 {
@@ -506,6 +508,8 @@ struct DeliverStatusPill: View {
         case .inProgress: "In Progress"
         case .needsChanges: "Needs Changes"
         case .approved: "Approved"
+        // shortcut: a custom name goes through the string table (unmatched, it shows as typed).
+        default: LocalizedStringKey(custom(status)?.name ?? "—")
         }
     }
 
@@ -514,7 +518,7 @@ struct DeliverStatusPill: View {
         case .approved: Design.Studio.good
         case .needsChanges: Design.Studio.bad
         case .inProgress: Design.Studio.warn
-        default: Design.Studio.textQuiet
+        default: colour(token: custom(status)?.colour ?? "quiet")
         }
     }
 }
@@ -528,6 +532,7 @@ struct DeliverFieldsSheet: View {
     @State private var assignee = ""
     @State private var due: Date?
     @State private var notes = ""
+    @State private var custom: [String: String] = [:]
 
     var body: some View {
         let fields = store.find(asset)?.asset.fields ?? .init()
@@ -555,6 +560,9 @@ struct DeliverFieldsSheet: View {
                     }
                 }
                 StudioField(label: "Notes") { TextField("", text: $notes, axis: .vertical).lineLimit(2...5).settingField(width: 240) }
+                ForEach(store.fieldDefs) { def in
+                    DeliverCustomFieldRow(def: def, value: Binding(get: { custom[def.id] ?? "" }, set: { custom[def.id] = $0 }))
+                }
             }
             HStack {
                 Spacer()
@@ -564,6 +572,7 @@ struct DeliverFieldsSheet: View {
                     set("assignee", assignee)
                     set("due", due.map { $0.formatted(.iso8601.year().month().day()) })
                     set("notes", notes)
+                    for def in store.fieldDefs { set(def.wireName, custom[def.id] ?? "") }
                     dismiss()
                 }.buttonStyle(StudioFlatButtonStyle(prominent: true))
             }
@@ -576,6 +585,7 @@ struct DeliverFieldsSheet: View {
             assignee = fields.assignee ?? ""
             due = fields.due.flatMap { try? Date($0, strategy: .iso8601.year().month().day()) }
             notes = fields.notes ?? ""
+            custom = store.find(asset)?.asset.customFields ?? [:]
         }
     }
 

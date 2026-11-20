@@ -310,6 +310,7 @@ struct DeliverLinkOptions: View {
         link.notifyOpened = draft.notifyOpened
         link.notify = draft.notify
         link.deadline = draft.deadline
+        link.customStatuses = draft.customStatuses
     }
 
     /// An edit saved; a changed watermark makes that link's burned-in copies again.
@@ -341,6 +342,48 @@ struct DeliverLinkOptions: View {
                 }
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    /// Workflow plan 3, 5, 6: custom statuses' names, which custom fields show, and the link's own order.
+    @ViewBuilder private var customOptions: some View {
+        let store = DeliverStore.shared
+        if !(store.library.statuses ?? []).isEmpty {
+            StudioSwitchRow(title: "Show custom statuses", isOn: flag(\.customStatuses))
+            if link.customStatuses == true {
+                Text("Review pages from before 4.1 show them as “—”.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.leading, 20)
+            }
+        }
+        ForEach(store.fieldDefs) { def in
+            StudioSwitchRow(title: "Show \(def.name)", isOn: Binding(get: { link.shownFields.contains(def.wireName) }, set: { on in
+                var shown = link.shownFields.filter { $0 != def.wireName }
+                if on { shown.append(def.wireName) }
+                link.fields = shown == ["status"] ? nil : shown
+            }))
+        }
+        if editing {
+            let assets = Deliver.arranged(store.content(link.project).assets.filter { DeliverServer.shared.inScope($0, link) }, order: link.order)
+            if assets.count > 1 {
+                StudioField(label: "Order") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        List {
+                            ForEach(assets) { asset in Text(verbatim: asset.name).font(Design.Studio.body).lineLimit(1) }
+                                .onMove { from, to in
+                                    var ids = assets.map(\.id)
+                                    ids.move(fromOffsets: from, toOffset: to)
+                                    link.order = ids
+                                }
+                        }
+                        .frame(width: 280, height: min(CGFloat(assets.count) * 26 + 8, 180))
+                        .scrollContentBackground(.hidden)
+                        HStack {
+                            Text(link.order == nil ? "By name. Drag to arrange." : "As arranged").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                            if link.order != nil { Button("By Name") { link.order = nil }.settingButton() }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
     }
 
@@ -378,6 +421,7 @@ struct DeliverLinkOptions: View {
                     Text("Nothing").tag("none")
                 } label: { EmptyView() }.fixedSize()
             }
+            customOptions
             StudioSwitchRow(title: "Allow downloads", isOn: $link.allowDownload)
             StudioSwitchRow(title: "Review copy downloads", isOn: flag(\.allowProxy))
             StudioSwitchRow(title: "Show only the latest versions", isOn: $link.latestOnly)
@@ -607,6 +651,7 @@ struct DeliverSettings: View {
     }
 
     @AppStorage(DeliverSettings.authorKey) private var name = ""
+    @State private var library = false
     @AppStorage(ReviewHosting.settingKey) private var hosting = false
     @AppStorage(DeliverUploadDestination.newFootageKey) private var footageOnNAS = true
     @AppStorage(DeliverStore.activityDaysKey) private var activityDays = 90
@@ -635,6 +680,9 @@ struct DeliverSettings: View {
                     }
                     .onChange(of: activityDays) { DeliverStore.shared.trimAllActivity() }
                 }
+            }
+            SettingsCard("Statuses and Fields") {
+                SettingRow("Custom statuses and fields") { Button("Edit…") { library = true }.settingButton() }
             }
             SettingsCard("Branding") {
                 DeliverBrandingEditor(branding: Binding(get: { DeliverStore.shared.branding }, set: { DeliverStore.shared.branding = $0 }))
@@ -700,6 +748,7 @@ struct DeliverSettings: View {
         .sheet(isPresented: $guide) { ReviewNASGuideSheet() }
         .sheet(isPresented: $truenas) { ReviewTrueNASSetupSheet() }
         .sheet(item: $detail) { DeliverHostSheet(host: $0) }
+        .sheet(isPresented: $library) { DeliverLibraryEditor() }
     }
 
     private func measure() {

@@ -30,7 +30,59 @@ enum Deliver {
 
     enum Kind: String, Codable { case video, audio, image, document, other }   // document = PDF pages; other = download only
 
-    enum Status: String, Codable, CaseIterable { case none, needsReview, inProgress, needsChanges, approved }
+    /// A review status. The five built-ins keep their ids, so stored data and old wire values read unchanged; a custom
+    /// one is "c:<short>" (workflow plan 5). Any string decodes: an unknown id is kept as it came.
+    struct Status: RawRepresentable, Codable, Hashable {
+        var rawValue: String
+        init(rawValue: String) { self.rawValue = rawValue }
+        init(from decoder: Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
+        func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(rawValue) }
+        static let none = Status(rawValue: "none"), needsReview = Status(rawValue: "needsReview"), inProgress = Status(rawValue: "inProgress"),
+                   needsChanges = Status(rawValue: "needsChanges"), approved = Status(rawValue: "approved")
+        static let allCases = [none, needsReview, inProgress, needsChanges, approved]
+        var isBuiltin: Bool { Self.allCases.contains(self) }
+    }
+
+    /// A custom status (workflow plan 5): `colour` is a token name (`colours`).
+    struct StatusDef: Codable, Hashable, Identifiable {
+        var id: String                   // "c:<short>"
+        var name: String
+        var colour: String
+        static let colours = ["good", "bad", "warn", "quiet", "pink", "violet"]
+    }
+
+    /// A custom field (workflow plan 6). Values live on the asset as strings, parsed by kind; checkbox "1" or none.
+    struct FieldDef: Codable, Hashable, Identifiable {
+        var id: String                   // short; the wire name is "cf:<id>"
+        var name: String
+        var kind: String                 // text | number | date | select | person | checkbox
+        var options: [String]?           // select
+        static let kinds = ["text", "number", "date", "select", "person", "checkbox"]
+        var wireName: String { "cf:" + id }
+    }
+
+    /// A saved filter across projects (workflow plan 4), Mac-only. Every part is optional: missing matches all.
+    struct SavedView: Codable, Hashable, Identifiable {
+        var v = 1
+        var id = UUID()
+        var name: String
+        var statuses: [String]?          // status ids
+        var assignee: String?            // a name; "me" = the owner's
+        var due: String?                 // overdue | week
+        var tag: String?                 // a keyword
+        var openComments: Bool?
+        var projects: [UUID]?            // nil = all projects
+        var field: FieldRule?            // a custom field
+        struct FieldRule: Codable, Hashable { var id: String; var op: String; var value: String }   // op: is | contains | set
+    }
+
+    /// The owner's custom statuses, fields and views, kept in the store's library.json.
+    struct Library: Codable, Hashable {
+        var v = 1
+        var statuses: [StatusDef]?
+        var fields: [FieldDef]?
+        var views: [SavedView]?
+    }
 
     struct Asset: Codable, Identifiable, Hashable {
         var id = UUID()
@@ -41,6 +93,7 @@ enum Deliver {
         var versions: [Version]          // ≥ 1; last = current
         var created = Date()
         var fields: Fields?
+        var customFields: [String: String]?   // FieldDef id → value (workflow plan 6)
         var rev: Int?, at: Date?, by: String?
 
         var current: Version { versions[versions.count - 1] }
@@ -210,6 +263,9 @@ enum Deliver {
         var deadline: Date?              // feedback closes then (else the project's)
         var reminded: [String]?          // this Mac only: "3d", "1d", "closed"
         var madeOn: String?              // the device whose Keychain holds the key
+        // Workflow plan 3, 5.
+        var order: [UUID]?               // "As arranged": asset ids; missing ones sort last by name
+        var customStatuses: Bool?        // send the custom statuses' names and colours
         var rev: Int?, at: Date?, by: String?
         enum Mode: String, Codable, CaseIterable { case review, presentation }
         var isLive: Bool { revoked == nil && (expires ?? .distantFuture) > Date() }
@@ -288,6 +344,7 @@ enum Deliver {
         /// A project's shared links (they show only in their project), with one opened.
         case links(UUID, link: UUID?)
         case inbox, deliveryCheck, archiveProject, people
+        case view(UUID)
         case nas(UUID)
         case browse(PlaceID)
     }

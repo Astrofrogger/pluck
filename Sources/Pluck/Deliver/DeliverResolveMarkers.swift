@@ -82,8 +82,147 @@ enum DeliverResolveMarkers {
         })
         let (placed, moved, skipped) = place(ours, occupied: occupied)
         let answer = try await bridge(["action": "addMarkers", "markers": placed.map(\.json), "remove": old.sorted()])
+        remember(placed.map(\.data))
         return Result(timeline: name, added: answer["added"] as? Int ?? 0, moved: moved + (answer["moved"] as? [String] ?? []),
                       skipped: skipped + (answer["skipped"] as? [String] ?? []))
+    }
+}
+
+// MARK: - Update from Resolve (workflow plan 1)
+
+extension DeliverResolveMarkers {
+    /// What "Update from Resolve Timeline" found on the open timeline.
+    struct Pull: Equatable {
+        var timeline: String
+        var complete: [UUID] = []        // turned green in Resolve, still open here
+        var removed: [UUID] = []         // sent before, gone from the timeline, still open
+        var new: [New] = []              // the editor's own markers
+        struct New: Equatable { var frame: Int; var markerFrame: Int; var text: String }
+    }
+
+    /// The `pluck:<id>` data sent to Resolve, so a missing marker reads as removed, not as never sent.
+    static let sentKey = "deliverResolveSent"
+    static var sent: Set<String> { Set(UserDefaults.standard.stringArray(forKey: sentKey) ?? []) }
+    static func remember(_ data: [String]) {
+        let old = (UserDefaults.standard.stringArray(forKey: sentKey) ?? []).filter { !data.contains($0) }
+        UserDefaults.standard.set(Array((old + data).suffix(5000)), forKey: sentKey)
+    }
+
+    /// Matches by id only (a marker moved up to 5 frames still matches); frames come back by 1 / factor.
+    /// A marker whose name or note starts with "re: " isn't guessed at as a reply: skipped.
+    static func pull(_ comments: [Deliver.Comment], probe: Deliver.Probe, info: [String: Any], sent: Set<String>) -> Pull? {
+        guard let name = info["timeline"] as? String, let rate = (info["rate"] as? NSNumber)?.doubleValue, rate > 0 else { return nil }
+        let factor = factor(rate: rate, probe: probe)
+        let there = info["markers"] as? [[String: Any]] ?? []
+        let byData = Dictionary(there.map { ($0["data"] as? String ?? "", $0) }, uniquingKeysWith: { a, _ in a })
+        var result = Pull(timeline: name)
+        for comment in comments where comment.frame != nil && comment.page == nil && !comment.completed {
+            let data = "pluck:\(comment.id.uuidString)"
+            if let marker = byData[data] {
+                if marker["color"] as? String == "Green" { result.complete.append(comment.id) }
+            } else if sent.contains(data) {
+                result.removed.append(comment.id)
+            }
+        }
+        for marker in there.sorted(by: { ($0["frame"] as? Int ?? 0) < ($1["frame"] as? Int ?? 0) }) {
+            guard !(marker["data"] as? String ?? "").hasPrefix("pluck:"), let at = marker["frame"] as? Int else { continue }
+            let title = (marker["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let note = (marker["note"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.lowercased().hasPrefix("re: ") || note.lowercased().hasPrefix("re: ") { continue }
+            let frame = Int((Double(at) / factor).rounded())
+            guard frame >= 0, frame < max(probe.frames, 1) else { continue }
+            let text = [title, note].filter { !$0.isEmpty }.joined(separator: "\n")
+            result.new.append(.init(frame: frame, markerFrame: at, text: String((text.isEmpty ? String(localized: "Marker") : text).prefix(DeliverStore.textLimit))))
+        }
+        return result
+    }
+
+    /// Reads the open timeline for one version.
+    static func read(_ version: Deliver.Version, comments: [Deliver.Comment]) async throws -> Pull {
+        guard let probe = version.probe else { throw Failure(message: String(localized: "This version has no frames to mark.")) }
+        let info = try? await bridge(["action": "timelineInfo"])
+        guard let info, let found = pull(comments, probe: probe, info: info, sent: sent) else {
+            throw Failure(message: String(localized: "Open the timeline in DaVinci Resolve first"))
+        }
+        return found
+    }
+
+    /// Completes, imports (internal, by the owner) and tags the imported markers `pluck:<new id>`.
+    @discardableResult
+    static func apply(_ pull: Pull, asset: Deliver.Asset, version: Deliver.Version, markRemoved: Bool, store: DeliverStore = .shared) async throws -> (completed: Int, added: Int) {
+        var completed = 0, tags: [[String: Any]] = []
+        for id in pull.complete + (markRemoved ? pull.removed : []) where (try? store.complete(id, true)) != nil { completed += 1 }
+        for marker in pull.new {
+            guard let made = try? store.addComment(asset: asset.id, version: version.id, frame: marker.frame, text: marker.text,
+                                                  author: DeliverSettings.author, isInternal: true) else { continue }
+            tags.append(["frame": marker.markerFrame, "data": "pluck:\(made.id.uuidString)"])
+        }
+        if !tags.isEmpty {
+            remember(tags.compactMap { $0["data"] as? String })
+            _ = try await bridge(["action": "tagMarkers", "tags": tags])
+        }
+        return (completed, tags.count)
+    }
+}
+
+/// "Update from Resolve Timeline": what changed there, one question for removed markers, then a confirm.
+struct DeliverResolvePullSheet: View {
+    let asset: Deliver.Asset
+    let version: Deliver.Version
+    @Environment(\.dismiss) private var dismiss
+    @State private var found: DeliverResolveMarkers.Pull?
+    @State private var markRemoved = false
+    @State private var working = false
+    @State private var result: String?
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Update from Resolve timeline").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            if let found, result == nil {
+                Text(verbatim: found.timeline).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                StudioField(label: "Completed") { Text(verbatim: "\(found.complete.count)") }
+                StudioField(label: "New") { Text(verbatim: "\(found.new.count)") }
+                StudioField(label: "Removed") { Text(verbatim: "\(found.removed.count)") }
+                if !found.removed.isEmpty {
+                    StudioSwitchRow(title: "\(found.removed.count) markers were removed in Resolve. Mark those comments done?", isOn: $markRemoved)
+                }
+                if found.new.isEmpty, found.complete.isEmpty, found.removed.isEmpty {
+                    Text("Nothing changed in Resolve.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
+            if let result { Text(verbatim: result).font(Design.Studio.body).foregroundStyle(Design.Studio.good) }
+            if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
+            HStack {
+                if working { PlumSpinner() }
+                Spacer()
+                Button(result == nil ? "Cancel" : "Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
+                if result == nil, let found, !(found.new.isEmpty && found.complete.isEmpty && found.removed.isEmpty) {
+                    Button("Update") { Task { await apply(found) } }.buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(working)
+                }
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 400)
+        .background(Design.Studio.panel)
+        .task { await read() }
+    }
+
+    private func read() async {
+        working = true
+        defer { working = false }
+        do { found = try await DeliverResolveMarkers.read(version, comments: DeliverStore.shared.comments(asset.id, version: version.id)) } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    private func apply(_ found: DeliverResolveMarkers.Pull) async {
+        working = true
+        defer { working = false }
+        do {
+            let done = try await DeliverResolveMarkers.apply(found, asset: asset, version: version, markRemoved: markRemoved)
+            result = String(localized: "\(done.completed) comments done, \(done.added) new")
+        } catch { problem = error.localizedDescription }
     }
 }
 

@@ -412,8 +412,14 @@ final class DeliverSync {
         var fields: Deliver.Fields?
         if let json = wire["fields"], let data = try? JSONSerialization.data(withJSONObject: json) { fields = try? Deliver.decoder.decode(Deliver.Fields.self, from: data) }
         var asset = Deliver.Asset(id: id, name: name, folder: uuid(wire["folder"]), kind: kind,
-                                  status: (wire["status"] as? String).flatMap(Deliver.Status.init(rawValue:)) ?? .none, versions: versions,
+                                  status: (wire["status"] as? String).map(Deliver.Status.init(rawValue:)) ?? .none, versions: versions,
                                   created: date(wire["created"]) ?? .now, fields: fields)
+        let custom = ((wire["fields"] as? [String: Any]) ?? [:]).compactMap { key, value -> (String, String)? in
+            guard key.hasPrefix("cf:"), let value = value as? String else { return nil }
+            return (String(key.dropFirst(3)), value)
+        }
+        if !custom.isEmpty { asset.customFields = Dictionary(custom, uniquingKeysWith: { a, _ in a }) }
+        if asset.fields?.isEmpty == true { asset.fields = nil }
         stamp(&asset, wire)
         return asset
     }
@@ -451,6 +457,8 @@ final class DeliverSync {
             link.notify = .init(email: true, recipientEmail: notify["recipientEmail"] as? String)
         }
         link.madeOn = wire["madeOn"] as? String
+        link.order = (wire["order"] as? [String]).map { $0.compactMap(UUID.init(uuidString:)) }
+        link.customStatuses = (wire["customStatuses"] as? Bool) == true ? true : nil
         if let mark = wire["watermark"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: mark) {
             link.watermark = try? Deliver.decoder.decode(Deliver.ShareLink.Watermark.self, from: data)
         }

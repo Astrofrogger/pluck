@@ -480,8 +480,20 @@ if action == "timelineInfo":
     timeline = project.GetCurrentTimeline() if project else None
     if timeline is None:
         out({"error": "noTimeline"})
-    markers = [{"frame": int(f), "data": m.get("customData", "")} for f, m in (timeline.GetMarkers() or {}).items()]
+    markers = [{"frame": int(f), "data": m.get("customData", ""), "color": m.get("color", ""), "name": m.get("name", ""),
+                "note": m.get("note", ""), "duration": int(m.get("duration", 1) or 1)} for f, m in (timeline.GetMarkers() or {}).items()]
     out({"timeline": timeline.GetName(), "rate": rate_of(timeline), "start": timeline.GetStartFrame(), "end": timeline.GetEndFrame(), "markers": markers})
+
+if action == "tagMarkers":
+    # "Update from Resolve": an editor's own markers imported as comments get "pluck:<new id>", so a second pull skips them.
+    timeline = project.GetCurrentTimeline() if project else None
+    if timeline is None:
+        out({"error": "noTimeline"})
+    tagged = 0
+    for m in cmd["tags"]:
+        if timeline.UpdateMarkerCustomData(m["frame"], m["data"]):
+            tagged += 1
+    out({"tagged": tagged})
 
 if action == "addMarkers":
     # Pluck's markers by their data ("pluck:<comment id>"): the old ones go, then each is added, a frame on

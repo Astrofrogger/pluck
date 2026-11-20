@@ -278,6 +278,7 @@ struct DeliverPage: View {
             if store.project(project) != nil { DeliverLinksView(nav: nav, project: project, opened: link).id(project) } else { DeliverProjects(nav: nav) }
         case .inbox: DeliverProjects(nav: nav).overlay(alignment: .leading) { DeliverInbox(nav: nav) }
         case .people: DeliverPeopleView()
+        case .view(let id): DeliverViewResults(nav: nav, view: id).id(id)
         case .deliveryCheck: DeliveryCheckView().padding(Design.Studio.panelInset)
         case .archiveProject: DeliverProjects(nav: nav)
         case .nas(let id):
@@ -388,6 +389,7 @@ struct DeliverSidebar: View {
     @State private var actions = DeliverProjectActions.shared
     @State private var settingUp = false
     @State private var inviting: Deliver.Host?
+    @State private var newView: Deliver.SavedView?
     @State private var pairing = DeliverPairing.shared
     @State private var sync = DeliverSync.shared
     @State private var request = DeliverShareRequest.shared
@@ -447,6 +449,7 @@ struct DeliverSidebar: View {
         }
         .sheet(item: Binding(get: { actions.sharing.map(DeliverShareTarget.init) }, set: { actions.sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
         .sheet(isPresented: $settingUp) { DeliverServerChooser() }
+        .sheet(item: $newView) { DeliverViewEditor(view: $0, project: $0.projects?.first) }
         .sheet(item: $inviting) { DeliverInviteSheet(host: $0) }
         .sheet(item: Binding(get: { actions.branding.map(DeliverProjectID.init) }, set: { actions.branding = $0?.id })) { DeliverProjectBrandingSheet(project: $0.id) }
     }
@@ -589,6 +592,7 @@ struct DeliverSidebar: View {
             }
         }
         row(String(localized: "Inbox"), symbol: "tray", on: nav.deliver == .inbox, count: store.unread) { nav.deliver = nav.deliver == .inbox ? .projects : .inbox }
+        views
         // People (accounts plan §5): the main server's team, once there is a main.
         if DeliverPeople.main() != nil {
             row(DeliverPeople.title, symbol: "person.2", on: nav.deliver == .people, dot: DeliverPeople.shared.pending > 0) { nav.deliver = .people }
@@ -602,6 +606,23 @@ struct DeliverSidebar: View {
         // Archive Project shows once that tool exists (hidden, not greyed, until then).
         if let archive = deliverArchiveTool() {
             row(String(localized: archive.name), symbol: archive.symbol, on: nav.deliver == .archiveProject) { nav.open(archive) }
+        }
+    }
+
+    // MARK: Views (workflow plan 4): the built-ins, then the owner's; each with its count.
+
+    @ViewBuilder private var views: some View {
+        HStack {
+            Text("Views").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            Spacer()
+            Button { newView = .init(name: "", projects: nav.deliver.project.map { [$0] }) } label: { Image(systemName: "plus").font(.system(size: 12)) }
+                .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("New View…")
+        }
+        .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2)
+        ForEach(store.views) { view in
+            let symbol = view.id == Deliver.mineView ? "person.crop.circle" : view.id == Deliver.overdueView ? "exclamationmark.circle" : "line.3.horizontal.decrease.circle"
+            row(view.name, symbol: symbol, on: nav.deliver == .view(view.id), dot: view.id == Deliver.overdueView && !store.assets(in: view).isEmpty,
+                count: store.assets(in: view).count) { nav.deliver = .view(view.id) }
         }
     }
 

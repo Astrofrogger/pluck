@@ -45,6 +45,7 @@ final class DeliverDeadlines {
     func check(now: Date? = nil) {
         let now = now ?? server.clock()
         server.deadlinesChanged()
+        checkAssignments(now: now)
         for link in store.links where link.isLive {
             guard let deadline = Self.effective(link, store: store) else { continue }
             var reminded = Set(link.reminded ?? [])

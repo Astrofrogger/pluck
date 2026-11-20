@@ -18,6 +18,8 @@ final class DeliverStore {
     private(set) var contents: [UUID: Deliver.ProjectContent] = [:]
     private(set) var links: [Deliver.ShareLink] = []
     private(set) var inbox: [Deliver.InboxItem] = []
+    /// Custom statuses, fields and saved views (workflow plan 4–6): this Mac's, library.json.
+    private(set) var library = Deliver.Library()
     /// Goes up whenever comments or approvals change (views that show them reload).
     private(set) var commentsChanged = 0
     /// Goes up whenever a link's activity log grows.
@@ -115,6 +117,7 @@ final class DeliverStore {
 
     private var projectsFile: URL { root.appendingPathComponent("projects.json") }
     private var linksFile: URL { root.appendingPathComponent("links.json") }
+    private var libraryFile: URL { root.appendingPathComponent("library.json") }
     private var inboxFile: URL { root.appendingPathComponent("inbox.json") }
     func folder(_ project: UUID) -> URL { root.appendingPathComponent("Projects/\(project.uuidString)", isDirectory: true) }
     private func commentsFile(_ project: UUID, _ asset: UUID) -> URL { folder(project).appendingPathComponent("comments/\(asset.uuidString).json") }
@@ -135,6 +138,7 @@ final class DeliverStore {
         links = read([Deliver.ShareLink].self, linksFile) ?? []
         upgradeLegacyKeys()
         inbox = read([Deliver.InboxItem].self, inboxFile) ?? []
+        library = read(Deliver.Library.self, libraryFile) ?? .init()
         contents = [:]
         owner = [:]
         comments = [:]
@@ -151,6 +155,10 @@ final class DeliverStore {
     private func saveProjects() { write(projects, projectsFile) }
     private func saveLinks() { write(links, linksFile); tell(.linksChanged) }
     private func saveInbox() { write(inbox, inboxFile) }
+    func editLibrary(_ change: (inout Deliver.Library) -> Void) {
+        change(&library)
+        write(library, libraryFile)
+    }
 
     // MARK: - Projects
 
@@ -392,6 +400,7 @@ final class DeliverStore {
     /// One metadata field (§6.1): rating 0…5, keywords (≤ 20 of ≤ 40 chars), assignee, due (yyyy-MM-dd), notes (≤ 2,000).
     func setField(_ field: String, _ value: Any?, of asset: UUID, by author: String) throws {
         guard find(asset) != nil else { throw Deliver.Failure("notFound") }
+        if field.hasPrefix("cf:") { return try setCustomField(field, value, of: asset, by: author) }
         let value = value is NSNull ? nil : value
         var fields = find(asset)?.asset.fields ?? .init()
         switch field {

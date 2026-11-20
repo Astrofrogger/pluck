@@ -314,6 +314,23 @@ final class DeliverServer {
         } else { info["uploads"] = NSNull() }
         if let header = store.branding(for: link.project)?.header { info["header"] = "data:image/jpeg;base64," + header.base64EncodedString() }
         if let deadline = DeliverDeadlines.effective(link, store: store) { info["deadline"] = Self.date(deadline) }
+        // Workflow plan 3, 5, 6 (optional; old pages ignore them): the link's own order, custom statuses' and fields' names.
+        if let order = link.order, !order.isEmpty {
+            // (Ids of the link's project only; the page orders what it lists and ignores the rest.)
+            let mine = Set(store.content(link.project).assets.map(\.id))
+            info["order"] = order.filter(mine.contains).map(\.uuidString)
+        }
+        if link.customStatuses == true, let defs = store.library.statuses, !defs.isEmpty {
+            info["statusDefs"] = defs.map { ["id": $0.id, "name": $0.name, "colour": $0.colour] }
+        }
+        let fieldDefs = store.fieldDefs.filter { link.isTeam || link.shownFields.contains($0.wireName) }
+        if !fieldDefs.isEmpty {
+            info["fieldDefs"] = fieldDefs.map { def -> [String: Any] in
+                var wire: [String: Any] = ["id": def.wireName, "name": def.name, "kind": def.kind]
+                if let options = def.options { wire["options"] = options }
+                return wire
+            }
+        }
         return info
     }
 
@@ -452,11 +469,14 @@ final class DeliverServer {
                              "asset": summary(store.find(asset.id)?.asset ?? asset, link)])
         case "field-set":
             let asset = try asset(message["asset"], link)
-            guard let field = message["field"] as? String, Deliver.Fields.names.contains(field) else { throw Deliver.Failure("invalid") }
+            // (A custom field only when the link lists it, as the built-in ones.)
+            guard let field = message["field"] as? String, Deliver.Fields.names.contains(field)
+                    || (field.hasPrefix("cf:") && (link.isTeam || link.shownFields.contains(field))) else { throw Deliver.Failure("invalid") }
             // Clients set only the link's featured field; a team link sets any.
             guard link.isTeam || field == (link.featuredField ?? "status") else { throw Deliver.Failure("scope") }
             if field == "status" {
-                guard let value = (message["value"] as? String).flatMap(Deliver.Status.init(rawValue:)), value != .none else { throw Deliver.Failure("invalid") }
+                // (Custom statuses are the owner's to set: browsers set the built-in ones.)
+                guard let value = (message["value"] as? String).map(Deliver.Status.init(rawValue:)), value.isBuiltin, value != .none else { throw Deliver.Failure("invalid") }
                 switch value {
                 case .approved: try approve(peer, asset, asset.current, .approve, link)
                 case .needsChanges: try approve(peer, asset, asset.current, .changes, link)
@@ -700,6 +720,7 @@ final class DeliverServer {
         if shown.contains("assignee"), let assignee = fields.assignee { json["assignee"] = assignee }
         if shown.contains("due"), let due = fields.due { json["due"] = due }
         if shown.contains("notes"), let notes = fields.notes { json["notes"] = notes }
+        for (id, value) in asset.customFields ?? [:] where link.isTeam || shown.contains("cf:" + id) { json["cf:" + id] = value }
         return json
     }
 
