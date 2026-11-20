@@ -29,6 +29,9 @@ extension PhotoSelfTest {
         let written = folder.appendingPathComponent("tx")
         DeliverCopies.writeTranscript(transcript, into: written)
         check("media: transcript files written", fm.fileExists(atPath: written.appendingPathComponent("captions.vtt").path) && fm.fileExists(atPath: written.appendingPathComponent("transcript.json").path))
+        try? "WEBVTT\n\nsidecar".write(to: written.appendingPathComponent("captions.vtt"), atomically: true, encoding: .utf8)
+        DeliverCopies.writeTranscript(transcript, into: written, keepCaptions: true)
+        check("media: subtitles beside the original keep their captions.vtt", (try? String(contentsOf: written.appendingPathComponent("captions.vtt"), encoding: .utf8)) == "WEBVTT\n\nsidecar")
 
         // 4K/HDR strings and arguments.
         check("media: 4K codecs", DeliverCopies.codecs("2160", audio: true) == "hvc1.1.6.L153.B0,mp4a.40.2" && DeliverCopies.codecs("2160h", audio: false) == "hvc1.2.4.L153.B0"

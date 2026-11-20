@@ -43,7 +43,8 @@ extension DeliverCopies {
             if let transcript { TranscriptStore.save(transcript) }
         }
         guard let transcript else { return }
-        Self.writeTranscript(transcript, into: store.copies(id))
+        // (Subtitles beside the original made captions.vtt: they stay, as a NAS keeps them (copies.rs keep_sent).)
+        Self.writeTranscript(transcript, into: store.copies(id), keepCaptions: Self.cues(for: source)?.isEmpty == false)
         store.update(version: id, of: asset) { $0.transcribed = .now }   // (a change: the data NAS gets the files with it)
         store.tell(.assetChanged(asset))
         ReviewPublish.shared.resend(asset)
@@ -58,10 +59,12 @@ extension DeliverCopies {
     }
 
     /// captions.vtt and transcript.json from a Pluck transcript (word times kept; speakers by the names set in Pluck).
-    nonisolated static func writeTranscript(_ transcript: Transcript, into out: URL) {
+    /// `keepCaptions`: a captions.vtt there (from subtitles beside the original) isn't replaced.
+    nonisolated static func writeTranscript(_ transcript: Transcript, into out: URL, keepCaptions: Bool = false) {
         let files = transcriptFiles(transcript)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        try? files.vtt.write(to: out.appendingPathComponent("captions.vtt"), atomically: true, encoding: .utf8)
+        let captions = out.appendingPathComponent("captions.vtt")
+        if !keepCaptions || !FileManager.default.fileExists(atPath: captions.path) { try? files.vtt.write(to: captions, atomically: true, encoding: .utf8) }
         try? files.json.write(to: out.appendingPathComponent("transcript.json"), options: .atomic)
     }
 
