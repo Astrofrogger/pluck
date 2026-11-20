@@ -70,6 +70,13 @@ extension PhotoSelfTest {
         for _ in 0..<200 where later.running { try? await Task.sleep(for: .milliseconds(100)) }
         check("sync proxies: proxies dropped after their originals are left out too", later.proxiesLeftOut.count == 2 && later.clips.count == 7
               && later.clips.filter(\.isProxy).map(\.name) == ["N164_C002.mov"], later.clips.map(\.name).joined(separator: ", "))
+        // What's sent is the original, never its proxy.
+        if let c = model.cameras.firstIndex(where: { $0.clips.contains { $0.proxy != nil } }) {
+            model.cameras[c].clips[0].start = 0
+            let xml = CameraSyncExport.fcpxml(model.cameras, name: "Proxies")
+            check("sync proxies: the original is sent, not its proxy", xml.contains(model.cameras[c].clips[0].name) && !xml.contains("/Proxy/") && !xml.contains("_Proxy")
+                  && !xml.contains("/Sub/") && !xml.contains("OptimizedMedia"))
+        }
         model.includeProxies()
         check("sync proxies: Include puts them back", model.proxiesLeftOut.isEmpty && model.clips.count == 11)
     }

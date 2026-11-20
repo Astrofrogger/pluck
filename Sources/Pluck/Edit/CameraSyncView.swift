@@ -17,12 +17,34 @@ final class CameraSyncModel {
     var audioFirst = false
     /// Proxies of clips that are here as originals: not synced, not sent.
     var proxiesLeftOut: [CameraSync.Probe] = []
+    /// While syncing: the places found so far (shown as they come), the clips being listened to, and what just happened.
+    var live: [UUID: SyncClip] = [:]
+    var listening: Set<UUID> = []
+    var liveLine: String?
+    var stage: Stage?
+    enum Stage: Int, CaseIterable { case reading, listening, matching }
+    /// The angle viewer: the moment on the timeline, the camera shown, and the camera heard (nil: the one shown).
+    var playhead = 0.0
+    var angle: UUID?
+    var soundFrom: UUID?
+    /// How the cameras were before each nudge or move, for Undo, and after each undone, for Redo (none recorded while syncing).
+    private(set) var history: [[SyncCamera]] = []
+    private(set) var future: [[SyncCamera]] = []
     private(set) var task: Task<Void, Never>?
     /// Dropped while clips were still being read: read right after (a second drop used to report ffmpeg missing).
     @ObservationIgnored private var pending: [URL] = []
     @ObservationIgnored let cache = SyncCache()
 
     var running: Bool { task != nil }
+    /// The cameras as drawn: while syncing, with the places found so far.
+    var shown: [SyncCamera] {
+        guard !live.isEmpty else { return cameras }
+        return cameras.map { camera in
+            var camera = camera
+            for i in camera.clips.indices { if let found = live[camera.clips[i].id] { camera.clips[i] = found } }
+            return camera
+        }
+    }
     var rate: Double { CameraSyncExport.rate(cameras) }
     var synced: Bool { cameras.contains { $0.clips.contains { $0.start != nil } } }
     var clips: [SyncClip] { cameras.flatMap(\.clips) }
@@ -39,6 +61,7 @@ final class CameraSyncModel {
         let known = clips
         task = Task {
             status = String(localized: "Reading the clips")
+            stage = .reading
             let found = await Task.detached { CameraSync.files(in: urls) }.value
             var probes: [CameraSync.Probe] = []
             for (number, item) in found.enumerated() where !known.contains(where: { $0.path == item.file.path }) {
@@ -92,6 +115,8 @@ final class CameraSyncModel {
     /// The proxies left out, back in as cameras of their own.
     func includeProxies() {
         guard task == nil else { return }
+        history = []
+        future = []
         cameras += CameraSync.group(proxiesLeftOut)
         proxiesLeftOut = []
     }
@@ -101,23 +126,37 @@ final class CameraSyncModel {
         guard task == nil, let ffmpeg else { if ffmpeg == nil { problem = Converting.Failure.noFFmpeg.localizedDescription }; return }
         problem = nil
         done = nil
+        live = [:]
+        listening = []
+        stage = .listening
         var input = cameras
         // One clip: the others held where they are for this run.
         let held = Set(clips.filter { only != nil && $0.id != only && $0.start != nil && !$0.locked }.map(\.id))
         for c in input.indices { for i in input[c].clips.indices where held.contains(input[c].clips[i].id) { input[c].clips[i].locked = true } }
         if let only { for c in input.indices { for i in input[c].clips.indices where input[c].clips[i].id == only { input[c].clips[i].locked = false } } }
         let cache = cache, audioFirst = audioFirst
+        let buffer = LiveBuffer()
+        // What's found is shown about ten times a second, not on every event.
+        let flusher = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                self?.apply(buffer.take())
+            }
+        }
+        let slates = String(localized: "Looking for timecode slates")
         task = Task {
             status = String(localized: "Listening")
-            var result = await CameraSync.sync(input, options: .init(ffmpeg: ffmpeg, sound: { cache.sound($0) }, cache: cache, audioFirst: audioFirst)) { share, text in
-                Task { @MainActor in
-                    CameraSyncModel.shared.share = share
-                    if !text.isEmpty { CameraSyncModel.shared.status = text }
-                }
+            var result = await CameraSync.sync(input, options: .init(ffmpeg: ffmpeg, sound: { cache.sound($0) }, cache: cache, audioFirst: audioFirst,
+                                                                     live: { buffer.add(.event($0)) })) { share, text in
+                buffer.add(.progress(share, text == slates ? .reading : share < 0.4 ? .listening : .matching, text))
             }
+            flusher.cancel()
+            apply(buffer.take())
             for c in result.indices { for i in result[c].clips.indices where held.contains(result[c].clips[i].id) { result[c].clips[i].locked = false } }
             guard !Task.isCancelled else { return }
-            cameras = result
+            withAnimation(.smooth(duration: 0.5)) { cameras = result }
+            history = []
+            future = []
             let missed = result.flatMap(\.clips).filter { $0.start == nil }.count
             var problems: [String] = []
             if missed > 0 { problems.append(String(localized: "Not synced: \(missed). Nudge them into place, or check they’re from this event.")) }
@@ -143,10 +182,40 @@ final class CameraSyncModel {
         task = nil
         status = nil
         share = 0
+        live = [:]
+        listening = []
+        liveLine = nil
+        stage = nil
+    }
+
+    /// What a sync reported since the last look.
+    private func apply(_ events: [LiveBuffer.Item]) {
+        guard task != nil, !events.isEmpty else { return }
+        for item in events {
+            switch item {
+            case .progress(let value, let stage, let text):
+                share = value
+                self.stage = stage
+                if !text.isEmpty { status = text }
+            case .event(.listening(let id)): listening.insert(id)
+            case .event(.heard(let id)): listening.remove(id)
+            case .event(.placed(let clip)):
+                live[clip.id] = clip
+                if let camera = cameras.first(where: { $0.clips.contains { $0.id == clip.id } }),
+                   let number = camera.clips.firstIndex(where: { $0.id == clip.id }) {
+                    liveLine = "\(camera.name) · " + String(localized: "clip \(number + 1) of \(camera.clips.count) · matched by sound")
+                }
+            }
+        }
     }
 
     func clear() {
-        stop()
+        guard task == nil else { return }
+        history = []
+        future = []
+        angle = nil
+        soundFrom = nil
+        playhead = 0
         cameras = []
         selected = nil
         proxiesLeftOut = []
@@ -160,8 +229,33 @@ final class CameraSyncModel {
         for c in cameras.indices { for i in cameras[c].clips.indices where cameras[c].clips[i].id == id { change(&cameras[c].clips[i]) } }
     }
 
+    /// Keeps how things are for Undo. Nothing can be changed while syncing: false then.
+    private func record() -> Bool {
+        guard task == nil else { return false }
+        history.append(cameras)
+        if history.count > 100 { history.removeFirst() }
+        future = []
+        return true
+    }
+
+    var canUndo: Bool { task == nil && !history.isEmpty }
+    var canRedo: Bool { task == nil && !future.isEmpty }
+
+    func undo() {
+        guard task == nil, let last = history.popLast() else { return }
+        future.append(cameras)
+        cameras = last
+    }
+
+    func redo() {
+        guard task == nil, let next = future.popLast() else { return }
+        history.append(cameras)
+        cameras = next
+    }
+
     /// Moves a clip by whole timeline frames, and holds it there.
     func nudge(_ id: UUID, frames: Int) {
+        guard record() else { return }
         let rate = rate
         // Not synced yet: from where it's drawn, after its camera's synced clips.
         let camera = cameras.first { $0.clips.contains { $0.id == id } }
@@ -174,12 +268,22 @@ final class CameraSyncModel {
         }
     }
 
-    func toggleLock(_ id: UUID) { edit(id) { $0.locked.toggle() } }
+    /// Moves a placed clip along the timeline (dragged), to a whole frame, and holds it there.
+    func shift(_ id: UUID, by seconds: Double) {
+        let frames = Int((seconds * rate).rounded())
+        guard frames != 0, clips.contains(where: { $0.id == id && $0.start != nil }) else { return }
+        nudge(id, frames: frames)
+    }
+
+    func toggleLock(_ id: UUID) {
+        guard record() else { return }
+        edit(id) { $0.locked.toggle() }
+    }
 
     /// Into another camera (nil: a camera of its own).
     func move(_ id: UUID, to camera: UUID?) {
         guard let from = cameras.firstIndex(where: { $0.clips.contains { $0.id == id } }),
-              let clip = cameras[from].clips.first(where: { $0.id == id }) else { return }
+              let clip = cameras[from].clips.first(where: { $0.id == id }), record() else { return }
         cameras[from].clips.removeAll { $0.id == id }
         if let camera, let to = cameras.firstIndex(where: { $0.id == camera }) {
             cameras[to].clips.append(clip)
@@ -191,7 +295,7 @@ final class CameraSyncModel {
     }
 
     func rename(_ camera: UUID, _ name: String) {
-        guard let index = cameras.firstIndex(where: { $0.id == camera }), !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        guard task == nil, let index = cameras.firstIndex(where: { $0.id == camera }), !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         cameras[index].name = name
     }
 
@@ -216,6 +320,7 @@ final class CameraSyncModel {
     }
 
     func saveFCPXML() {
+        guard task == nil else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "fcpxml") ?? .xml]
         panel.nameFieldStringValue = name + ".fcpxml"
@@ -229,16 +334,10 @@ final class CameraSyncModel {
     }
 
     func openInEdit() {
+        guard task == nil else { return }
         let project = CameraSyncExport.project(cameras, name: name)
         ProjectStore.save(project)
         StudioNavigator.shared.open(project)
-    }
-
-    /// The placed clip of another camera that runs longest beside this one.
-    func partner(of clip: SyncClip) -> SyncClip? {
-        let own = cameras.first { $0.clips.contains { $0.id == clip.id } }?.id
-        return cameras.filter { $0.id != own }.flatMap(\.clips).filter { $0.hasVideo && CameraSync.overlap($0, clip) > 0 }
-            .max { CameraSync.overlap($0, clip) < CameraSync.overlap($1, clip) }
     }
 }
 
@@ -249,6 +348,8 @@ struct CameraSyncView: View {
     @State private var dropping = false
     @State private var zoom = 1.0
     @State private var showingProxies = false
+    @State private var dragging: (id: UUID, dx: CGFloat)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Footage to add when the view appears (screenshot mode).
     @MainActor static var openFiles: [URL] = []
 
@@ -266,15 +367,22 @@ struct CameraSyncView: View {
                 if let status = model.status {
                     HStack(spacing: 10) {
                         PlumSpinner()
-                        Text(status).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                        if let stage = model.stage, stage != .reading || model.cameras.isEmpty == false {
+                            stages(stage)
+                        }
+                        Text(model.liveLine ?? status).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                            .contentTransition(.opacity)
                         Spacer()
                         Button("Stop") { model.stop() }.buttonStyle(StudioFlatButtonStyle())
                     }
-                    StudioProgress(share: model.share)
+                    StudioProgress(share: stageShare)
                 }
                 if let problem = model.problem { notice(problem, symbol: "exclamationmark.triangle", colour: Design.Studio.warn) }
                 if let done = model.done { notice(done, symbol: "checkmark", colour: Design.Studio.good) }
                 if !model.proxiesLeftOut.isEmpty { proxiesLine }
+                if model.cameras.contains(where: { $0.clips.contains { $0.hasVideo && $0.start != nil } }) || !model.live.isEmpty {
+                    SyncAngleViewer(model: model)
+                }
                 if !model.cameras.isEmpty { lanes }
                 if let id = model.selected, let clip = model.clips.first(where: { $0.id == id }) {
                     SyncClipInspector(model: model, clip: clip).id(clip.id)
@@ -307,7 +415,7 @@ struct CameraSyncView: View {
             Spacer()
             if !model.cameras.isEmpty {
                 Button("Add…", systemImage: "plus", action: choose).buttonStyle(StudioFlatButtonStyle())
-                Button("Clear", action: model.clear).buttonStyle(StudioFlatButtonStyle())
+                Button("Clear", action: model.clear).buttonStyle(StudioFlatButtonStyle()).disabled(model.running)
                 HStack(spacing: 6) {
                     Text("Sound first").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                     Toggle("Sound first", isOn: $model.audioFirst).toggleStyle(StudioSwitchStyle())
@@ -335,6 +443,33 @@ struct CameraSyncView: View {
                         .disabled(model.running)
                 }
             }
+        }
+    }
+
+    /// Reading · Listening · Matching, the one under way brighter.
+    private func stages(_ stage: CameraSyncModel.Stage) -> some View {
+        HStack(spacing: 6) {
+            ForEach(CameraSyncModel.Stage.allCases, id: \.self) { each in
+                if each != .reading { Text(verbatim: "·").foregroundStyle(Design.Studio.textFaint) }
+                Group {
+                    switch each {
+                    case .reading: Text("Reading")
+                    case .listening: Text("Listening")
+                    case .matching: Text("Matching")
+                    }
+                }
+                .foregroundStyle(each == stage ? Design.Studio.text : each.rawValue < stage.rawValue ? Design.Studio.textQuiet : Design.Studio.textFaint)
+            }
+        }
+        .font(Design.Studio.hint)
+    }
+
+    /// How far the stage under way is.
+    private var stageShare: Double {
+        switch model.stage {
+        case .listening: model.share / 0.4
+        case .matching: (model.share - 0.4) / 0.6
+        default: model.share
         }
     }
 
@@ -380,15 +515,16 @@ struct CameraSyncView: View {
     /// Where each clip is drawn: its synced place, else after the camera's synced clips in order.
     private var layout: (places: [UUID: Double], from: Double, length: Double) {
         var places: [UUID: Double] = [:]
-        let synced = model.clips.compactMap(\.start)
+        let cameras = model.shown, clips = cameras.flatMap(\.clips)
+        let synced = clips.compactMap(\.start)
         let from = synced.min() ?? 0
-        for camera in model.cameras {
+        for camera in cameras {
             var next = camera.clips.compactMap(\.end).max().map { $0 + 2 } ?? from
             for clip in camera.clips {
                 if let start = clip.start ?? clip.rough { places[clip.id] = start } else { places[clip.id] = next; next += clip.duration + 2 }
             }
         }
-        let end = model.clips.map { (places[$0.id] ?? 0) + $0.duration }.max() ?? 1
+        let end = clips.map { (places[$0.id] ?? 0) + $0.duration }.max() ?? 1
         return (places, from, max(end - from, 1))
     }
 
@@ -407,33 +543,53 @@ struct CameraSyncView: View {
             }
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(model.cameras) { camera in CameraLabel(model: model, camera: camera).frame(height: 30) }
+                    Color.clear.frame(height: 14)
+                    ForEach(model.shown) { camera in CameraLabel(model: model, camera: camera).frame(height: 30) }
                 }
                 .frame(width: 150)
                 GeometryReader { geometry in
                     let width = geometry.size.width * zoom
+                    let x = { (time: Double) in width * (time - layout.from) / layout.length }
                     ScrollView(.horizontal) {
                         VStack(alignment: .leading, spacing: 6) {
-                            ForEach(model.cameras) { camera in
+                            ruler(width: width, layout: layout)
+                            ForEach(model.shown) { camera in
                                 ZStack(alignment: .leading) {
                                     RoundedRectangle(cornerRadius: 6).fill(Design.Studio.panel)
                                     ForEach(camera.clips) { clip in
-                                        clipBox(clip, camera: camera)
+                                        let place = layout.places[clip.id] ?? 0
+                                        clipBox(clip, camera: camera, secondsPerPoint: layout.length / width)
                                             .frame(width: max(width * clip.duration / layout.length, 3), height: 24)
-                                            .offset(x: width * ((layout.places[clip.id] ?? 0) - layout.from) / layout.length)
+                                            .offset(x: x(place) + (dragging?.id == clip.id ? dragging!.dx : 0))
+                                            .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: place)
                                     }
                                 }
                                 .frame(width: width, height: 30)
                             }
                         }
+                        .overlay(alignment: .topLeading) {
+                            // The playhead: the moment the viewer shows.
+                            Rectangle().fill(Design.Studio.bad).frame(width: 1.5).offset(x: x(model.playhead)).allowsHitTesting(false)
+                        }
                     }
                     .scrollIndicators(zoom > 1 ? .visible : .never)
                 }
-                .frame(height: CGFloat(model.cameras.count) * 36)
+                .frame(height: CGFloat(model.cameras.count) * 36 + 20)
             }
         }
         .padding(16)
         .studioBox()
+    }
+
+    /// A thin strip over the lanes to scrub the playhead along.
+    private func ruler(width: CGFloat, layout: (places: [UUID: Double], from: Double, length: Double)) -> some View {
+        RoundedRectangle(cornerRadius: 3).fill(Design.Studio.raised)
+            .frame(width: width, height: 14)
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                model.playhead = layout.from + max(0, min(Double(value.location.x / width), 1)) * layout.length
+            })
+            .help("Drag to move the playhead")
     }
 
     private func legend(_ title: LocalizedStringKey, _ colour: Color) -> some View {
@@ -478,7 +634,7 @@ struct CameraSyncView: View {
         }
     }
 
-    private func clipBox(_ clip: SyncClip, camera: SyncCamera) -> some View {
+    private func clipBox(_ clip: SyncClip, camera: SyncCamera, secondsPerPoint: Double) -> some View {
         let chosen = model.selected == clip.id
         return RoundedRectangle(cornerRadius: 4)
             .fill(Self.colour(clip.quality).opacity(clip.start == nil ? 0.25 : 0.55))
@@ -487,6 +643,9 @@ struct CameraSyncView: View {
             }
             .overlay(alignment: .leading) {
                 HStack(spacing: 3) {
+                    if model.listening.contains(clip.id) {
+                        Image(systemName: "waveform").font(.system(size: 8)).symbolEffect(.variableColor.iterative, isActive: !reduceMotion)
+                    }
                     if clip.locked { Image(systemName: "lock.fill").font(.system(size: 8)) }
                     if let symbol = Self.symbol(clip) { Image(systemName: symbol).font(.system(size: 8)) }
                     if clip.isProxy {
@@ -500,9 +659,16 @@ struct CameraSyncView: View {
             .clipShape(.rect(cornerRadius: 4))
             .contentShape(.rect)
             .onTapGesture { model.selected = chosen ? nil : clip.id }
+            // Dragged along its lane: moved there (to a frame) and held; not while syncing.
+            .gesture(DragGesture(minimumDistance: 4)
+                .onChanged { value in if !model.running, clip.start != nil { dragging = (clip.id, value.translation.width) } }
+                .onEnded { value in
+                    if dragging?.id == clip.id { model.shift(clip.id, by: Double(value.translation.width) * secondsPerPoint) }
+                    dragging = nil
+                })
             .help(Text(verbatim: clip.name + " · ") + Self.method(clip) + (clip.start != nil ? Text(verbatim: " · ") + Text(clip.confidence, format: .percent.precision(.fractionLength(0))) : Text(verbatim: "")))
             .contextMenu {
-                Button(clip.locked ? "Unlock" : "Lock") { model.toggleLock(clip.id) }
+                Button(clip.locked ? "Unlock" : "Lock") { model.toggleLock(clip.id) }.disabled(model.running)
                 Button("Sync This Clip Again") { model.sync(only: clip.id) }.disabled(model.running || !model.synced)
                 Menu("Move to Camera") {
                     ForEach(model.cameras.filter { $0.id != camera.id }) { other in
@@ -511,6 +677,7 @@ struct CameraSyncView: View {
                     Divider()
                     Button("New Camera") { model.move(clip.id, to: nil) }
                 }
+                .disabled(model.running)
             }
     }
 
@@ -536,7 +703,7 @@ private struct CameraLabel: View {
                 .help(camera.isSoundRecorder ? "Sound recorder" : camera.hasAudio ? "Camera with sound" : "No sound: synced by light flashes")
             TextField("Camera", text: $name)
                 .textFieldStyle(.plain).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
-                .onSubmit { model.rename(camera.id, name) }
+                .onSubmit { model.rename(camera.id, name) }.disabled(model.running)
             Text(verbatim: "\(camera.clips.count)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
         }
         .onAppear { name = camera.name }
@@ -544,20 +711,10 @@ private struct CameraLabel: View {
     }
 }
 
-/// A chosen clip: it and another camera side by side at a moment both filmed, its sync, and the nudge.
+/// A chosen clip: its sync, the nudge (a frame, ten frames), Lock and Sync Again (none of it while syncing).
 private struct SyncClipInspector: View {
     let model: CameraSyncModel
     let clip: SyncClip
-    @State private var players: [AVPlayer] = []
-    @State private var playing = false
-
-    private var partner: SyncClip? { model.partner(of: clip) }
-
-    /// A moment both filmed: the middle of the time they share.
-    private var moment: Double? {
-        guard let partner, let a = clip.start, let b = partner.start, let ae = clip.end, let be = partner.end else { return nil }
-        return (max(a, b) + min(ae, be)) / 2
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -582,90 +739,40 @@ private struct SyncClipInspector: View {
                                colour: Design.Studio.warn, tinted: true)
                 }
                 Spacer()
-                Button { model.nudge(clip.id, frames: -Int(model.rate.rounded())) } label: { Image(systemName: "chevron.backward.2") }
-                    .buttonStyle(StudioFlatButtonStyle()).help("A second earlier")
-                Button { model.nudge(clip.id, frames: -1) } label: { Image(systemName: "chevron.left") }
-                    .buttonStyle(StudioFlatButtonStyle()).help("A frame earlier")
-                Button { model.nudge(clip.id, frames: 1) } label: { Image(systemName: "chevron.right") }
-                    .buttonStyle(StudioFlatButtonStyle()).help("A frame later")
-                Button { model.nudge(clip.id, frames: Int(model.rate.rounded())) } label: { Image(systemName: "chevron.forward.2") }
-                    .buttonStyle(StudioFlatButtonStyle()).help("A second later")
-                Button { model.toggleLock(clip.id) } label: { Image(systemName: clip.locked ? "lock.fill" : "lock.open") }
-                    .buttonStyle(StudioFlatButtonStyle()).help(clip.locked ? "Unlock" : "Lock")
-                Button("Sync Again") { model.sync(only: clip.id) }
-                    .buttonStyle(StudioFlatButtonStyle()).disabled(model.running || !model.synced)
-            }
-            if let partner, moment != nil {
-                HStack(spacing: 10) {
-                    angle(clip, index: 0)
-                    angle(partner, index: 1)
+                Group {
+                    Button { model.nudge(clip.id, frames: -10) } label: { Image(systemName: "chevron.backward.2") }
+                        .help(model.running ? Text("Syncing…") : Text("Ten frames earlier (<)"))
+                    Button { model.nudge(clip.id, frames: -1) } label: { Image(systemName: "chevron.left") }
+                        .help(model.running ? Text("Syncing…") : Text("A frame earlier (,)"))
+                    Button { model.nudge(clip.id, frames: 1) } label: { Image(systemName: "chevron.right") }
+                        .help(model.running ? Text("Syncing…") : Text("A frame later (.)"))
+                    Button { model.nudge(clip.id, frames: 10) } label: { Image(systemName: "chevron.forward.2") }
+                        .help(model.running ? Text("Syncing…") : Text("Ten frames later (>)"))
+                    Button { model.toggleLock(clip.id) } label: { Image(systemName: clip.locked ? "lock.fill" : "lock.open") }
+                        .help(model.running ? Text("Syncing…") : clip.locked ? Text("Unlock: Sync Again may move it") : Text("Lock: stays where it is on Sync Again"))
+                    Button("Sync Again") { model.sync(only: clip.id) }
+                        .disabled(!model.synced)
                 }
-                .frame(height: 220)
-                HStack(spacing: 10) {
-                    Button(playing ? "Stop" : "Play Both", systemImage: playing ? "stop.fill" : "play.fill", action: togglePlay)
-                        .buttonStyle(StudioFlatButtonStyle())
-                    Text("With \(partner.name), both at the same moment. Listen for an echo.")
-                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                }
+                .buttonStyle(StudioFlatButtonStyle())
+                .disabled(model.running)
             }
         }
         .padding(16)
         .studioBox(outline: Design.rgb(0x8E4C64))
-        .onAppear(perform: load)
-        .onChange(of: clip.start) { cue() }
-        .onDisappear { players.forEach { $0.pause() } }
     }
 
-    @ViewBuilder private func angle(_ clip: SyncClip, index: Int) -> some View {
-        if index < players.count, !RawFormats.isRawVideo(clip.file) {
-            SyncPlayerSurface(player: players[index]).clipShape(.rect(cornerRadius: 8))
-        } else {
-            RoundedRectangle(cornerRadius: 8).fill(Design.Studio.panel)
-                .overlay { Text(clip.name).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
-        }
-    }
-
-    private func load() {
-        guard let partner else { return }
-        players = [clip, partner].map { AVPlayer(url: $0.file) }
-        cue()
-    }
-
-    /// Both at the shared moment, in each clip's own time.
-    private func cue() {
-        guard let moment, let partner, players.count == 2 else { return }
-        for (player, own) in zip(players, [clip, partner]) {
-            guard let start = own.start else { continue }
-            player.seek(to: CMTime(seconds: (moment - start) / (1 + own.drift), preferredTimescale: 48000), toleranceBefore: .zero, toleranceAfter: .zero)
-        }
-    }
-
-    private func togglePlay() {
-        if playing { players.forEach { $0.pause() }; playing = false; cue(); return }
-        cue()
-        // Both from the same moment on the host clock, so a sync error is heard as it is.
-        let when = CMClockGetTime(CMClockGetHostTimeClock()) + CMTime(seconds: 0.3, preferredTimescale: 600)
-        for player in players {
-            player.automaticallyWaitsToMinimizeStalling = false
-            player.setRate(1, time: .invalid, atHostTime: when)
-        }
-        playing = true
-    }
 }
 
-/// The picture, without the player's own controls.
-private struct SyncPlayerSurface: NSViewRepresentable {
-    let player: AVPlayer
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.player = player
-        view.controlsStyle = .none
-        view.videoGravity = .resizeAspect
-        return view
+/// Sync's reports gathered from any thread, taken by the page about ten times a second.
+final class LiveBuffer: @unchecked Sendable {
+    enum Item: Sendable {
+        case progress(Double, CameraSyncModel.Stage, String)
+        case event(CameraSync.Live)
     }
 
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        if view.player !== player { view.player = player }
-    }
+    private let lock = NSLock()
+    private var items: [Item] = []
+
+    func add(_ item: Item) { lock.withLock { items.append(item) } }
+    func take() -> [Item] { lock.withLock { defer { items = [] }; return items } }
 }
