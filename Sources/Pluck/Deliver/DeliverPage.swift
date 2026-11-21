@@ -291,7 +291,17 @@ struct DeliverPage: View {
 
     @ViewBuilder private var main: some View {
         if let panel = Self.panelInPage {
-            ScrollView { panel.frame(maxWidth: .infinity) }.clipShape(.rect(cornerRadius: Design.Studio.panelRadius))
+            // Drawn as the sheet it is in the app: over the page it opens from, dimmed.
+            ZStack(alignment: .top) {
+                pageMain.allowsHitTesting(false)
+                Color.black.opacity(0.35)
+                ScrollView {
+                    panel.background(Design.Studio.panel).clipShape(.rect(cornerRadius: Design.Studio.panelRadius))
+                        .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
+                        .frame(maxWidth: .infinity).padding(.top, 24)
+                }
+            }
+            .clipShape(.rect(cornerRadius: Design.Studio.panelRadius))
         } else if let session = ShareBuilder.shared.session {
             DeliverShareBuilderView(session: session).id(session.id)
         } else {

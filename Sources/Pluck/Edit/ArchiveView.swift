@@ -125,9 +125,13 @@ struct ArchiveView: View {
         } else if model.survey != nil || model.archivingNow != nil {
             let free = model.freeable
             VStack(alignment: .leading, spacing: 6) {
-                Text("You can free").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                Text(verbatim: bytes(free.saving)).font(.system(size: 34, weight: .semibold)).foregroundStyle(Design.Brand.pink)
-                Text("of \(bytes(free.footage)) footage").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                if free.saving == 0, free.footage == 0 {
+                    Text("Nothing to free yet").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.textQuiet)
+                } else {
+                    Text("You can free").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    Text(verbatim: bytes(free.saving)).font(.system(size: 34, weight: .semibold)).foregroundStyle(Design.Brand.pink)
+                    Text("of \(bytes(free.footage)) footage").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                }
                 if model.freedSoFar > 0 {
                     Text("Freed so far \(bytes(model.freedSoFar))").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
                         .help("Only what you’ve deleted from “Pluck · Originals to delete”")
@@ -203,6 +207,9 @@ struct ArchiveView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Waiting to delete").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                InfoMark(text: String(localized: "Safe means a checked master exists — at master quality, not the original’s.")
+                         + (model.waiting.contains(where: { $0.snapshotDays == nil })
+                            ? "\n" + String(localized: "Space comes back once you delete these. Snapshots on the NAS may keep it until they expire.") : ""))
                 Spacer()
                 Text(verbatim: bytes(model.waiting.reduce(Int64(0)) { $0 + $1.bytes })).font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.text)
             }
@@ -254,12 +261,6 @@ struct ArchiveView: View {
                     }
                 }
             }
-            Text("Safe means a checked master exists — at master quality, not the original’s.")
-                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-            if model.waiting.contains(where: { $0.snapshotDays == nil }) {
-                Text("Space comes back once you delete these. Snapshots on the NAS may keep it until they expire.")
-                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
-            }
         }
     }
 
@@ -276,6 +277,7 @@ struct ArchiveView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Archiving now").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                InfoMark(text: String(localized: "Pauses only for editing on this Mac: another Mac using a file over the network can’t be seen"))
                 Text(verbatim: now.title).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
                 Spacer()
                 if center.running {
@@ -292,8 +294,6 @@ struct ArchiveView: View {
                     Button("Pause") { model.stopCopies() }.buttonStyle(.link).font(Design.Studio.hint)
                 }
             }
-            Text("Pauses only for editing on this Mac: another Mac using a file over the network can’t be seen")
-                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
             if !center.running, let why = center.runs.first(where: center.unfinished)?.paused {
                 Text(verbatim: why).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
             }

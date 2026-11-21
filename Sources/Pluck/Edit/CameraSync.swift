@@ -311,6 +311,10 @@ enum CameraSync {
                 } else {
                     key = "folder:" + place.path
                     name = place.lastPathComponent
+                    // "Card B001" → "B001": the card's own name is what tells cameras apart.
+                    if let range = name.range(of: "card ", options: [.caseInsensitive, .anchored]), range.upperBound < name.endIndex {
+                        name = String(name[range.upperBound...])
+                    }
                     if (prefixesByFolder[place]?.count ?? 0) > 1 {
                         let own = prefix(probe.clip.name)
                         key += "/" + own

@@ -193,7 +193,7 @@ struct OffloadView: View {
 
     private var fromSide: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sideTitle("From")
+            sideTitle("Copy from")
             ForEach(cards, id: \.self) { card in
                 tile(selected: source == card, symbol: "sdcard", title: OffloadCenter.volumeName(card),
                      detail: source == card ? planText : Self.usedText(card)) { choose(card) }
@@ -214,7 +214,7 @@ struct OffloadView: View {
 
     private var toSide: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sideTitle("To")
+            sideTitle("Copy to")
             ForEach(roots, id: \.self) { root in
                 DriveTile(root: root, needed: neededBytes) { removeRoot(root) }
             }
@@ -593,10 +593,13 @@ private struct OffloadRow: View {
                     }
                 }
                 if job.quick != true, job.backup == nil {
-                    OffloadIconButton(symbol: "rectangle.stack.badge.play", label: "Sync These Cameras", help: "Opens Sync Cameras with this offload’s checked clips") {
+                    Button("Sync These Cameras", systemImage: "rectangle.stack.badge.play") {
                         CameraSyncModel.shared.add(offload: job)
                         StudioNavigator.shared.open(.syncCameras)
                     }
+                    .buttonStyle(StudioFlatButtonStyle())
+                    .help("Opens Sync Cameras with this offload’s checked clips")
+                    .padding(.trailing, 4)
                 }
                 if let report = OffloadReport.url(job) {
                     OffloadIconButton(symbol: "doc.text", label: "Report", help: "The PDF report") { NSWorkspace.shared.open(report) }
