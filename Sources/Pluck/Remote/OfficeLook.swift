@@ -129,12 +129,13 @@ enum OfficeLook: String, CaseIterable, Identifiable, Sendable {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// The .cube on disk (written once per look).
+    /// The .cube on disk (written again when this version's curve differs from the one there).
     func file() -> URL? {
         let url = OfficeProxies.root.deletingLastPathComponent().appendingPathComponent("Looks/\(name).cube")
-        if FileManager.default.fileExists(atPath: url.path) { return url }
+        let text = cube()
+        if (try? String(contentsOf: url, encoding: .utf8)) == text { return url }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return (try? cube().write(to: url, atomically: true, encoding: .utf8)) != nil ? url : nil
+        return (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil ? url : nil
     }
 
     // MARK: - Which curve a file is in (metadata only)

@@ -107,7 +107,9 @@ enum RemoteMissing {
             if !effect.id.isEmpty, ids.contains(effect.id.lowercased()) { return false }
             if !effect.name.isEmpty, names.contains(key(effect.name)) { return false }
             if installed == nil, effect.id.lowercased().hasPrefix("com.blackmagicdesign.") { return false }
-            let parts = ([effect.name] + effect.id.split(separator: ".").map(String.init)).map(key).filter { $0.count >= 4 && $0 != "resolvefx" }
+            // (The id's own parts, not its "com.vendor." start: one vendor's other plugin isn't this one.)
+            let id = effect.id.split(separator: ".").map(String.init)
+            let parts = ([effect.name] + (id.count >= 3 ? Array(id.dropFirst(2)) : Array(id.suffix(1)))).map(key).filter { $0.count >= 4 && $0 != "resolvefx" }
             return !bundles.contains { bundle in parts.contains { $0.contains(bundle) || bundle.contains($0) } }
         }
     }

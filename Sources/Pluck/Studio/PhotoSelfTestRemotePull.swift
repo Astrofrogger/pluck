@@ -213,6 +213,12 @@ extension PhotoSelfTest {
         PullTestManifest.entries = entries
         defer { for pin in pins.pins { pins.unpin(pin) } }
         let sizes = names.map { Int64(proxies[$0]!.count) }
+        let target = URL(fileURLWithPath: "/x/A001.mov")
+        let original = RemoteManifestEntry(share: "s", path: "A001.mov", proxy: "A001.mov", reel: "A001", size: 10, modified: 100)
+        var replaced = original; replaced.modified = 200
+        check("pins: a part is only resumed with the same version of the file (an original replaced at the office starts over)",
+              RemotePins.partial(target, for: original) != RemotePins.partial(target, for: replaced)
+              && RemotePins.partial(target, for: original) == RemotePins.partial(target, for: original) && RemotePins.partial(target, for: original).pathExtension == "part")
         do {
             try await pins.pin(share: share, path: "Day 1", originals: false, limit: sizes[0] + sizes[1] + 100)
         } catch {

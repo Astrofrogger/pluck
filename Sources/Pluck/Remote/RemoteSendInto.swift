@@ -169,7 +169,9 @@ enum RemoteSendInto {
                 progress(url.lastPathComponent, size > 0 ? Double(have) / Double(size) : 1)
                 if chunk.isEmpty { break }
             } while placed == nil
-            names.append(placed ?? url.lastPathComponent)
+            // (Shrunk while it went: nothing was placed, so it isn't reported as sent.)
+            guard let placed else { throw OfficeInbox.Problem.mismatch }
+            names.append(placed)
         }
         return names
     }

@@ -78,6 +78,9 @@ extension PhotoSelfTest {
         let known = RemoteMissing.missing(wanted, installed: [Effect(id: "com.blackmagicdesign.resolvefx.Glow", name: "Glow"), Effect(id: "x", name: "Film Look Creator")],
                                           root: base.appendingPathComponent("NoOFX"))
         check("missing: Resolve's list by id or name; a plugin in neither is missing", known.map(\.name) == ["Reduce Noise v5", "Sparkle"], "\(known)")
+        try? fm.createDirectory(at: ofx.appendingPathComponent("BorisFX Continuum.ofx.bundle"), withIntermediateDirectories: true)
+        let vendor = RemoteMissing.missing([Effect(id: "com.borisfx.sapphire.S_Glow", name: "S_Glow")], installed: [], root: ofx)
+        check("missing: another plugin of the same vendor doesn't count as this one", vendor.map(\.name) == ["S_Glow"], "\(vendor)")
         let found: [String: Any] = ["fonts": [["family": made, "style": "Bold"], ["family": "Helvetica", "style": ""], ["family": made, "style": "Bold"]],
                                     "effects": [["id": "com.example.Sparkle", "name": ""], ["id": "", "name": "Sparkle"], ["id": "com.neatvideo.NeatVideo5.ofx", "name": "NR"]],
                                     "installed": [] as [[String: Any]]]

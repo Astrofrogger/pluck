@@ -15,6 +15,11 @@ extension PhotoSelfTest {
         check("look: gamut maths (709 to 709 is the identity)", (0..<3).allSatisfy { r in (0..<3).allSatisfy { abs(identity[r][$0] - (r == $0 ? 1 : 0)) < 1e-9 } })
         let cube = OfficeLook.slog3.cube(size: 5)
         check("look: the .cube has its size and every point", cube.hasPrefix("TITLE") && cube.contains("LUT_3D_SIZE 5") && cube.split(separator: "\n").count == 127)
+        if let old = OfficeLook.slog3.file() {
+            try? "an older curve".write(to: old, atomically: true, encoding: .utf8)
+            check("look: an older .cube is written again with this version's curve",
+                  OfficeLook.slog3.file().flatMap { try? String(contentsOf: $0, encoding: .utf8) } == OfficeLook.slog3.cube())
+        } else { check("look: the .cube is written", false) }
 
         check("look: Sony's XML", OfficeLook.detect(text: #"<CaptureGammaEquation value="s-log3-cine"/>"#) == .slog3)
         check("look: ARRI LogC4 and plain LogC", OfficeLook.detect(text: #"{"gamma":"LogC4"}"#) == .logc4 && OfficeLook.detect(text: "LogC") == .logc3)

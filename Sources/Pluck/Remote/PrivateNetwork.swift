@@ -449,7 +449,9 @@ final class Tunnel {
         ConnectionLog.add(tag, "restart \(restarts) in \(Int(pause)) s")
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(pause), clock: .suspending)
-            guard let self, self.wanted == wanted, self.process == nil, self.pending == nil else { return }
+            guard let self else { return }
+            // (Stopped, started again or already starting meanwhile: this restart isn't needed, nor its "Reconnecting…".)
+            guard self.wanted == wanted, self.process == nil, self.pending == nil else { self.restarting = false; return }
             if self === Tunnel.irohOffice {
                 // (The server opens its invitations again and keeps its own problem line.)
                 self.restarting = false
