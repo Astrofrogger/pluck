@@ -225,6 +225,10 @@ extension ShrinkFolders {
             let share = survey.projects[result.files[index].project]?.share ?? shareRoot(of: URL(fileURLWithPath: result.files[index].folder))
             guard let place = detect(result.files[index].path, share: share, rules: rules) else { continue }
             result.files[index].project = place.folder
+            // (A project placed higher can take a delivery folder in: a delivery then, never the other way.)
+            if let folder = deliveryFolder(result.files[index].path, inside: place.folder) {
+                (result.files[index].kind, result.files[index].why) = (.deliveries, String(localized: "In “\(folder)”"))
+            }
             result.files[index].client = place.client
             result.files[index].projectName = place.project
             if result.projects[place.folder] == nil {

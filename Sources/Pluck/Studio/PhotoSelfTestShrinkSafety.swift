@@ -274,7 +274,7 @@ extension PhotoSelfTest {
             let prepared = S.prepare(file, settings: hd, holding: holding, temp: S.temporary(lostClip.path, token: "11112222"), ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
             let after = S.finish(prepared, settings: hd, stillOurs: { false })
             check("shrink safety: the claim isn't this Mac's any more: the original left as it is, only this Mac's own hidden master dropped",
-                  prepared.state == .working && after.state == .working && ProjectArchive.streams(lostClip.path, ffprobe: ffprobe).codec == "prores"
+                  prepared.state == .working && after.state == .elsewhere && ProjectArchive.streams(lostClip.path, ffprobe: ffprobe).codec == "prores"
                   && !fm.fileExists(atPath: prepared.temp ?? "/nonexistent") && !fm.fileExists(atPath: prepared.moved ?? "/nonexistent"), "\(after.state) \(after.note ?? "")")
             try? fm.removeItem(atPath: prepared.temp ?? "/nonexistent")
         }

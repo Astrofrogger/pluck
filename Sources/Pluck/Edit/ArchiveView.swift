@@ -548,12 +548,15 @@ struct ArchiveView: View {
                 Text(verbatim: note).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
             }
             ForEach(model.checks(run).filter { $0.checked > 0 || !$0.problems.isEmpty }) { project in
-                if project.problems.isEmpty && project.checked == project.masters && project.masters > 0 {
+                if project.safe {
                     Text("\(project.title) · \(project.masters) masters checked · safe to delete").font(Design.Studio.hint).foregroundStyle(Design.Studio.good)
                 } else {
                     Text(verbatim: project.title).font(Design.Studio.hint).foregroundStyle(project.problems.isEmpty ? Design.Studio.warn : Design.Studio.bad)
                     ForEach(project.problems.prefix(10), id: \.self) { problem in
                         Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).lineLimit(2).padding(.leading, 12)
+                    }
+                    if !project.finished {
+                        Text("Not finished: don’t delete yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).padding(.leading, 12)
                     }
                     if project.checked < project.masters {
                         Text("\(project.masters - project.checked) not checked: don’t delete yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).padding(.leading, 12)

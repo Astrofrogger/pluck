@@ -166,8 +166,16 @@ extension PhotoSelfTest {
         away.checked = nil
         let lines = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine, half, fineQ, away]))
         check("shrink safety 4: a project with a file not finished (here or on the other Mac) never says safe to delete",
-              fine.safeNow() && half.notSafe() != nil && lines.count == 2 && lines.allSatisfy { !$0.problems.isEmpty || $0.checked < $0.masters },
+              fine.safeNow() && half.notSafe() != nil && lines.count == 2 && lines.allSatisfy { !$0.safe && (!$0.problems.isEmpty || $0.checked < $0.masters || !$0.finished) },
               "\(lines.map { "\($0.title) \($0.masters) \($0.checked) \($0.problems)" })")
+        var pendingR = fine
+        pendingR.path = "/v/R/next.mov"
+        pendingR.projectName = "R"
+        pendingR.state = .pending
+        let alone = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine, pendingR]))
+        let through = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine]))
+        check("shrink safety 4: while its run isn't through, even a checked project isn't called safe; once through, it is",
+              alone.first { $0.title == "Client – P" }?.safe == false && through.first?.safe == true, "\(alone.map { "\($0.title) \($0.safe)" })")
 
         // 6 Deliveries: a delivery word anywhere below the project wins; a reel name alone isn't a camera.
         let k = { S.classify($0, root: "/V/Share", tags: $1).0 }
@@ -212,5 +220,36 @@ extension PhotoSelfTest {
                   after.state == .elsewhere && !fm.fileExists(atPath: prepared.temp ?? "/nonexistent")
                   && ProjectArchive.streams(sleepClip.path, ffprobe: ffprobe).codec == "prores", "\(after.state) \(after.note ?? "")")
         }
+
+        // 9 The age limit looked at when the run goes: a project edited since the survey is left as it is.
+        let aged = projects.appendingPathComponent("Aged"), agedClip = aged.appendingPathComponent("Rushes/A105C001.mov")
+        make(agedClip)
+        let agedFiles = scan(agedClip.deletingLastPathComponent())
+        let cut = aged.appendingPathComponent("Edit/cut.drp")
+        write(cut, 10)
+        try? fm.setAttributes([.modificationDate: Date.now], ofItemAtPath: cut.path)
+        let agedCenter = center("aged")
+        let agedID = agedCenter.add(agedFiles, settings: hd, roots: [aged.path], months: 6)
+        await agedCenter.resume(agedID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        check("shrink safety 4: a project edited since the survey (within the age limit) is left when the run goes",
+              agedFiles.count == 1 && agedCenter.run(agedID)?.files.first?.state == .skipped && ProjectArchive.streams(agedClip.path, ffprobe: ffprobe).codec == "prores",
+              states(agedCenter.run(agedID)?.files))
+
+        // 10 The always-on Mac's results: paths that aren't there any more (a moved RED clip's spans, an .mp4 now a .mov) kept, as text.
+        let gone = projects.appendingPathComponent("Remote/Rushes"), redClip = gone.appendingPathComponent("A106_C001_001.R3D")
+        var red = S.File(path: redClip.path, folder: gone.path, size: 10, modified: old)
+        red.parts = [gone.appendingPathComponent("A106_C001_002.R3D").path]
+        red.master = gone.appendingPathComponent("A106_C001_001.mov").path
+        red.moved = holding.appendingPathComponent("Projects/Remote/Rushes/A106_C001_001.R3D").path
+        red.state = .done
+        write(URL(fileURLWithPath: red.master ?? ""), 10)
+        write(URL(fileURLWithPath: red.moved ?? ""), 10)
+        // (A real share: nothing found for a path that isn't there.)
+        let lookup: (String) -> String? = { fm.fileExists(atPath: $0) ? ShrinkRemote.place($0) : nil }
+        let sent = ShrinkRemote.translated(red) { ShrinkRemote.placeText($0, place: lookup) }
+        let back = sent.flatMap(ShrinkRemote.translatedLoose)
+        check("shrink safety 4: the always-on Mac's results keep paths that aren't there any more (spans, the original's old name)",
+              sent?.parts.count == 1 && back?.path == red.path && back?.parts == red.parts && back?.master == red.master && back?.moved == red.moved,
+              "\(String(describing: sent)) \(String(describing: back))")
     }
 }
