@@ -42,6 +42,7 @@ struct DeliverHostSheet: View {
     @State private var mainReachable = true
     @State private var uplink: Int?          // this host's measured upload, Mbit/s (nil: not measured)
     @State private var preferFastest = true // the owner's "Prefer fastest even if lighter" (kept on the host)
+    @State private var downloadCap: Int?    // Mbit/s for whole-file downloads, 0 = off; nil: a host before 4.0.7
     @State private var backup = false
     @State private var problem: String?
     @State private var quiet = "04:00"
@@ -84,6 +85,7 @@ struct DeliverHostSheet: View {
                     }
                 })).studioBox()
             }
+            if let cap = downloadCap, host.role != "backup" { downloadLimit(cap) }
             if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
             HStack {
                 Button("Backup Host…") { backup = true }.buttonStyle(StudioFlatButtonStyle())
@@ -100,6 +102,29 @@ struct DeliverHostSheet: View {
         .task { quiet = DeliverHostUpdate.quietTime(host.id); await load() }
         .sheet(isPresented: $backup) { DeliverBackupSheet(main: host) }
         .deliverHostAction($action) { _ in dismiss() }
+    }
+
+    /// The download speed cap (4.0.7): whole-file downloads (masters, proxies) share it; playback never waits for it.
+    private func downloadLimit(_ cap: Int) -> some View {
+        SettingRow(text: Text("Download speed limit"), detail: Text("Only whole-file downloads. Playback isn’t slowed.")) {
+            Picker(selection: Binding(get: { cap }, set: { mbps in
+                downloadCap = mbps
+                Task {
+                    if let kept = (try? await ReviewHostClient.ask(host, ["op": "download-cap", "mbps": mbps]))?["downloadMbps"] as? Int {
+                        downloadCap = kept
+                        problem = nil
+                    } else {
+                        downloadCap = cap
+                        problem = String(localized: "\(host.name) couldn’t change this. Update it, then try again.")
+                    }
+                }
+            })) {
+                Text("Off").tag(0)
+                ForEach([50, 100, 250, 500], id: \.self) { Text("\($0) Mbit/s").tag($0) }
+                if ![0, 50, 100, 250, 500].contains(cap) { Text("\(cap) Mbit/s").tag(cap) }
+            } label: { EmptyView() }.fixedSize().disabled(!DeliverPeople.isAdmin(host))
+        }
+        .studioBox()
     }
 
     private var versionText: Text { Text(verbatim: "\(host.version ?? "–") · protocol \(host.protocol.map(String.init) ?? "–")") }
@@ -226,6 +251,7 @@ struct DeliverHostSheet: View {
             backups = status?["backups"] as? [[String: Any]] ?? []
             uplink = status?["uplinkMbps"] as? Int
             preferFastest = status?["preferFastest"] as? Bool ?? true
+            downloadCap = status?["downloadMbps"] as? Int
             if host.selfUpdate == 1 { await updates.tell(host) }
             mainReachable = true
         } catch {

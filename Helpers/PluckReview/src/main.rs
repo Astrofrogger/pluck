@@ -8,6 +8,7 @@
 //   Mac hosting bundles, ranked below both NAS roles; see signal.rs)
 //   {"rooms":[…]}  {"send":{"peer","msg"}}  {"serve":{"peer","fetch","path","offset","length"}}  {"close":{"peer","reason"}}
 //   {"serve":{"peer","fetch","pieces":[{"path","offset","length"},…]}}   (one fetch from several pieces: proxy MP4, §6.1)
+//   (+ "capped":true: a full-file download, held to the owner's download cap, 4.0.7)
 //   {"accept":{"peer","upload","path","size","offset"?}}  {"cancel":{"peer","upload"}}   (uploads; send accept before the upload-begin reply;
 //   offset: resume an existing partial there)
 // stdout: {"ready"} {"room"} {"peer"} {"msg"} {"served"} {"upload"} {"log"} {"error"} — see the Pluck Review spec, §5.
@@ -667,7 +668,7 @@ fn serve(s: &Value, peers: &mut HashMap<String, rtc::Peer>, ev: &mpsc::Unbounded
     if !p.can_serve() || p.waiting.len() >= media::WAIT_MAX || p.serves.iter().any(|x| x.fetch == fetch) || p.waiting.iter().any(|w| w.0 == fetch) {
         return rtc::served(&peer, fetch, 0, "error");
     }
-    p.waiting.push_back((fetch, parts));
+    p.waiting.push_back((fetch, parts, s["capped"] == true));
     start_waiting(peers, ev, socks);
 }
 
@@ -681,9 +682,9 @@ fn start_waiting(peers: &mut HashMap<String, rtc::Peer>, ev: &mpsc::UnboundedSen
     let mut waiting: Vec<usize> = ids.iter().map(|i| if peers[i].can_serve() { peers[i].waiting.len() } else { 0 }).collect();
     for i in media::admit(&mut running, &mut waiting) {
         let p = peers.get_mut(&ids[i]).unwrap();
-        let (fetch, parts) = p.waiting.pop_front().unwrap();
+        let (fetch, parts, capped) = p.waiting.pop_front().unwrap();
         let length: u64 = parts.iter().map(|p| p.2).sum();
-        let reader = (length > 0).then(|| media::spawn_reader(parts, p.id.clone(), fetch, ev.clone()));
+        let reader = (length > 0).then(|| media::spawn_reader(parts, p.id.clone(), fetch, capped, ev.clone()));
         p.serves.push(media::Serve::new(fetch, length, reader));
         p.pump(socks);
     }

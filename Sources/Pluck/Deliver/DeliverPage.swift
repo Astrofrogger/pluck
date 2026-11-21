@@ -219,6 +219,20 @@ struct DeliverPage: View {
                 }
                 panelInPage = view == "pairagain" ? AnyView(DeliverPairAgainSheet(host: sample)) : AnyView(ReviewTrueNASSetupSheet(editing: sample))
                 nav.deliver = .inbox
+            case "hostcap": // A NAS's sheet with the download speed limit (4.0.7), over a stand-in host.
+                ReviewHostClient.fakeFingerprint = Array(repeating: "AB", count: 32).joined(separator: ":")
+                ReviewHostClient.fake = { request, _ in
+                    switch request["op"] as? String {
+                    case nil: ["ok": true, "portal": 1]
+                    case "status": ["downloadMbps": 100, "preferFastest": true, "uplinkMbps": 480]
+                    case "devices": ["devices": [["id": "d1", "name": "Edit Suite iMac", "role": "mac", "lastSeen": ISO8601DateFormatter().string(from: .now)]]]
+                    default: ["ok": true]
+                    }
+                }
+                let sample = Deliver.Host(name: "Studio NAS", kind: .nas, address: "192.0.2.10:8790", pin: Array(repeating: "AB", count: 32).joined(separator: ":"),
+                                          role: "main", version: "4.0.7", protocol: 3)
+                panelInPage = AnyView(DeliverHostSheet(host: sample))
+                nav.deliver = .inbox
             case "backup", "hostsheet":
                 let sample = Deliver.Host(name: "Office NAS", kind: .nas, address: "192.0.2.10:8790", version: "0.3.0", protocol: 3)
                 panelInPage = view == "backup" ? AnyView(DeliverBackupSheet(main: sample)) : AnyView(DeliverHostSheet(host: sample))

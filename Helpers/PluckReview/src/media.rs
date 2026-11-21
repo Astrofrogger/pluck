@@ -3,6 +3,7 @@
 // read from the file in 1 MiB blocks only when the previous block has gone out.
 use std::{
     io::SeekFrom,
+    sync::{Mutex, atomic::{AtomicU64, Ordering}},
     time::{Duration, Instant},
 };
 
@@ -169,12 +170,32 @@ impl Serve {
     }
 }
 
+/// The owner's download speed cap (4.0.7; bytes a second, 0 = off), shared by every full-file download (masters,
+/// proxies) so playback for other clients keeps going; playback streams never wait for it.
+pub static CAP_BPS: AtomicU64 = AtomicU64::new(0);
+static CAP_NEXT: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// How long `n` capped bytes wait: each takes the next slot of one shared schedule, `n / rate` long (no burst saved up).
+fn cap_slot(next: &mut Option<Instant>, n: u64, bps: u64, now: Instant) -> Duration {
+    if bps == 0 {
+        return Duration::ZERO;
+    }
+    let start = next.filter(|t| *t > now).unwrap_or(now);
+    *next = Some(start + Duration::from_secs_f64(n as f64 / bps as f64));
+    start - now
+}
+
+pub fn cap_wait(n: u64) -> Duration {
+    cap_slot(&mut CAP_NEXT.lock().unwrap_or_else(|e| e.into_inner()), n, CAP_BPS.load(Ordering::Relaxed), Instant::now())
+}
+
 /// One piece of a fetch: (path, offset, length). A proxy download is the init and the media
 /// range of the 1080 copy served back to back as one fetch.
 pub type Part = (String, u64, u64);
 
 /// A task that owns the files and reads the blocks a Serve asks for, in order, across the parts.
-pub fn spawn_reader(parts: Vec<Part>, peer: String, fetch: u32, ev: mpsc::UnboundedSender<Ev>) -> mpsc::Sender<u64> {
+/// `capped`: a full-file download, held to the owner's cap (CAP_BPS).
+pub fn spawn_reader(parts: Vec<Part>, peer: String, fetch: u32, capped: bool, ev: mpsc::UnboundedSender<Ev>) -> mpsc::Sender<u64> {
     let (tx, mut rx) = mpsc::channel::<u64>(1);
     tokio::spawn(async move {
         let (mut file, mut i, mut left) = (None::<tokio::fs::File>, 0usize, 0u64);
@@ -201,6 +222,12 @@ pub fn spawn_reader(parts: Vec<Part>, peer: String, fetch: u32, ev: mpsc::Unboun
                 std::io::Result::Ok(buf)
             }
             .await;
+            if let (true, Ok(b)) = (capped, &data) {
+                let wait = cap_wait(b.len() as u64);
+                if !wait.is_zero() {
+                    tokio::time::sleep(wait).await;
+                }
+            }
             let failed = data.is_err();
             if ev.send(Ev::Block { peer: peer.clone(), fetch, data }).is_err() || failed {
                 break;
@@ -456,7 +483,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("pluck-review-test-{}", std::process::id()));
         std::fs::write(&path, (0..=255u8).cycle().take(5000).collect::<Vec<_>>()).unwrap();
         let (ev, mut rx) = mpsc::unbounded_channel();
-        let r = spawn_reader(vec![(path.to_string_lossy().into(), 1000, 5000)], "p".into(), 3, ev);
+        let r = spawn_reader(vec![(path.to_string_lossy().into(), 1000, 5000)], "p".into(), 3, false, ev);
         r.send(10).await.unwrap();
         let Some(Ev::Block { fetch: 3, data: Ok(b), .. }) = rx.recv().await else { panic!() };
         assert_eq!(b, (0..=255u8).cycle().skip(1000).take(10).collect::<Vec<_>>());
@@ -465,13 +492,25 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    #[test]
+    fn capped_downloads_share_one_schedule() {
+        let (t0, mut next) = (Instant::now(), None);
+        assert_eq!(cap_slot(&mut next, 1 << 20, 0, t0), Duration::ZERO, "off");
+        assert_eq!(next, None);
+        let mb = 1_000_000;
+        assert_eq!(cap_slot(&mut next, mb, mb, t0), Duration::ZERO, "the first block goes at once");
+        assert_eq!(cap_slot(&mut next, mb, mb, t0), Duration::from_secs(1), "a second download waits its turn");
+        assert_eq!(cap_slot(&mut next, mb / 2, mb, t0 + Duration::from_millis(500)), Duration::from_millis(1500));
+        assert_eq!(cap_slot(&mut next, mb, mb, t0 + Duration::from_secs(10)), Duration::ZERO, "idle time isn't saved up as a burst");
+    }
+
     #[tokio::test]
     async fn reader_joins_parts() {
         let path = std::env::temp_dir().join(format!("pluck-review-parts-{}", std::process::id()));
         std::fs::write(&path, b"0123456789").unwrap();
         let p = path.to_string_lossy().to_string();
         let (ev, mut rx) = mpsc::unbounded_channel();
-        let r = spawn_reader(vec![(p.clone(), 0, 2), (p.clone(), 5, 0), (p, 6, 3)], "p".into(), 1, ev);
+        let r = spawn_reader(vec![(p.clone(), 0, 2), (p.clone(), 5, 0), (p, 6, 3)], "p".into(), 1, false, ev);
         r.send(5).await.unwrap();
         let Some(Ev::Block { data: Ok(b), .. }) = rx.recv().await else { panic!() };
         assert_eq!(b, b"01678");

@@ -990,10 +990,25 @@ impl Host {
     }
 
     /// The owner's "Prefer fastest even if lighter" (a main's own setting, kept in serving.json; on by default).
+    /// And the download cap (4.0.7, `downloadMbps`, Mbit/s; missing or 0 = off).
     fn load_serving(&self) {
-        let on = std::fs::read(self.data.join("serving.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .is_none_or(|v| v["preferFastest"] != false); // the fastest NAS serves unless the owner turned it off
+        let v = self.serving();
+        let on = v["preferFastest"] != false; // the fastest NAS serves unless the owner turned it off
         crate::signal::FASTEST.store(on, std::sync::atomic::Ordering::Relaxed);
+        crate::media::CAP_BPS.store(v["downloadMbps"].as_u64().unwrap_or(0).min(100_000) * 125_000, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn serving(&self) -> Value {
+        std::fs::read(self.data.join("serving.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}))
+    }
+
+    /// One serving.json setting changed, the others kept.
+    fn set_serving(&mut self, key: &str, value: Value) -> Result<(), String> {
+        let mut v = self.serving();
+        v[key] = value;
+        std::fs::write(self.data.join("serving.json"), v.to_string()).map_err(|e| format!("can't write serving.json: {e}"))?;
+        self.load_serving();
+        Ok(())
     }
 
     /// A peer gone (closed, or ended by check_links): its fetches end (temp files go, a backup's
@@ -1456,6 +1471,7 @@ impl Host {
                 crate::update::status_fields(&mut s, &self.data);
                 s["uplinkMbps"] = json!(crate::uplink::mbps());
                 s["preferFastest"] = json!(crate::signal::FASTEST.load(std::sync::atomic::Ordering::Relaxed));
+                s["downloadMbps"] = json!(crate::media::CAP_BPS.load(std::sync::atomic::Ordering::Relaxed) / 125_000);
                 if let Some(r) = &self.replica {
                     s["replica"] = r.summary();
                 }
@@ -1463,9 +1479,17 @@ impl Host {
             }
             "prefer-fastest" if !self.ident.backup => {
                 let on = op["on"] == true;
-                match std::fs::write(self.data.join("serving.json"), json!({"preferFastest": on}).to_string()) {
-                    Ok(()) => { self.load_serving(); json!({"ok": true, "preferFastest": on}) }
-                    Err(e) => json!({"error": format!("can't write serving.json: {e}")}),
+                match self.set_serving("preferFastest", json!(on)) {
+                    Ok(()) => json!({"ok": true, "preferFastest": on}),
+                    Err(e) => json!({"error": e}),
+                }
+            }
+            // 4.0.7: cap the total speed of full-file downloads (masters, proxies), so playback for others keeps going.
+            "download-cap" if !self.ident.backup => {
+                let mbps = op["mbps"].as_u64().unwrap_or(0).min(100_000);
+                match self.set_serving("downloadMbps", json!(mbps)) {
+                    Ok(()) => json!({"ok": true, "downloadMbps": mbps}),
+                    Err(e) => json!({"error": e}),
                 }
             }
             // 4.1: the team's custom statuses, fields and saved views (Pluck's library.json), kept for the team's Macs as
@@ -2009,13 +2033,15 @@ impl Host {
                     r.fetch_start(v);
                     self.peers.get_mut(peer).unwrap().fetches.entry(fetch).or_default().version = Some(v.to_owned());
                 }
-                if what == "original" || what == "proxy" {
+                // Masters and proxy downloads share the owner's download cap; playback (copies' segments) never waits for it.
+                let capped = what == "original" || what == "proxy";
+                if capped {
                     let f = self.peers.get_mut(peer).unwrap().fetches.entry(fetch).or_default();
                     f.download = Some((asset, version, what));
                 }
                 self.send(peer, r);
                 let parts: Vec<Value> = parts.into_iter().map(|(path, offset, length)| json!({"path": path, "offset": offset, "length": length})).collect();
-                self.cmd(json!({"serve": {"peer": peer, "fetch": fetch, "pieces": parts}}));
+                self.cmd(json!({"serve": {"peer": peer, "fetch": fetch, "pieces": parts, "capped": capped}}));
             }
             Ok(Resolved::Still { input, t }) => {
                 if !rate(&mut self.peers.get_mut(peer).unwrap().stills, Duration::from_secs(60), 60) {
@@ -3731,7 +3757,11 @@ mod tests {
         // A finished proxy download is logged.
         ready_peer(&mut h, "p1", "R1");
         h.request("p1", &json!({"id": 7, "t": "fetch", "asset": "A", "version": "V", "what": "proxy"}));
-        assert_eq!(answer(&mut rx, "p1", 7)["size"], 3100);
+        let c = cmds(&mut rx);
+        assert_eq!(c.iter().find(|c| c["send"]["msg"]["re"] == 7).unwrap()["send"]["msg"]["size"], 3100);
+        assert_eq!(c.iter().find(|c| c.get("serve").is_some()).unwrap()["serve"]["capped"], true, "a download shares the cap");
+        h.request("p1", &json!({"id": 8, "t": "fetch", "asset": "A", "version": "V", "what": "segment", "rendition": "1080", "n": 0}));
+        assert_eq!(cmds(&mut rx).iter().find(|c| c.get("serve").is_some()).unwrap()["serve"]["capped"], false, "playback never waits for it");
         h.report(&json!({"served": {"peer": "p1", "fetch": 7, "bytes": 3100, "result": "done"}}));
         assert!(h.entries.iter().any(|e| e["activity"]["kind"] == "downloaded" && e["activity"]["detail"]["what"] == "proxy"));
     }
@@ -3922,6 +3952,13 @@ mod tests {
         assert_eq!(f, json!({"preferFastest": true}));
         assert!(h.sync(&json!({"op": "status"})).get("uplinkMbps").is_some());
         h.sync(&json!({"op": "prefer-fastest", "on": false}));
+        assert_eq!(h.sync(&json!({"op": "download-cap", "mbps": 200})), json!({"ok": true, "downloadMbps": 200}));
+        let f: Value = serde_json::from_slice(&std::fs::read(h.data.join("serving.json")).unwrap()).unwrap();
+        assert_eq!(f, json!({"preferFastest": false, "downloadMbps": 200}), "one setting doesn't drop the other");
+        assert_eq!(h.sync(&json!({"op": "status"}))["downloadMbps"], 200);
+        assert_eq!(crate::media::CAP_BPS.load(std::sync::atomic::Ordering::Relaxed), 25_000_000);
+        h.sync(&json!({"op": "download-cap", "mbps": 0}));
+        assert_eq!(crate::media::CAP_BPS.load(std::sync::atomic::Ordering::Relaxed), 0, "off");
         h.ident.backup = true;
         assert_eq!(h.sync(&json!({"op": "prefer-fastest", "on": true}))["error"], "unknown op", "not on a backup");
     }
