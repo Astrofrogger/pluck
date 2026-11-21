@@ -131,11 +131,12 @@ extension PhotoSelfTest {
         check("delivered: lists, but comments and approvals are read only", ask(["t": "list", "folder": NSNull()])["assets"] is [[String: Any]]
               && code(ask(["t": "comment-add", "asset": asset.id.uuidString, "version": asset.current.id.uuidString, "frame": 1, "text": "Late"])) == "readonly"
               && code(ask(["t": "approve", "asset": asset.id.uuidString, "version": asset.current.id.uuidString, "decision": "approve"])) == "readonly")
+        out = []
         store.updateLink(link.id) { $0.archived = .now }
-        let archived = ask(["t": "list", "folder": NSNull()])
-        check("archived: the link answers archived (paused to an older page) and says bye", code(archived) == "paused"
-              && (archived["error"] as? [String: Any])?["archived"] as? Bool == true
-              && sentTo(peer, out).contains { $0["t"] as? String == "bye" && $0["code"] as? String == "paused" && $0["archived"] as? Bool == true })
+        let told = sentTo(peer, out).contains { $0["t"] as? String == "bye" && $0["code"] as? String == "paused" && $0["archived"] as? Bool == true }
+        let late = connectPeer(server, store: store, link: store.link(link.id)!, out: { out }, reset: { out = [] })
+        let refused = sentTo(late, out).contains { ($0["error"] as? [String: Any]).map { $0["code"] as? String == "paused" && $0["archived"] as? Bool == true } == true }
+        check("archived: open pages hear it, new ones are refused (as paused + archived, for older pages)", told && refused)
         store.updateLink(link.id) { $0.archived = nil }
 
         // approvedFinal once every asset is approved; Delivered off takes `delivered` out again.
