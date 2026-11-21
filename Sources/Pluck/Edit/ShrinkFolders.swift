@@ -54,28 +54,41 @@ enum ShrinkFolders {
     /// Programs that make finished films, as they name themselves in a file's tags.
     static let editors = ["davinci resolve", "resolve", "premiere", "media encoder", "adobe", "final cut", "compressor", "com.apple.proapps", "avid", "after effects"]
 
-    /// Rushes, deliveries or other, and why: an editing program's tag, then the nearest folder
-    /// whose name says, then a camera's file name, then a camera's tags.
-    static func classify(_ path: String, root: String, tags: [String: String]) -> (Kind, String) {
+    /// Rushes, deliveries or other, and why: an editing program's tag, then a delivery folder anywhere below
+    /// the project (`project`; nil: below the chosen folder), then the nearest folder whose name says, then a
+    /// camera's file name, then a camera's tags (a reel name alone isn't one: renders carry it too).
+    static func classify(_ path: String, root: String, project: String? = nil, tags: [String: String]) -> (Kind, String) {
         let tagText = tags.map { "\($0.key) \($0.value)" }.joined(separator: " ").lowercased()
         if let editor = editors.first(where: { tagText.contains($0) }) {
             let value = tags.values.first { $0.lowercased().contains(editor) } ?? editor
             return (.deliveries, String(localized: "Made by \(value)"))
         }
+        // (Export/Clips, Deliveries/Media, Final/Raw: never touched.)
+        if let folder = deliveryFolder(path, inside: project ?? root) { return (.deliveries, String(localized: "In “\(folder)”")) }
         let below = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : (path as NSString).lastPathComponent
         let folders = [(root as NSString).lastPathComponent] + below.split(separator: "/").dropLast().map(String.init)
         for folder in folders.reversed() {
-            let words = folder.lowercased().components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }
-            let joined = words.joined()
-            if words.contains(where: deliveryWords.contains) || deliveryWords.contains(joined) { return (.deliveries, String(localized: "In “\(folder)”")) }
-            if words.contains(where: rushWords.contains) || rushWords.contains(joined) { return (.rushes, String(localized: "In “\(folder)”")) }
+            if says(folder, deliveryWords) { return (.deliveries, String(localized: "In “\(folder)”")) }
+            if says(folder, rushWords) { return (.rushes, String(localized: "In “\(folder)”")) }
         }
         let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
         if cameraName.firstMatch(in: stem, range: NSRange(stem.startIndex..., in: stem)) != nil { return (.rushes, String(localized: "Camera file name")) }
-        if let camera = tags.first(where: { $0.key.range(of: "make|model|manufacturer|reel_name|camera", options: [.regularExpression, .caseInsensitive]) != nil && !$0.value.isEmpty }) {
+        if let camera = tags.first(where: { $0.key.range(of: "make|model|manufacturer|camera", options: [.regularExpression, .caseInsensitive]) != nil && !$0.value.isEmpty }) {
             return (.rushes, String(localized: "Camera tag: \(camera.value)"))
         }
         return (.other, String(localized: "Nothing says"))
+    }
+
+    /// A folder name that says one of `words`.
+    static func says(_ folder: String, _ words: Set<String>) -> Bool {
+        let parts = folder.lowercased().components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }
+        return parts.contains(where: words.contains) || words.contains(parts.joined())
+    }
+
+    /// The nearest folder between `inside` and the file whose name says delivery (nil: none).
+    static func deliveryFolder(_ path: String, inside: String) -> String? {
+        guard path.hasPrefix(inside + "/") else { return nil }
+        return path.dropFirst(inside.count + 1).split(separator: "/").dropLast().map(String.init).reversed().first { says($0, deliveryWords) }
     }
 
     /// A file found, and (once in a run) how it went.
@@ -143,6 +156,8 @@ enum ShrinkFolders {
         /// Why its original isn't safe to delete (nil: safe, or not checked yet).
         func notSafe(_ now: Date = .now) -> String? {
             if state == .working, let problem { return problem }
+            // (Stopped between "original out" and "master in", or on the other Mac: not finished, whatever was checked before.)
+            if state == .working && moved != nil || state == .elsewhere { return String(localized: "Not finished: don’t delete yet") }
             guard state == .done, checked != nil else { return nil }
             if let found = checkProblems, !found.isEmpty { return found.joined(separator: ", ") }
             if checkProblems == nil { return nil }
@@ -202,6 +217,8 @@ enum ShrinkFolders {
         var shareIDs: [String: String]?
         /// When Relink in Resolve pointed projects at its masters (Put Back then offers the way back).
         var relinked: Date?
+        /// The age limit it was started with (months; nil or 0: any age): a project edited since is left.
+        var months: Int?
     }
 
     // MARK: Finding the files
@@ -303,7 +320,7 @@ enum ShrinkFolders {
                 } else {
                     tags = probe(&file, ffprobe: ffprobe, raw: raw.contains(kind), open: open)
                 }
-                (file.kind, file.why) = classify(file.path, root: root.path, tags: tags)
+                (file.kind, file.why) = classify(file.path, root: root.path, project: place.folder, tags: tags)
                 survey.files.append(file)
                 found(survey.files.count)
             }
@@ -698,6 +715,20 @@ enum ShrinkFolders {
         return (try? probe.resourceValues(forKeys: [.volumeTotalCapacityKey]))?.volumeTotalCapacity.map(Int64.init)
     }
 
+    /// Any file of a folder (and below) changed in the last `months` months, looked at now (the survey may be weeks old).
+    static func editedSince(_ folder: String, months: Int, now: Date = .now) -> Bool {
+        guard months > 0, let limit = Calendar.current.date(byAdding: .month, value: -months, to: now),
+              let walk = FileManager.default.enumerator(at: URL(fileURLWithPath: folder), includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+                                                        options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return false }
+        for case let url as URL in walk {
+            // (Pluck's own folder to delete, with its lists, when it's inside: not an edit.)
+            if url.lastPathComponent == holdingName { walk.skipDescendants(); continue }
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]), values.isRegularFile == true else { continue }
+            if (values.contentModificationDate ?? .distantPast) > limit { return true }
+        }
+        return false
+    }
+
     /// The bytes in a folder and below (what's waiting in a folder to delete).
     static func bytes(in folder: URL) -> Int64 {
         guard let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], errorHandler: { _, _ in true }) else { return 0 }
@@ -832,10 +863,23 @@ enum ShrinkFolders {
         func fail(_ why: String) -> File { file.state = .failed; file.note = why; file.moved = nil; return file }
         /// Made again from the start (the hidden master isn't there whole).
         func again() -> File { drop(); file.state = .pending; file.master = nil; file.masterSize = nil; file.moved = nil; file.note = nil; return file }
-        // (Its own hidden master dropped: the Mac that has the file now makes its own.)
-        // (Only while the original is still at its name: a hidden master standing for an original that moved stays.)
+        /// An empty placeholder of Pluck's own (left by a quit) taken off a name first, so it's no block.
+        func clear(_ path: String) { if placeholder(path) { unlink(path) } }
+        /// The hidden master renamed in under the master's name.
+        func putIn() -> String? { clear(master); return rename(temp, master) }
+        /// All of the original (and its parts) at its own name, every byte of it.
+        func whole() -> Bool {
+            let sizes = ([file.path] + file.parts).map(size)
+            return !sizes.contains { $0 == nil } && sizes.reduce(Int64(0)) { $0 + ($1 ?? 0) } == file.size
+        }
         guard stillOurs() else {
-            if fm.fileExists(atPath: file.path), file.moved.map({ !fm.fileExists(atPath: $0) }) ?? true { drop() }
+            // (Nothing of it moved yet: the file is the other Mac's now, this Mac's hidden master dropped.)
+            // (Else a hidden master standing for an original that moved stays, and the file stays this Mac's to finish.)
+            if file.moved.map({ !fm.fileExists(atPath: $0) }) ?? true, whole(), master == file.path || !fm.fileExists(atPath: master) {
+                drop()
+                file.state = .elsewhere
+                (file.master, file.masterSize, file.masterHash, file.moved, file.temp) = (nil, nil, nil, nil, nil)
+            }
             file.note = String(localized: "Another Mac took this file over")
             return file
         }
@@ -843,23 +887,30 @@ enum ShrinkFolders {
             // In a destination: the master renamed into its place; the original isn't touched.
             if !ready(master) {
                 guard ready(temp) else { return again() }
-                if let why = rename(temp, master) { drop(); return fail(why) }
+                if let why = putIn() { drop(); return fail(why) }
             }
             try step("master in", file)
             return done(&file, master: master, settings: settings, inventory: inventory)
         }
         let target = (moved as NSString).deletingLastPathComponent
         let parts = file.parts.map { ($0, (target as NSString).appendingPathComponent(($0 as NSString).lastPathComponent)) }
-        /// Something failed after the original moved: it (and its parts) back under its name.
+        /// Not all of the original is back at its name: the file stays to finish (its hidden master and where it went kept), saying why.
+        func stuck(_ why: String, _ problem: String) -> File {
+            // (Nothing's lost: what isn't at its name is in the folder to delete. Resume tries again.)
+            file.state = .working
+            file.note = String(localized: "Couldn’t put the original back (\(why); \(problem)). It’s safe in “Pluck · Originals to delete”; Resume tries again.")
+            file.problem = file.note
+            return file
+        }
+        /// Something failed after the original (or a part of it) moved: all of it back under its name, and only
+        /// once it's there whole the master goes (one under a new name set aside first, as it was made).
         func restore(_ why: String) -> File {
             let back = ([(file.path, moved)] + parts).map { ($0.1, $0.0) }.filter { fm.fileExists(atPath: $0.0) }
-            if let problem = moveAll(back) {
-                // (The original is whole in the folder to delete; nothing's lost. Resume tries again.)
-                file.state = .working
-                file.note = String(localized: "Couldn’t put the original back (\(why); \(problem)). It’s safe in “Pluck · Originals to delete”; Resume tries again.")
-                file.problem = file.note
-                return file
-            }
+            back.forEach { clear($0.1) }
+            if let problem = moveAll(back) { return stuck(why, problem) }
+            guard whole() else { return stuck(why, String(localized: "The original isn’t all there")) }
+            if master != file.path, !ready(temp), ready(master), let hash = file.masterHash, readBack(master).hash == hash { _ = rename(master, temp) }
+            drop()
             file.problem = nil
             return fail(why + " · " + String(localized: "The original is back in its place"))
         }
@@ -878,27 +929,28 @@ enum ShrinkFolders {
                 file.note = String(localized: "Neither the original nor its moved copy is there: is its share mounted?")
                 return file
             }
+            // A part a move couldn't take back is still in the folder to delete: back first, so the original is whole at its name.
+            let strays = parts.filter { !fm.fileExists(atPath: $0.0) && fm.fileExists(atPath: $0.1) }.map { ($0.1, $0.0) }
+            strays.forEach { clear($0.1) }
+            if let problem = moveAll(strays) { return stuck(String(localized: "The original isn’t all there"), problem) }
             let current = file
             if master != file.path {
                 // (Pluck stopped right after the master went in: it's this master, so it isn't made again.)
                 let placed = !ready(temp) && ready(master) && file.masterHash != nil && readBack(master).hash == file.masterHash
                 if !placed {
                     guard ready(temp) else { return again() }
-                    if let why = rename(temp, master) { drop(); return fail(why) }
+                    // (The original hasn't moved: a master that can't go in is made again another time.)
+                    if let why = putIn() { drop(); return fail(why) }
                 }
                 try step("master in", file)
-                if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) {
-                    // (The master only goes once the original is back at its name.)
-                    guard fm.fileExists(atPath: file.path) else { file.note = why; file.problem = why; return file }
-                    if rename(master, temp) == nil { drop() }
-                    return fail(why)
-                }
+                // (The master only goes once all of the original is back at its name.)
+                if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) { return restore(why) }
                 try step("original out", file)
             } else {
                 guard ready(temp) else { return again() }
-                if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) { drop(); return fail(why) }
+                if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) { return restore(why) }
                 try step("original out", file)
-                if let why = rename(temp, master) { return restore(why) }
+                if let why = putIn() { return restore(why) }
                 try step("master in", file)
             }
         } else {
@@ -907,7 +959,7 @@ enum ShrinkFolders {
             if let why = moveAll(left) { return restore(why) }
             if !ready(master) {
                 guard ready(temp) else { return restore(String(localized: "The master is gone")) }
-                if let why = rename(temp, master) { return restore(why) }
+                if let why = putIn() { return restore(why) }
             }
             try step("master in", file)
         }
@@ -1280,9 +1332,10 @@ final class ShrinkCenter {
     /// Adds a run of these files (`destination`: masters there, originals left; nil: in place).
     @discardableResult
     func add(_ files: [ShrinkFolders.File], settings: ShrinkFolders.Settings, destination: URL? = nil, roots: [String], id: UUID = UUID(),
-             proxies: [String: [String]] = [:]) -> UUID {
+             proxies: [String: [String]] = [:], months: Int? = nil) -> UUID {
         var run = ShrinkFolders.Run(settings: settings, files: files.map { var file = $0; file.state = .pending; file.note = nil; return file })
         run.id = id
+        run.months = months
         run.destination = destination?.path
         run.roots = roots.map { ShrinkFolders.real(URL(fileURLWithPath: $0)).path }
         run.proxyFolders = destination == nil ? proxies : [:]
@@ -1360,10 +1413,22 @@ final class ShrinkCenter {
         holdAwake(true)
         defer { active = nil; current = nil; currentTemp = nil; holdAwake(false); if let run = run(id) { ShrinkFolders.writeReport(run) } }
         if let r = runs.firstIndex(where: { $0.id == id }), runs[r].paused != nil { runs[r].paused = nil; save() }
+        // (Each project looked at once a go: edited within the age limit since the survey, it's left.)
+        var edited: [String: Bool] = [:]
         while !stopping, let r = runs.firstIndex(where: { $0.id == id }), let f = next(runs[r]) {
             let run = runs[r], settings = run.settings, quiet = quiet, freeSpace = freeSpace, capacity = capacity, mac = claimName
             let destination = run.destination.map { URL(fileURLWithPath: $0) }
             var file = run.files[f]
+            if file.state == .pending, let months = run.months, months > 0 {
+                let project = file.project.isEmpty ? file.folder : file.project
+                if edited[project] == nil { edited[project] = await Task.detached(priority: .utility) { ShrinkFolders.editedSince(project, months: months) }.value }
+                if edited[project] == true {
+                    file.state = .skipped
+                    file.note = String(localized: "Recent project")
+                    set(file, in: id)
+                    continue
+                }
+            }
             let began = Date.now
             let given = destination.map { ShrinkFolders.destinationPath(file, destination: $0, top: ShrinkFolders.topFolders(run.roots)[file.folder] ?? "") }
             let target = file.master ?? given ?? ShrinkFolders.masterPath(file.path) ?? file.path
@@ -1532,7 +1597,14 @@ final class ShrinkCenter {
         let kinds = ProjectArchive.videoKinds.union(ProjectArchive.rawMasterKinds)
         for project in projects {
             let clips = runs[r].files.filter { $0.project == project }
-            for folder in runs[r].proxyFolders[project] ?? [] where runs[r].movedFolders[folder] == nil && FileManager.default.fileExists(atPath: folder) {
+            let proxyFolders = runs[r].proxyFolders[project] ?? []
+            // Every video of the project now (its proxy folders aside): a proxy named like one that isn't a checked master stays.
+            let masters = Set(clips.filter { $0.safeNow() }.compactMap(\.master))
+            let videos = (FileManager.default.enumerator(at: URL(fileURLWithPath: project), includingPropertiesForKeys: [.isRegularFileKey],
+                                                         options: [.skipsHiddenFiles], errorHandler: { _, _ in true })?.allObjects as? [URL] ?? [])
+                .map(\.path).filter { path in kinds.contains((path as NSString).pathExtension.lowercased()) && !proxyFolders.contains { path.hasPrefix($0 + "/") }
+                    && !path.contains("/" + ShrinkFolders.holdingName + "/") }
+            for folder in proxyFolders where runs[r].movedFolders[folder] == nil && FileManager.default.fileExists(atPath: folder) {
                 guard let file = clips.first else { continue }
                 let inside = (FileManager.default.enumerator(atPath: folder)?.allObjects as? [String] ?? []).filter { name in
                         var isFolder: ObjCBool = false
@@ -1540,17 +1612,20 @@ final class ShrinkCenter {
                         return FileManager.default.fileExists(atPath: (folder as NSString).appendingPathComponent(name), isDirectory: &isFolder) && !isFolder.boolValue
                             && last != ".DS_Store" && !last.hasPrefix("._")
                     }
-                // Every file: a proxy of a checked master, or a cache Resolve makes again (CacheClip, .gallery, OptimizedMedia).
+                // Every file: a proxy of a checked master, or a cache Resolve makes again (CacheClip, OptimizedMedia; never
+                // .gallery: its stills can't be made again).
                 let unkept = inside.first { proxy in
                     let places = ((folder as NSString).lastPathComponent + "/" + proxy).lowercased().split(separator: "/")
-                    if places.contains(where: { ["cacheclip", ".gallery", "optimizedmedia", "optimized media"].contains($0) }) { return false }
+                    if places.contains(".gallery") { return true }
+                    if places.contains(where: { ["cacheclip", "optimizedmedia", "optimized media"].contains($0) }) { return false }
                     guard kinds.contains((proxy as NSString).pathExtension.lowercased()) else { return true }
                     let stem = (((proxy as NSString).lastPathComponent as NSString).deletingPathExtension).lowercased()
-                    let of = clips.filter { clip in
-                        let name = (((clip.path as NSString).lastPathComponent as NSString).deletingPathExtension).lowercased()
+                    func of(_ path: String) -> Bool {
+                        let name = (((path as NSString).lastPathComponent as NSString).deletingPathExtension).lowercased()
                         return stem == name || stem.hasPrefix(name + "_") || stem.hasPrefix(name + " ") || stem.hasPrefix(name + ".")
                     }
-                    return of.isEmpty || !of.allSatisfy { $0.safeNow() }
+                    let named = videos.filter(of)
+                    return named.isEmpty || !named.allSatisfy(masters.contains) || !clips.filter({ of($0.path) }).allSatisfy { $0.safeNow() }
                 }
                 if let unkept {
                     runs[r].proxyNotes = (runs[r].proxyNotes ?? [:]).merging([folder: String(localized: "Left: \((unkept as NSString).lastPathComponent) isn’t a proxy of a checked master or a cache")]) { $1 }
@@ -1803,6 +1878,7 @@ extension ShrinkFolders.Run {
         shares = v(.shares)
         proxyNotes = v(.proxyNotes)
         shareIDs = v(.shareIDs)
+        months = v(.months)
     }
 }
 

@@ -65,7 +65,13 @@ final class ArchiveModel {
         var notSafeFiles: [String] = []
     }
     /// Check Before Deleting's result for one project of a run.
-    struct ProjectCheck: Identifiable { var id: String { title }; var title: String; var masters: Int; var checked: Int; var problems: [String] }
+    struct ProjectCheck: Identifiable {
+        var id: String { title }; var title: String; var masters: Int; var checked: Int; var problems: [String]
+        /// Its run is through (here and on the other Mac).
+        var finished = true
+        /// "Safe to delete": every master checked and passed, nothing of it left to do.
+        var safe: Bool { problems.isEmpty && finished && masters > 0 && checked == masters }
+    }
     typealias Choice = ShrinkFolders.Rules.Choice
 
     // MARK: State
@@ -482,13 +488,16 @@ final class ArchiveModel {
 
     /// Check Before Deleting's results for a run, by project.
     /// (Looked at now; a file whose original waits without its master is not safe too.)
+    /// (A file not finished, here or on the other Mac, is a problem of its project; a run not through is never safe.)
     func checks(_ run: ShrinkFolders.Run) -> [ProjectCheck] {
-        let mine = run.files.filter { $0.state == .done || ($0.state == .working && $0.problem != nil) }
+        let mine = run.files.filter { $0.state == .done || ($0.state == .working && ($0.problem != nil || $0.moved != nil)) }
+        let finished = !center.unfinished(run)
         return Dictionary(grouping: mine) { $0.client.isEmpty ? ($0.folder as NSString).lastPathComponent : ShrinkFolders.title(client: $0.client, project: $0.projectName) }
             .map { title, files in
                 let done = files.filter { $0.state == .done }
                 return ProjectCheck(title: title, masters: done.count, checked: done.filter { $0.safeNow() || $0.notSafe() != nil }.count,
-                                    problems: files.compactMap { file in file.notSafe().map { "\((file.path as NSString).lastPathComponent): \($0)" } })
+                                    problems: files.compactMap { file in file.notSafe().map { "\((file.path as NSString).lastPathComponent): \($0)" } },
+                                    finished: finished)
             }
             .sorted { $0.title < $1.title }
     }
@@ -528,7 +537,8 @@ final class ArchiveModel {
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe"), canStart else { return }
         let list = picked.map { var file = $0; file.kind = kind($0); return file }
         let proxies = moveProxies ? Dictionary(uniqueKeysWithValues: Set(list.map(\.project)).map { ($0, survey?.projects[$0]?.proxyFolders ?? []) }) : [:]
-        let id = center.add(list, settings: settings, destination: destination, roots: folders.map { ShrinkFolders.real($0).path }, proxies: proxies)
+        let id = center.add(list, settings: settings, destination: destination, roots: folders.map { ShrinkFolders.real($0).path }, proxies: proxies,
+                        months: months)
         let machine = officeProblem == nil ? machine : .here
         problems = []
         Task {

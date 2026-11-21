@@ -29,6 +29,17 @@ enum ShrinkRemote {
         OfficeGroup.place(URL(fileURLWithPath: path)).map { $0.remount + "\n" + $0.path }
     }
 
+    /// A path as a NAS place even when nothing is there (any more): the nearest folder that's there looked up,
+    /// the rest as text (a moved original, its RED spans, an .mp4 whose master is a .mov are never dropped).
+    nonisolated static func placeText(_ path: String, place: (String) -> String? = { ShrinkRemote.place($0) }) -> String? {
+        var probe = path, rest = ""
+        while !FileManager.default.fileExists(atPath: probe), probe != "/", !probe.isEmpty {
+            rest = "/" + (probe as NSString).lastPathComponent + rest
+            probe = (probe as NSString).deletingLastPathComponent
+        }
+        return place(probe).map { $0 + rest }
+    }
+
     /// Where a place is on this Mac (nil: its share isn't mounted here, or it isn't there).
     nonisolated static func local(_ place: String) -> String? {
         let parts = place.split(separator: "\n", maxSplits: 1).map(String.init)
@@ -69,7 +80,7 @@ enum ShrinkRemote {
                                                                       editorHere: OfficeAccess.shared.rights(for: device).render),
                                      "name": Host.current().localizedName ?? "Mac"]
         if let id = arguments["id"] as? String, let run = center.runs.first(where: { $0.id.uuidString == id }) {
-            let files = run.files.compactMap { translated($0, place) }
+            let files = run.files.compactMap { translated($0) { placeText($0) } }
             answer["files"] = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(files))) ?? []
             answer["working"] = center.active == run.id
             if center.active == run.id, let left = center.timeLeft { answer["left"] = left }
@@ -97,7 +108,8 @@ enum ShrinkRemote {
         if case .some(nil) = destination { throw OfficeLink.Failure.office(String(localized: "The always-on Mac can’t reach the destination folder.")) }
         let roots = (arguments["roots"] as? [String] ?? []).compactMap(local)
         if !here.isEmpty {
-            center.add(here, settings: settings, destination: destination?.map { URL(fileURLWithPath: $0) }, roots: roots, id: id)
+            center.add(here, settings: settings, destination: destination?.map { URL(fileURLWithPath: $0) }, roots: roots, id: id,
+                       months: arguments["months"] as? Int)
             if run, let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") {
                 Task { await center.resume(id, ffmpeg: ffmpeg, ffprobe: ffprobe) }
             }
@@ -132,6 +144,8 @@ enum ShrinkRemote {
                                         "files": try JSONSerialization.jsonObject(with: JSONEncoder().encode((reversed ? placed.reversed() : placed).map(\.1))),
                                         "settings": try JSONSerialization.jsonObject(with: JSONEncoder().encode(run.settings)),
                                         "roots": run.roots.compactMap(place)]
+        // (An older always-on Mac doesn't know it: it goes by the survey's age.)
+        if let months = run.months { arguments["months"] = months }
         if let destination = run.destination {
             guard let there = place(destination) else { return [] }
             arguments["destination"] = there
@@ -147,11 +161,12 @@ enum ShrinkRemote {
         guard let answer = try? await OfficeRenderClient.shared.ask("shrinkState", ["id": id.uuidString], timeout: 20),
               let sent = answer["files"], let files = ShrinkFolders.decodeFiles(sent)
         else { return false }
-        merge(files.compactMap { translated($0, local) ?? translatedLoose($0) }, into: id, center: center)
+        merge(files.compactMap(translatedLoose), into: id, center: center)
         return answer["working"] as? Bool == true
     }
 
-    /// A finished file whose original moved away (its old path no longer there): only its own path kept as sent.
+    /// A file from the always-on Mac, every path mapped as text against its share's place here (a path that
+    /// isn't there any more, as a moved original's, is kept).
     nonisolated static func translatedLoose(_ file: ShrinkFolders.File) -> ShrinkFolders.File? {
         translated(file) { local($0) ?? localPath($0) }
     }
@@ -172,6 +187,9 @@ enum ShrinkRemote {
             guard let mine = run.files.first(where: { $0.path == remote.path }) else { continue }
             let open = mine.state == .elsewhere || mine.state == .pending
             guard open || (remote.state == .done && ![.done, .restored, .working].contains(mine.state)) else { continue }
+            var remote = remote
+            // (An older always-on Mac drops the parts it can't find any more: the clip's parts are the ones this Mac found.)
+            if remote.parts.count < mine.parts.count { remote.parts = mine.parts }
             center.set(remote, in: id)
         }
     }
