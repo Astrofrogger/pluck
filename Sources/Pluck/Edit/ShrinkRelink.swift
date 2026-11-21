@@ -100,7 +100,13 @@ if action == "relink":
                     failed.append(old)
         pm.SaveProject()
         if name in exported:
-            pm.ExportProject(name, os.path.splitext(exported[name])[0] + " relinked.drp")
+            stem = os.path.splitext(exported[name])[0] + " relinked"
+            target = stem + ".drp"
+            number = 2
+            while os.path.exists(target):
+                target = stem + " %d.drp" % number
+                number += 1
+            pm.ExportProject(name, target)
         results.append({"project": name, "replaced": replaced, "failed": failed})
     if before:
         pm.LoadProject(before)

@@ -164,7 +164,10 @@ struct ArchiveView: View {
                             Text("Safe to delete \(bytes(place.safe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.good)
                         }
                         if place.unsafe > 0 {
-                            Text("Not checked \(bytes(place.unsafe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.warn)
+                            Text("Not checked \(bytes(place.unsafe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                        }
+                        if place.notSafe > 0 {
+                            Text("Not safe \(bytes(place.notSafe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.bad)
                         }
                         Button("Check") { model.check(place) }.buttonStyle(.link).font(Design.Studio.hint)
                             .disabled(center.checking != nil || center.running).help("Reads every master again before you delete its original")
@@ -172,6 +175,9 @@ struct ArchiveView: View {
                             Button { NSWorkspace.shared.activateFileViewerSelecting(place.safeFiles) } label: { Image(systemName: "folder") }
                                 .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show what’s safe to delete in Finder")
                         }
+                    }
+                    ForEach(place.notSafeFiles.prefix(5), id: \.self) { line in
+                        Text(verbatim: line).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).lineLimit(1).truncationMode(.middle)
                     }
                     if !place.unsafeFiles.isEmpty {
                         let names = place.unsafeFiles.prefix(3).map { ($0 as NSString).lastPathComponent }.joined(separator: ", ") + (place.unsafeFiles.count > 3 ? "…" : "")
@@ -184,6 +190,8 @@ struct ArchiveView: View {
                     }
                 }
             }
+            Text("Safe means a checked master exists — at master quality, not the original’s.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             Text("Space comes back once you delete these. On TrueNAS, snapshots keep deleted files until they expire.")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
         }
@@ -527,13 +535,16 @@ struct ArchiveView: View {
                 Text(verbatim: "\((file.path as NSString).lastPathComponent): \(file.problem ?? "")").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
                     .lineLimit(2).truncationMode(.middle).help(file.path)
             }
-            ForEach(model.checks(run).filter { $0.checked > 0 }) { project in
-                if project.problems.isEmpty && project.checked == project.masters {
+            ForEach(run.proxyNotes.map { Array($0.values).sorted() } ?? [], id: \.self) { note in
+                Text(verbatim: note).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
+            }
+            ForEach(model.checks(run).filter { $0.checked > 0 || !$0.problems.isEmpty }) { project in
+                if project.problems.isEmpty && project.checked == project.masters && project.masters > 0 {
                     Text("\(project.title) · \(project.masters) masters checked · safe to delete").font(Design.Studio.hint).foregroundStyle(Design.Studio.good)
                 } else {
-                    Text(verbatim: project.title).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                    Text(verbatim: project.title).font(Design.Studio.hint).foregroundStyle(project.problems.isEmpty ? Design.Studio.warn : Design.Studio.bad)
                     ForEach(project.problems.prefix(10), id: \.self) { problem in
-                        Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2).padding(.leading, 12)
+                        Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).lineLimit(2).padding(.leading, 12)
                     }
                     if project.checked < project.masters {
                         Text("\(project.masters - project.checked) not checked: don’t delete yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).padding(.leading, 12)

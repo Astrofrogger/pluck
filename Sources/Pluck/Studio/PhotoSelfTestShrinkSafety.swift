@@ -273,9 +273,9 @@ extension PhotoSelfTest {
         if let file = scan(lostFolder).first {
             let prepared = S.prepare(file, settings: hd, holding: holding, temp: S.temporary(lostClip.path, token: "11112222"), ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
             let after = S.finish(prepared, settings: hd, stillOurs: { false })
-            check("shrink safety: the claim isn't this Mac's any more: the original and the hidden master are left as they are",
+            check("shrink safety: the claim isn't this Mac's any more: the original left as it is, only this Mac's own hidden master dropped",
                   prepared.state == .working && after.state == .working && ProjectArchive.streams(lostClip.path, ffprobe: ffprobe).codec == "prores"
-                  && fm.fileExists(atPath: prepared.temp ?? "/nonexistent") && !fm.fileExists(atPath: prepared.moved ?? "/nonexistent"), "\(after.state) \(after.note ?? "")")
+                  && !fm.fileExists(atPath: prepared.temp ?? "/nonexistent") && !fm.fileExists(atPath: prepared.moved ?? "/nonexistent"), "\(after.state) \(after.note ?? "")")
             try? fm.removeItem(atPath: prepared.temp ?? "/nonexistent")
         }
 
@@ -483,5 +483,45 @@ extension PhotoSelfTest {
                   fm.fileExists(atPath: ownMaster) && ownCenter.run(ownID)?.files.first?.state == .done && inventoryText == "mine\n",
                   "\(String(describing: ownCenter.run(ownID)?.files.first?.state)) \(String(describing: inventoryText))")
         } else { check("shrink safety: own-inventory destination run made", false) }
+
+        // R2 The checksum comes from the drive: the cache dropped, read twice, and two reads that disagree fail.
+        let probe = base.appendingPathComponent("probe.bin")
+        try? Data((0..<300_000).map { UInt8($0 % 251) }).write(to: probe)
+        let agree = S.readBack(probe.path), disagree = S.readBack(probe.path, readers: [{ _ in "aaaa" }, { _ in "bbbb" }])
+        check("shrink safety: dropping the cache keeps the file; the checksum read through and around the cache agrees; two reads that differ fail",
+              S.dropCache(probe.path) && (try? Data(contentsOf: probe))?.count == 300_000 && agree.hash != nil && agree.hash == S.xxhash(probe.path, cached: false)
+              && agree.problem == nil && disagree.hash == nil && disagree.problem != nil, "\(agree) \(disagree)")
+
+        // R3 A drive that can't make the master stay: the file fails, the original untouched.
+        let flushFolder = projects.appendingPathComponent("Flush/Rushes"), flushClip = flushFolder.appendingPathComponent("A070C001.mov")
+        make(flushClip)
+        if let file = scan(flushFolder).first {
+            let flushBefore = S.flush
+            S.flush = { _ in false }
+            let flushed = S.prepare(file, settings: hd, holding: holding, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
+            S.flush = flushBefore
+            check("shrink safety: a master that couldn't be written to the drive: the file fails, its hidden master gone, the original untouched",
+                  flushed.state == .failed && flushed.note == String(localized: "The master couldn’t be written to the drive")
+                  && !fm.fileExists(atPath: flushed.temp ?? "/nonexistent") && ProjectArchive.streams(flushClip.path, ffprobe: ffprobe).codec == "prores",
+                  "\(flushed.state) \(flushed.note ?? "")")
+        }
+
+        // R9 A drive without an exclusive rename: a placeholder taken first, never renamed over a file.
+        let renameBefore = S.exclusiveRename
+        S.exclusiveRename = { _, _ in errno = ENOTSUP; return -1 }
+        let ra = base.appendingPathComponent("ra.bin"), rb = base.appendingPathComponent("rb.bin"), rc = base.appendingPathComponent("rc.bin")
+        try? Data("a".utf8).write(to: ra)
+        try? Data("b".utf8).write(to: rb)
+        let over = S.rename(ra.path, rb.path), free = S.rename(ra.path, rc.path)
+        S.exclusiveRename = renameBefore
+        check("shrink safety: without an exclusive rename, a file there is never renamed over; a free name works",
+              over != nil && (try? String(contentsOf: rb, encoding: .utf8)) == "b" && free == nil && (try? String(contentsOf: rc, encoding: .utf8)) == "a"
+              && !fm.fileExists(atPath: ra.path), "\(over ?? "-") \(free ?? "-")")
+
+        // R7 Checking a share's folder with nothing of it: said, not silently nothing.
+        let lonely = base.appendingPathComponent("Lonely/" + S.holdingName)
+        try? fm.createDirectory(at: lonely, withIntermediateDirectories: true)
+        let said = await checkCenter.check(holding: lonely, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        check("shrink safety: Check on a share with no runs says so", said?.contains(lonely.path) == true, said ?? "nil")
     }
 }
