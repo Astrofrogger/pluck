@@ -567,6 +567,21 @@ enum ScreenshotMode {
                 UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
                 if defaults.bool(forKey: "PluckScreenshotEmpty") { OfficeArchive.shared.showSample([]) } else { OfficeSample.load() }
                 StudioNavigator.shared.open(windowID: "officeRender")
+            case "goinghome":
+                // Edit Anywhere's Going Home sheet with a sample result: -PluckScreenshotItem <ready|gaps|away>.
+                let kind = defaults.string(forKey: "PluckScreenshotItem") ?? "gaps"
+                var sample = RemoteGoingHome.Result(reachable: kind != "away", total: 12, here: kind == "ready" ? 12 : 9)
+                if kind == "gaps" {
+                    sample.missing = [.init(proxy: "Day 1/A001/A001C004.mov", why: .missing), .init(proxy: "Day 1/A001/A001C007.mov", why: .partial),
+                                      .init(proxy: "Day 2/B002/B002C001.mov", why: .notPinned)]
+                    sample.noProxy = ["Day 2/B002/B002C009.MXF"]
+                    sample.orphans = [.init(proxy: "Day 1/A002/A002C003.mov", reel: "A002C003", timecode: "10:42:18:05")]
+                }
+                let share = OfficeRenderClient.RemoteShare(["id": "s", "name": "Project Share", "online": true])!
+                let window = NSWindow(contentViewController: NSHostingController(rootView: RemoteGoingHomeSheet(share: share, path: "Day 1", preset: sample)))
+                window.title = "Going Home"
+                window.identifier = NSUserInterfaceItemIdentifier("goinghome")
+                window.makeKeyAndOrderFront(nil)
             case "anywherehome":
                 // Edit Anywhere › Use another Mac, not paired (a clean test home).
                 UserDefaults.standard.set("home", forKey: "officeRenderSide")
@@ -909,7 +924,7 @@ enum Offscreen {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             let windows = NSApp.windows.filter { $0.canBecomeMain && $0.contentView != nil }
             // The settings and whatsnew scenes draw their own window, not the main one behind it.
-            let own = ["settings", "whatsnew"].first { $0 == ScreenshotMode.scene }
+            let own = ["settings", "whatsnew", "goinghome"].first { $0 == ScreenshotMode.scene }
             if let window = own.flatMap({ own in windows.first { $0.identifier?.rawValue.hasPrefix(own) == true } }) ?? windows.first,
                let view = window.contentView?.superview ?? window.contentView,
                let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
