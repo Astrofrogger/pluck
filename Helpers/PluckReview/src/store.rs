@@ -254,6 +254,14 @@ pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value, fill: bool) -> 
                 continue; // removed for good: its children too
             }
         } else {
+            // A project stored as sent (a plain publish) may lack its lists: made empty, so a merge never panics the host.
+            if let Some(x) = obj_mut(&mut out, "project", &Value::Null, &pid) {
+                for k in ["folders", "assets"] {
+                    if !x[k].is_array() {
+                        x[k] = json!([]);
+                    }
+                }
+            }
             let stored = arr(&out, "projects").find(|x| x["id"] == pid).cloned().unwrap();
             let mut stored_meta = stored.clone();
             if let Some(o) = stored_meta.as_object_mut() {
@@ -473,6 +481,16 @@ mod tests {
         let (out, stale) = merge_publish(&out, &json!({"links": [{"id": "N", "roomID": "R2", "rev": 1, "at": T0, "by": "B"},
             {"id": "N3", "roomID": "R4", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "B"}]}), &Value::Null, true);
         assert_eq!((out["links"].as_array().unwrap().len(), stale), (2, vec![json!("N")]));
+    }
+
+    #[test]
+    fn a_stored_project_without_lists_merges() {
+        for stored in [json!({"id": "P", "name": "Film"}), json!({"id": "P", "name": "Film", "folders": null, "assets": 5})] {
+            let raw = json!({"format": 1, "projects": [stored], "links": []});
+            let m = json!({"format": 1, "projects": [{"id": "P", "rev": 9, "name": "Film", "folders": [{"id": "F", "rev": 1}], "assets": [{"id": "A", "rev": 1}]}], "links": []});
+            let (out, _) = merge_publish(&raw, &m, &json!({}), true);
+            assert_eq!((out["projects"][0]["folders"][0]["id"].clone(), out["projects"][0]["assets"][0]["id"].clone()), (json!("F"), json!("A")));
+        }
     }
 
     /// A 4.0.6 Mac or one without the mail code leaves out Email updates, Ask for Files' NAS folder and the

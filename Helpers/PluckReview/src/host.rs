@@ -602,6 +602,11 @@ impl Host {
             }
         }
         let mut raw = if self.raw["format"] == 1 { self.raw.clone() } else { json!({"format": 1, "projects": [], "links": []}) };
+        for k in ["projects", "links"] {
+            if !raw[k].is_array() {
+                raw[k] = json!([]);
+            }
+        }
         // Files added on the admin page to a project Pluck publishes stay: Pluck's project replaces
         // only Pluck's assets (it never knew of the admin's, so it can't send them back).
         for p in m["projects"].as_array_mut().into_iter().flatten() {
@@ -795,6 +800,9 @@ impl Host {
         let mut skipped = vec![];
         {
             let p = raw["projects"].as_array_mut().unwrap().iter_mut().find(|p| p["id"] == pid.as_str()).unwrap();
+            if !p["assets"].is_array() {
+                p["assets"] = json!([]); // stored as a plain publish sent it
+            }
             for f in op["files"].as_array().into_iter().flatten().filter_map(Value::as_str).take(500) {
                 let (Some(real), Some(kind)) = (self.roots.resolve(f, false), kind_of(f)) else { skipped.push(f.to_owned()); continue };
                 if Self::arr(p, "assets").any(|a| Self::arr(a, "versions").any(|v| v["source"] == f)) {
