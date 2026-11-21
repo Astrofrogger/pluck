@@ -1149,6 +1149,13 @@ extension PhotoSelfTest {
               && DeliverMail.errorText(["ok": true]) == nil && DeliverMail.validEmail("a@b.co") && !DeliverMail.validEmail("a@") && !DeliverMail.validEmail("a b@c.d") && !DeliverMail.validEmail("@c.d"), "")
         let heardMail = DeliverMail()
         heardMail.heard(["lastError": ["code": "rejected", "detail": "550 no such user", "at": "2026-11-20T10:00:00Z"]])
+        let keptSent = UserDefaults.standard.stringArray(forKey: DeliverResolveMarkers.sentKey)
+        DeliverResolveMarkers.remember(["pluck:a", "pluck:b"], timeline: "T1")
+        DeliverResolveMarkers.remember(["pluck:b"], timeline: "T2")
+        DeliverResolveMarkers.remember(["pluck:a"], timeline: "T1", forget: ["pluck:a", "pluck:b"])
+        check("markers: one Pluck removed isn't \"removed in Resolve\" later (that timeline only)",
+              DeliverResolveMarkers.sent("T1") == ["pluck:a"] && DeliverResolveMarkers.sent("T2") == ["pluck:b"], "\(DeliverResolveMarkers.sent("T1"))")
+        UserDefaults.standard.set(keptSent, forKey: DeliverResolveMarkers.sentKey)
         let hookMail = DeliverMail()
         hookMail.heard(["hooks": ["p1": ["url": "https://a.example.com/x", "internal": true], "p2": ["url": "https://b.example.com/y", "internal": false]]])
         check("mail: webhooks keep their team-only flag", hookMail.internalHooks == ["p1"] && hookMail.hooks["p2"] == "https://b.example.com/y", "")

@@ -761,7 +761,9 @@ final class DeliverServer {
              var item: [String: Any] = ["id": version.id.uuidString, "number": version.number, "added": Self.date(version.added),
                                         "duration": probe?.duration ?? 0, "fpsNum": probe?.fpsNum ?? 25, "fpsDen": probe?.fpsDen ?? 1,
                                         "width": probe?.width ?? 0, "height": probe?.height ?? 0, "startTimecode": probe?.startTimecode ?? "00:00:00:00",
-                                        "dropFrame": probe?.dropFrame ?? false, "frames": probe?.frames ?? 1, "renditions": ready(version) ?? [],
+                                        "dropFrame": probe?.dropFrame ?? false, "frames": probe?.frames ?? 1,
+                                        // (A burned-in watermark plays its own copies: the H.264 ladder only, no 4K.)
+                                        "renditions": (ready(version) ?? []).filter { link.watermark?.burned != true || !$0.hasPrefix("2160") },
                                         "ready": ready(version) != nil, "canDownload": link.allowDownload, "size": link.allowDownload ? version.size : 0,
                                         "canProxy": link.allowProxy == true && ready(version)?.contains("1080") == true]
              if let pages = version.pages { item["pages"] = pages }

@@ -82,7 +82,7 @@ enum DeliverResolveMarkers {
         })
         let (placed, moved, skipped) = place(ours, occupied: occupied)
         let answer = try await bridge(["action": "addMarkers", "markers": placed.map(\.json), "remove": old.sorted()])
-        remember(placed.map(\.data), timeline: name)
+        remember(placed.map(\.data), timeline: name, forget: old)
         return Result(timeline: name, added: answer["added"] as? Int ?? 0, moved: moved + (answer["moved"] as? [String] ?? []),
                       skipped: skipped + (answer["skipped"] as? [String] ?? []))
     }
@@ -109,9 +109,11 @@ extension DeliverResolveMarkers {
             return entry[..<cut] == timeline ? String(entry[entry.index(after: cut)...]) : nil
         })
     }
-    static func remember(_ data: [String], timeline: String) {
+    /// `forget`: markers Pluck itself removed from that timeline (not "removed in Resolve" on the next update).
+    static func remember(_ data: [String], timeline: String, forget: Set<String> = []) {
         let fresh = data.map { timeline + "\u{1F}" + $0 }
-        let old = (UserDefaults.standard.stringArray(forKey: sentKey) ?? []).filter { !fresh.contains($0) }
+        let gone = Set(forget.subtracting(data).map { timeline + "\u{1F}" + $0 })
+        let old = (UserDefaults.standard.stringArray(forKey: sentKey) ?? []).filter { !fresh.contains($0) && !gone.contains($0) }
         UserDefaults.standard.set(Array((old + fresh).suffix(5000)), forKey: sentKey)
     }
 

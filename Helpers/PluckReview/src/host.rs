@@ -1838,7 +1838,15 @@ impl Host {
     /// The asset's fields this link shows (`link.fields`, default status only), the manifest's
     /// merged with those set from links. Status has its own key.
     fn fields_of(&self, l: &Value, a: &Value) -> Option<Value> {
-        let shown: Vec<&str> = Self::arr(l, "fields").filter_map(Value::as_str).filter(|f| *f != "status").collect();
+        // A team link shows every field, custom ones too (as the Mac's own server); a client link only its `fields`.
+        let set = a["id"].as_str().and_then(|id| self.fields.get(id));
+        let shown: Vec<&str> = if team(l) {
+            let custom = a["fields"].as_object().into_iter().flat_map(|o| o.keys()).chain(set.into_iter().flat_map(|m| m.keys()));
+            let custom: std::collections::BTreeSet<&str> = custom.map(String::as_str).filter(|k| k.starts_with("cf:")).collect();
+            ["rating", "keywords", "assignee", "due", "notes"].into_iter().chain(custom).collect()
+        } else {
+            Self::arr(l, "fields").filter_map(Value::as_str).filter(|f| *f != "status").collect()
+        };
         let mut o = serde_json::Map::new();
         for f in shown {
             let set = a["id"].as_str().and_then(|id| self.fields.get(id)).and_then(|m| m.get(f));
@@ -1921,6 +1929,10 @@ impl Host {
             }
             if v["pages"].is_u64() {
                 w["pages"] = v["pages"].clone();
+            }
+            if Self::burned(l) {
+                // Its own copies are the H.264 ladder only: no 4K to pick.
+                w["renditions"] = json!(Self::arr(v, "renditions").filter(|r| !r.as_str().is_some_and(|r| r.starts_with("2160"))).collect::<Vec<_>>());
             }
             w["ready"] = v["ready"].clone();
             w["canDownload"] = json!(can);
@@ -3489,6 +3501,7 @@ mod tests {
         h.request("pt", &json!({"id": 1, "t": "list", "folder": null}));
         let a = answer(&mut rx, "pt", 1)["assets"][0].clone();
         assert_eq!((a["status"].clone(), a["fields"]["cf:shot"].clone()), (json!("c:lock"), json!("Wide")), "an unknown status id passes through");
+        assert_eq!(a["fields"]["notes"], "n", "a team link shows every field, as the Mac's own server");
         h.request("pt", &json!({"id": 2, "t": "field-set", "asset": "A", "field": "cf:shot", "value": "Close"}));
         assert_eq!(answer(&mut rx, "pt", 2)["asset"]["fields"]["cf:shot"], "Close");
         h.request("pt", &json!({"id": 3, "t": "field-set", "asset": "A", "field": "cf:other", "value": "x"}));
@@ -3594,7 +3607,7 @@ mod tests {
         (b["allowDownload"], b["watermark"]) = (json!(true), json!({"text": "{name}", "burned": true}));
         let mut m = sample(json!([l, b]));
         let v = &mut m["projects"][0]["assets"][0]["versions"][0];
-        (v["renditions"], v["original"], v["fpsNum"], v["fpsDen"]) = (json!(["1080"]), json!("originals/V.mov"), json!(25), json!(1));
+        (v["renditions"], v["original"], v["fpsNum"], v["fpsDen"]) = (json!(["1080", "2160"]), json!("originals/V.mov"), json!(25), json!(1));
         m["projects"][0]["assets"].as_array_mut().unwrap().push(json!({"id": "D", "name": "Deck", "kind": "document", "folder": null,
             "versions": [{"id": "DV", "number": 1, "pages": 2, "frames": 0}]}));
         h.publish(&m, &json!({}));
@@ -3633,7 +3646,8 @@ mod tests {
         ready_peer(&mut h, "pb", "RB");
         sent(&mut rx);
         h.request("pb", &json!({"id": 1, "t": "asset", "asset": "A"}));
-        assert_eq!(answer(&mut rx, "pb", 1)["asset"]["versions"][0]["canDownload"], false);
+        let burned = answer(&mut rx, "pb", 1)["asset"]["versions"][0].clone();
+        assert_eq!((burned["canDownload"].clone(), burned["renditions"].clone()), (json!(false), json!(["1080"])), "its own copies have no 4K");
         std::fs::create_dir_all(h.dir.join("copies/V/wm-LB/1080")).unwrap(); // pushed by Pluck
         assert!(matches!(fetch(&h, &lb, "segment", json!({"rendition": "1080", "n": 0})), Err("notReady")), "no index.json yet");
         std::fs::copy(c.join("index.json"), h.dir.join("copies/V/wm-LB/1080/index.json")).unwrap();
