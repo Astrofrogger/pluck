@@ -54,6 +54,7 @@ final class RemotePins {
     }
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var passing: Set<UUID> = []
+    func isPassing(_ id: UUID) -> Bool { passing.contains(id) }
     /// The last look at the office failed (it's away): the next one comes sooner.
     @ObservationIgnored private var unreachable = false
     @ObservationIgnored var client: OfficeRenderClient = .shared
