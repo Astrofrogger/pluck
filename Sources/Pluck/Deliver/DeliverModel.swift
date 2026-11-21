@@ -99,6 +99,7 @@ enum Deliver {
         var created = Date()
         var fields: Fields?
         var customFields: [String: String]?   // FieldDef id → value (workflow plan 6)
+        var group: String?               // a deliverable group: a master and its variants share one card (wf-deliver)
         var rev: Int?, at: Date?, by: String?
 
         var current: Version { versions[versions.count - 1] }
@@ -278,6 +279,9 @@ enum Deliver {
         var customStatuses: Bool?        // send the custom statuses' names and colours
         /// 4.0.7: a client page (title = the client), listing their live links instead of files (DeliverClientPage).
         var portal: Portal?
+        // wf-deliver (optional: a host or page that doesn't know them shows the link as before).
+        var delivered: Date?             // Delivered: masters to download, comments read only, no feedback deadline
+        var archived: Date?              // Archived: the link shows a calm "archived" page until it's reopened
         var rev: Int?, at: Date?, by: String?
         /// Its projects, and what the owner's sealed box of addresses last held (a change re-sends the page).
         struct Portal: Codable, Hashable { var projects: [UUID]; var links: [UUID]?; var seal: String? }

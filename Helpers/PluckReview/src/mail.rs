@@ -514,6 +514,13 @@ fn t(lang: &str, k: &str) -> &'static str {
         "deadline" => ["Feedback on {asset} closes in 24 hours", "Feedback zu {asset} endet in 24 Stunden", "Los comentarios sobre {asset} cierran en 24 horas",
             "Les retours sur {asset} se terminent dans 24 heures", "Il feedback su {asset} si chiude tra 24 ore", "{asset}へのフィードバックは24時間後に締め切られます",
             "{asset}에 대한 피드백이 24시간 후 마감됩니다", "Feedback op {asset} sluit over 24 uur", "O feedback sobre {asset} encerra em 24 horas", "{asset} 的反馈将在 24 小时后截止"],
+        "downloaded" => ["{name} downloaded {asset}", "{name} hat {asset} heruntergeladen", "{name} descargó {asset}", "{name} a téléchargé {asset}",
+            "{name} ha scaricato {asset}", "{name}さんが{asset}をダウンロードしました", "{name}님이 {asset}을(를) 다운로드했습니다", "{name} downloadde {asset}",
+            "{name} baixou {asset}", "{name} 下载了 {asset}"],
+        "expiry" => ["{asset} expires soon: download your files", "{asset} läuft bald ab: Lade deine Dateien herunter", "{asset} caduca pronto: descarga tus archivos",
+            "{asset} expire bientôt : téléchargez vos fichiers", "{asset} scade a breve: scarica i tuoi file", "{asset}の期限が近づいています。ファイルをダウンロードしてください",
+            "{asset}이(가) 곧 만료됩니다. 파일을 다운로드하세요", "{asset} verloopt binnenkort: download je bestanden", "{asset} expira em breve: baixe seus arquivos",
+            "{asset} 即将过期:请下载你的文件"],
         "due" => ["{asset} is due today", "{asset} ist heute fällig", "{asset} vence hoy", "{asset} est à rendre aujourd'hui",
             "{asset} scade oggi", "{asset}の期限は今日です", "{asset}의 마감일은 오늘입니다", "{asset} moet vandaag af",
             "{asset} vence hoje", "{asset} 今天到期"],
@@ -838,7 +845,7 @@ pub mod tests {
         assert!(b.contains("“Looks good”") && b.contains("https://pluck.tools/r/#k/u/t"));
         let two = [lines[0].clone_line(), lines[0].clone_line()];
         assert_eq!(compose("xx", "Film", &two, None, None).0, "2 updates on Film", "an unknown language is English");
-        for k in ["comment", "reply", "mention", "approval", "changes", "version", "deadline", "due", "overdue", "many", "open", "browser", "stop", "test", "testBody"] {
+        for k in ["comment", "reply", "mention", "approval", "changes", "version", "deadline", "downloaded", "expiry", "due", "overdue", "many", "open", "browser", "stop", "test", "testBody"] {
             assert!(LANGS.iter().all(|l| !t(l, k).is_empty()), "{k}");
         }
     }

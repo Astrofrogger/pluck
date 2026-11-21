@@ -470,6 +470,7 @@ final class ReviewPublish {
             // `wf`: this Pluck knows custom statuses and fields, so a host takes its status and `cf:*` as they are
             // (from an older Pluck it keeps the stored ones).
             wire["wf"] = 1
+            wire["group"] = asset.group.map { $0 as Any } ?? NSNull()   // (null clears it on the host; an older Mac's edit keeps it)
             return wire.merging(Self.stamp(asset)) { $1 }
         }
         let wireLinks: [[String: Any]] = links.compactMap { link in
@@ -515,6 +516,9 @@ final class ReviewPublish {
             wire["deadline"] = link.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()
             if let madeOn = link.madeOn { wire["madeOn"] = madeOn }
             wire["customStatuses"] = link.customStatuses == true ? true : NSNull()
+            // wf-deliver: null clears them on the host (an older host ignores both and serves the link as before).
+            wire["delivered"] = link.delivered.map { DeliverServer.date($0) as Any } ?? NSNull()
+            wire["archived"] = link.archived.map { DeliverServer.date($0) as Any } ?? NSNull()
             // Null tells the host they're off (an older Mac leaves them out, and the host keeps its own).
             for key in ["order", "statusDefs", "fieldDefs"] where wire[key] == nil { wire[key] = NSNull() }
             // `order` is what the page uses (the folders' order when the link has none); `ownOrder` the link's own, which
@@ -531,7 +535,9 @@ final class ReviewPublish {
         var meta = store.project(project).map(Self.meta) ?? ["id": project.uuidString, "name": ""]
         meta["folders"] = folders.filter { onlyFolders?.contains(UUID(uuidString: $0["id"] as? String ?? "") ?? UUID()) ?? true }
         meta["assets"] = wireAssets
-        var json: [String: Any] = ["format": 1, "projects": [meta], "links": wireLinks, "activityDays": DeliverStore.activityDays]
+        var json: [String: Any] = ["format": 1, "projects": [meta], "links": wireLinks, "activityDays": DeliverStore.activityDays,
+                                   // wf-deliver: an archived link's client emails and activity go after this (0 = kept); older hosts ignore it.
+                                   "archiveForgetDays": DeliverShareArchive.forgetMonths * 31]
         // The same look on the host: the logos as bundle files.
         if let branding = store.branding(for: project) {
             var wire: [String: Any] = ["name": branding.name, "accent": branding.accent, "bg": branding.bg, "text": branding.text]

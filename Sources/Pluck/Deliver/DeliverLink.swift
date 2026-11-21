@@ -46,6 +46,7 @@ final class DeliverLink {
         update()
         Task { await eraseOldRooms() } // "Make a New Link" while offline: the old rooms still to erase
         server.store.trimAllActivity() // the retention setting (R8), also for links nobody opens any more
+        DeliverShareArchive.forget(store: server.store) // archived links' client emails and activity, after their time
         // §13: the data host's sync, deadlines, watched render folders and host updates.
         DeliverSync.shared.resume()
         DeliverDeadlines.shared.start()

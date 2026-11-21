@@ -25,6 +25,7 @@ struct DeliverShareBuilderView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
                         content
+                        delivery
                         access
                         downloads
                         comments
@@ -88,9 +89,11 @@ struct DeliverShareBuilderView: View {
             StudioChip(text: Text("Unsaved changes"), colour: Design.Studio.warn, tinted: true).help("Clients see this when you update.")
         } else if let link = session.stored {
             if link.revoked != nil { StudioChip(text: Text("Off")) }
+            else if link.archived != nil { StudioChip(text: Text("Archived")) }
             else if !link.isLive { StudioChip(text: Text("Expired")) }
             else if link.isPaused { StudioChip(text: Text("Paused"), colour: Design.Studio.warn, tinted: true) }
             else if DeliverServer.shared.shareURL(link) == nil { StudioChip(text: Text("Getting the link ready…")) }
+            else if link.delivered != nil { StudioChip(text: Text("Delivered"), symbol: "checkmark.circle.fill", colour: Design.Studio.good, tinted: true) }
             else { StudioChip(text: Text("Live"), symbol: "circle.fill", colour: Design.Studio.good, tinted: true) }
         }
     }
@@ -101,6 +104,14 @@ struct DeliverShareBuilderView: View {
             Button("Duplicate as New Link") { if let copy = try? store.duplicate(link.id) { builder.open(copy.id) } }
             if let url = DeliverServer.shared.shareURL(link) { Button("Email…") { DeliverLinkShare.email(link, url: url) } }
             Button("Send Update…") { DeliverLinkRow.sendUpdate(link) }
+            Divider()
+            // wf-deliver: the record of who approved what, and archiving the share into the project's folder.
+            Button("Sign-off Sheet…") { DeliverSignOff.save(title: link.title, approvals: DeliverSignOff.approvals(link: link.id, store: store)) }
+            if let client = DeliverProjectFile.client(link.project, store: store) {
+                Button("Sign-off Sheet for \(client)…") { DeliverSignOff.save(title: client, approvals: DeliverSignOff.approvals(client: client, store: store)) }
+            }
+            if link.archived != nil { Button("Reopen") { DeliverShareArchive.reopen(link.id) } }
+            else { Button("Archive…") { DeliverShareArchive.ask(link.id) } }
             Divider()
             Button("Turn Off", role: .destructive) { store.revoke(link.id) }
         } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Design.Studio.textQuiet) }
@@ -187,11 +198,17 @@ struct DeliverShareBuilderView: View {
                         HStack(spacing: 8) {
                             DeliverPoster(asset: asset).frame(width: 40, height: 23).clipShape(.rect(cornerRadius: 3, style: .continuous))
                             Text(verbatim: asset.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                            if let group = asset.group {
+                                Text(verbatim: group).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                                    .padding(.horizontal, 6).background(Design.Studio.raised, in: .capsule).help("Group")
+                            }
                             Spacer(minLength: 4)
                             Button { session.remove(asset.id) } label: { Image(systemName: "minus.circle") }
                                 .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).disabled(assets.count == 1).help("Remove from this link")
                         }
                         .frame(height: 28)
+                        .contentShape(.rect)
+                        .contextMenu { groupMenu(asset, in: project) }
                     }
                 }
             }
@@ -205,6 +222,12 @@ struct DeliverShareBuilderView: View {
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 }
                 Spacer()
+                // Deliverable groups (wf-deliver): variants by their names, one card each on the page.
+                let suggested = Deliver.suggestedGroups(assets)
+                if !suggested.isEmpty {
+                    Button("Group Variants") { for (id, group) in suggested { store.setGroup(group, of: [id]) } }.settingButton()
+                        .help("One card for a master and its versions per shape or language")
+                }
                 if draft.order != nil { Button("By Name") { session.draft.order = nil }.settingButton() }
             }
             hint("Drop folders here from the sidebar. Drag cards in the preview to order them.")
@@ -213,6 +236,26 @@ struct DeliverShareBuilderView: View {
         .padding(6)
         .background(dropping ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
         .dropDestination(for: String.self) { ids, _ in session.drop(ids) } isTargeted: { dropping = $0 }
+    }
+
+    /// The Delivered stage (wf-deliver): one switch; the page leads with the downloads.
+    private var delivery: some View {
+        section("Delivery") {
+            StudioSwitchRow(title: "Delivered", isOn: Binding(get: { draft.delivered != nil }, set: { session.setDelivered($0) }))
+            if draft.delivered != nil {
+                hint(draft.expires == nil ? "Masters to download. Comments are read only." : "Masters to download. Comments are read only. A reminder goes 7 days before it expires.")
+            }
+        }
+    }
+
+    /// A row's group (right-click): join one, start one, or leave it. Groups show on every link of the project.
+    @ViewBuilder private func groupMenu(_ asset: Deliver.Asset, in project: UUID) -> some View {
+        let groups = Set(store.content(project).assets.compactMap(\.group)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        ForEach(groups.filter { $0 != asset.group }, id: \.self) { group in
+            Button("Add to \(group)") { store.setGroup(group, of: [asset.id]) }
+        }
+        if asset.group == nil { Button("New Group") { store.setGroup(Deliver.variantBase(asset.name) ?? asset.name, of: [asset.id]) } }
+        if asset.group != nil { Button("Ungroup") { store.setGroup(nil, of: [asset.id]) } }
     }
 
     private var access: some View {

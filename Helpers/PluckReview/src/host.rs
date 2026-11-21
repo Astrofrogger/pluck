@@ -32,8 +32,8 @@ pub const EMOJI: [&str; 12] = ["👍", "👎", "❤️", "😂", "😮", "🎉",
 const STATUSES: [&str; 4] = ["needsReview", "inProgress", "needsChanges", "approved"];
 /// Link fields passed to browsers in `ready.link` as they are (the browser treats them as data).
 /// (4.1: "order", "statusDefs", "fieldDefs": the link's own order, custom statuses' and fields' names; optional.)
-const LINK_FIELDS: [&str; 15] = ["description", "layout", "requireName", "askEmail", "allowProxy", "audience", "recipient",
-    "watermark", "fields", "featuredField", "uploads", "header", "order", "statusDefs", "fieldDefs"];
+const LINK_FIELDS: [&str; 16] = ["description", "layout", "requireName", "askEmail", "allowProxy", "audience", "recipient",
+    "watermark", "fields", "featuredField", "uploads", "header", "order", "statusDefs", "fieldDefs", "delivered"];
 const ACTIVITY_CAP: usize = 20_000; // per link, oldest dropped
 const ACTIVITY_DAYS: i64 = 90; // when the manifest has no "activityDays" (Pluck's setting, R8; 0 = forever)
 const UPLOADS_PER_HOUR: usize = 60; // per link
@@ -618,6 +618,7 @@ impl Host {
             }
         }
         if let Some(d) = m.get("activityDays").filter(|d| d.is_i64()) { raw["activityDays"] = d.clone(); } // Pluck's retention (R8)
+        if let Some(d) = m.get("archiveForgetDays").filter(|d| d.is_i64()) { raw["archiveForgetDays"] = d.clone(); } // wf-deliver
         // Branding is the whole object or nothing: a publish that carries it replaces it, null removes it.
         match m.get("branding") {
             Some(Value::Null) => { raw.as_object_mut().map(|o| o.remove("branding")); }
@@ -663,6 +664,7 @@ impl Host {
             if b.is_null() { raw.as_object_mut().map(|o| o.remove("branding")); } else { raw["branding"] = b.clone(); }
         }
         if let Some(d) = m.get("activityDays").filter(|d| d.is_i64()) { raw["activityDays"] = d.clone(); }
+        if let Some(d) = m.get("archiveForgetDays").filter(|d| d.is_i64()) { raw["archiveForgetDays"] = d.clone(); }
         self.jobs.retain(|_, j| j["state"] != "failed");
         let by = self.ident.by();
         match self.save(&raw, &by) {
@@ -938,7 +940,8 @@ impl Host {
 
     /// Also run every 30 s, so links expire on time.
     pub fn check_links(&mut self) {
-        let mut rooms: Vec<Value> = self.links().filter(|l| servable(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
+        self.forget_archived();
+        let mut rooms: Vec<Value> = self.links().filter(|l| servable(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline") | Err("archived")))
             .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "expires": l["expires"], "turn": self.live(l).is_ok(), "ready": self.backup_ready(l)})).collect();
         rooms.extend(self.team_room_reg());
         let ended: Vec<(String, &str)> = self.peers.iter()
@@ -1058,6 +1061,10 @@ impl Host {
         if is(l, "paused") {
             return Err("paused");
         }
+        // Archived (wf-deliver): the room stays, the page says so until the owner reopens it.
+        if l["archived"].is_string() {
+            return Err("archived");
+        }
         let now = now_iso();
         match l["expires"].as_str() {
             Some(e) if e <= now.as_str() => Err("expired"),
@@ -1074,12 +1081,18 @@ impl Host {
         if code == "deadline" {
             b["at"] = json!(self.deadline(l));
         }
+        if code == "archived" {
+            b = json!({"t": "bye", "code": "paused", "archived": true}); // wf-deliver: an older page says "paused"
+        }
         b
     }
 
     /// The effective feedback deadline (§13.9): the link's own, else its project's. Normalised to
     /// "YYYY-MM-DDTHH:MM:SSZ" so it compares as a string with now_iso().
     fn deadline(&self, l: &Value) -> Option<String> {
+        if l["delivered"].is_string() {
+            return None; // delivered: feedback is over, the downloads stay
+        }
         let d = l["deadline"].as_str().or_else(|| self.project(l)?["deadline"].as_str())?;
         let d = norm_iso(d).unwrap_or_else(|| d.to_owned());
         // Pluck's "reopened, no deadline" is a far-future date (it must outrank a past project deadline).
@@ -1274,6 +1287,7 @@ impl Host {
         };
         let mut keep: HashMap<String, usize> = HashMap::new();
         let mut newest: std::collections::HashSet<String> = Default::default();
+        let forget = self.forgotten();
         let before = self.entries.len();
         let mut kept: Vec<Value> = self.entries.iter().rev().filter(|e| {
             if let Some(c) = e.get("comment") {
@@ -1281,11 +1295,20 @@ impl Host {
                 return newest.insert(c["id"].as_str().unwrap_or("").to_owned());
             }
             let Some(a) = e.get("activity") else { return true };
+            if a["link"].as_str().is_some_and(|l| forget.contains(l)) {
+                return false;
+            }
             let n = keep.entry(a["link"].as_str().unwrap_or("").to_owned()).or_default();
             *n += 1;
             *n <= ACTIVITY_CAP && a["at"].as_str().is_some_and(|t| t >= cutoff.as_str())
         }).cloned().collect();
-        if kept.len() == before {
+        let mut stripped = false;
+        for a in kept.iter_mut().filter_map(|e| e.get_mut("approval")) {
+            if a["link"].as_str().is_some_and(|l| forget.contains(l)) && a.as_object_mut().and_then(|o| o.remove("email")).is_some() {
+                stripped = true;
+            }
+        }
+        if kept.len() == before && !stripped {
             return;
         }
         kept.reverse();
@@ -1301,6 +1324,39 @@ impl Host {
             if let Some(a) = e.get("activity") {
                 *self.activity.entry(a["link"].as_str().unwrap_or("").to_owned()).or_default() += 1;
             }
+        }
+    }
+
+    /// Links archived longer than the manifest's `archiveForgetDays` (Pluck's setting; 0 or none: kept) (wf-deliver).
+    fn forgotten(&self) -> std::collections::HashSet<String> {
+        let days = self.raw["archiveForgetDays"].as_i64().unwrap_or(0);
+        if days <= 0 {
+            return Default::default();
+        }
+        let cutoff = iso(now_secs() - days * 86_400);
+        self.links().filter(|l| l["archived"].as_str().and_then(norm_iso).is_some_and(|a| a < cutoff))
+            .filter_map(|l| l["id"].as_str().map(str::to_owned)).collect()
+    }
+
+    /// Their client data goes: activity, the emails on approvals (name and date stay) and the clients' mail rows.
+    fn forget_archived(&mut self) {
+        let forget = self.forgotten();
+        if forget.is_empty() {
+            return;
+        }
+        let has = |l: &Value| l.as_str().is_some_and(|l| forget.contains(l));
+        let stale = self.entries.iter().any(|e| e.get("activity").is_some_and(|a| has(&a["link"]))
+            || e.get("approval").is_some_and(|a| has(&a["link"]) && a.get("email").is_some()));
+        for a in self.approvals.iter_mut().filter(|a| has(&a["link"])) {
+            a.as_object_mut().map(|o| o.remove("email"));
+        }
+        let n = self.mail.subs.len();
+        self.mail.subs.retain(|r| !(r["kind"] == "client" && has(&r["link"])));
+        if self.mail.subs.len() != n {
+            self.mail.save_subs();
+        }
+        if stale {
+            self.compact();
         }
     }
 
@@ -1593,6 +1649,9 @@ impl Host {
                 let _ = std::fs::remove_file(t);
             }
             if let (Some((asset, version, what)), "done") = (f.download, s["result"].as_str().unwrap_or("")) {
+                if what != "proxy" {
+                    self.mail_download(peer, &asset, &version);
+                }
                 self.activity(peer, "downloaded", asset, version, json!({"what": what}));
             }
         } else if let Some(u) = v.get("upload") {
@@ -1633,6 +1692,9 @@ impl Host {
             if code == "deadline" {
                 e["error"]["at"] = json!(self.deadline(&link));
             }
+            if code == "archived" {
+                e["error"] = json!({"code": "paused", "archived": true}); // (an older page shows "paused", never retries)
+            }
             self.send(peer, e);
             self.send(peer, self.bye(&link, code));
             return self.close_later(peer);
@@ -1668,7 +1730,7 @@ impl Host {
         }
         let writes = ["comment-add", "reply-add", "comment-edit", "comment-delete", "comment-complete", "approve", "react", "field-set",
             "upload-begin", "upload-end"];
-        if writes.contains(&t) && link["mode"] == "presentation" {
+        if writes.contains(&t) && (link["mode"] == "presentation" || link["delivered"].is_string()) {
             return self.err(peer, &id, "readonly");
         }
         self.dispatch(peer, &id, t, &link, m)
@@ -1925,6 +1987,9 @@ impl Host {
             "fpsNum": v["fpsNum"], "fpsDen": v["fpsDen"], "ready": v["ready"],
             "comments": self.comments.iter().filter(|c| c["version"] == v["id"] && Self::visible(l, c)).count()}));
         let mut s = json!({"id": a["id"], "name": a["name"], "kind": a["kind"], "status": self.status_of(a), "current": cur, "versions": vs.len()});
+        if a["group"].is_string() {
+            s["group"] = a["group"].clone(); // a deliverable group (wf-deliver): one card on the page
+        }
         if let Some(f) = self.fields_of(l, a) {
             s["fields"] = f;
         }
@@ -4531,5 +4596,69 @@ mod tests {
         h.request("p3", &json!({"id": 5, "t": "upload-begin", "name": "a.mov", "size": 1, "for": "asset"}));
         assert_eq!(answer(&mut rx, "p3", 5)["error"]["code"], "auth");
         assert!(cmds(&mut rx).iter().all(|c| c.get("accept").is_none()));
+    }
+
+    /// wf-deliver: a delivered link is read only and past its deadline still opens; an archived one says so and keeps
+    /// its room; a client's download reaches the team; one expiry reminder a week before.
+    #[tokio::test]
+    async fn delivered_and_archived_links() {
+        let (mut h, mut rx) = test_host();
+        let mut d = link("LD", "RD", json!({"kind": "project", "id": "P"}));
+        (d["delivered"], d["deadline"], d["allowDownload"]) = (json!("2026-11-01T10:00:00Z"), json!("2020-01-01T00:00:00Z"), json!(true));
+        d["expires"] = json!(iso(now_secs() + 3 * 86_400));
+        d["notify"] = json!({"email": true, "recipientEmail": null, "mailCode": "KEYCODE.PUB"});
+        let mut a = link("LA", "RA", json!({"kind": "project", "id": "P"}));
+        a["archived"] = json!("2026-11-02T10:00:00Z");
+        let mut m = sample(json!([d, a]));
+        m["archiveForgetDays"] = json!(1);
+        h.publish(&m, &json!({}));
+        let ld = h.link("RD").cloned().unwrap();
+        assert_eq!((h.deadline(&ld), h.live(&ld)), (None, Ok(())), "delivered: no deadline");
+        assert_eq!(h.live(h.link("RA").unwrap()), Err("archived"));
+        named_peer(&mut h, "c1", "RD", "t1", "Client one");
+        sent(&mut rx);
+        h.ready("c1", &json!(1), &ld);
+        assert_eq!(answer(&mut rx, "c1", 1)["link"]["delivered"], "2026-11-01T10:00:00Z");
+        h.request("c1", &json!({"id": 2, "t": "comment-add", "asset": "A", "version": "V", "frame": 1, "text": "Late"}));
+        assert_eq!(answer(&mut rx, "c1", 2)["error"]["code"], "readonly");
+        h.request("c1", &json!({"id": 3, "t": "list", "folder": null}));
+        assert!(answer(&mut rx, "c1", 3)["assets"].is_array(), "reading still works");
+        named_peer(&mut h, "c2", "RA", "t2", "Client two");
+        h.request("c2", &json!({"id": 4, "t": "list", "folder": null}));
+        let all = sent(&mut rx);
+        assert!(all.iter().any(|m| m["peer"] == "c2" && m["msg"]["error"] == json!({"code": "paused", "archived": true})), "an older page: paused");
+        assert!(all.iter().any(|m| m["peer"] == "c2" && m["msg"] == json!({"t": "bye", "code": "paused", "archived": true})));
+        h.peers.remove("c2");
+        h.check_links();
+        let rooms = cmds(&mut rx).into_iter().find(|c| c.get("rooms").is_some()).unwrap();
+        assert!(rooms["rooms"].as_array().unwrap().iter().any(|r| r["room"] == "RA"), "an archived link keeps its room");
+        // Archived longer than archiveForgetDays: its activity and the clients' emails go, the approval's name and date stay.
+        h.append(json!({"activity": {"id": "x1", "link": "LA", "at": now_iso(), "kind": "opened", "email": "c@example.com"}}));
+        let ap = json!({"id": "AP", "asset": "A", "version": "V", "decision": "approve", "author": "Client two", "link": "LA",
+            "created": "2026-11-01T09:00:00Z", "email": "c@example.com"});
+        h.append(json!({"approval": ap}));
+        h.approvals.push(ap);
+        let mut gone = crate::mail::Mail::new_row("client");
+        (gone["email"], gone["link"]) = (json!("c@example.com"), json!("LA"));
+        h.mail.subs.push(gone);
+        h.check_links();
+        assert!(!h.entries.iter().any(|e| e["activity"]["link"] == "LA"), "its activity");
+        assert!(h.entries.iter().chain(h.approvals.iter()).filter(|e| e.get("approval").unwrap_or(e)["id"] == "AP")
+            .all(|a| a.get("approval").unwrap_or(a).get("email").is_none() && a.get("approval").unwrap_or(a)["author"] == "Client two"), "name kept, email gone");
+        assert!(!h.mail.subs.iter().any(|r| r["link"] == "LA"));
+        // Mail: the team hears the download; the client row gets one expiry reminder.
+        assert_eq!(h.mail.set(&json!({"enabled": true, "server": "smtp.example.com", "port": 587, "security": "starttls", "user": "u",
+            "from": "Studio <studio@example.com>", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"))["ok"], true);
+        assert_eq!(h.sync(&json!({"op": "subscriber-set", "kind": "team", "email": "owner@example.com", "mode": "instant"}))["ok"], true);
+        let mut row = crate::mail::Mail::new_row("client");
+        (row["email"], row["link"]) = (json!("client@example.com"), json!("LD"));
+        h.mail.subs.push(row);
+        h.mail_download("c1", &json!("A"), &json!("V"));
+        let q = h.mail.queue.iter().find(|q| q["event"] == "downloaded").cloned().expect("the team's mail");
+        let owner = h.mail.subs.iter().find(|r| r["email"] == "owner@example.com").cloned().unwrap();
+        assert_eq!(h.compose(&owner, &[q]).unwrap().subject, "Client one downloaded Cut");
+        h.mail_tick();
+        h.mail_tick();
+        assert_eq!(h.mail.queue.iter().filter(|q| q["event"] == "expiry").count(), 1, "once");
     }
 }
