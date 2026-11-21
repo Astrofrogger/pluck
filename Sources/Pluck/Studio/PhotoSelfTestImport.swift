@@ -143,4 +143,30 @@ extension PhotoSelfTest {
               && !fm.fileExists(atPath: badBackup.appendingPathComponent("A1.JPG").path), "not safe, A1.JPG failed, bad copy removed; got \(dirty)")
         check("import nothing found is not safe", !PhotoImporter.Report(total: 0).safe, "not safe")
     }
+    /// Fixtures for the import sheet's snapshots: two cameras (one clock two hours off) and a RAW+JPEG pair,
+    /// under ~/.pluck-test/shots407b/wf-photo/cards (a fresh copy each time).
+    static func photoImportFixtures() async {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSHomeDirectory()).deletingLastPathComponent().appendingPathComponent("shots407b/wf-photo/cards", isDirectory: true)
+        try? fm.removeItem(at: root)
+        for (folder, model, serial, hour) in [("Camera A", "Alpha 7", "1001", 12), ("Camera B", "Zeta X", "2002", 10)] {
+            let dir = root.appendingPathComponent(folder, isDirectory: true)
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            for i in 0..<4 {
+                let url = dir.appendingPathComponent("IMG_\(1000 + i).JPG")
+                let ctx = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.setFillColor(CGColor(red: CGFloat(i) / 4, green: hour == 12 ? 0.4 : 0.7, blue: 0.5, alpha: 1))
+                ctx.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+                let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
+                CGImageDestinationAddImage(dest, ctx.makeImage()!, [
+                    kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: "2026:06:14 \(hour):0\(i):00", kCGImagePropertyExifBodySerialNumber: serial],
+                    kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Sample", kCGImagePropertyTIFFModel: model],
+                ] as CFDictionary)
+                CGImageDestinationFinalize(dest)
+            }
+        }
+        // A RAW beside its JPEG on camera A: one photo.
+        try? Data("raw".utf8).write(to: root.appendingPathComponent("Camera A/IMG_1000.CR3"))
+        check("import snapshot fixtures", PhotoCatalog.photos(in: [root]).count == 9, "9 files; got \(PhotoCatalog.photos(in: [root]).count)")
+    }
 }

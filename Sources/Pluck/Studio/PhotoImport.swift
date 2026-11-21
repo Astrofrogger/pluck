@@ -77,8 +77,8 @@ struct PhotoImportSheet: View {
                     .font(.callout)
                 }
                 if !sources.isEmpty {
-                    Text(items.isEmpty ? String(localized: "No photos found there.")
-                         : String(localized: "^[\(items.count) photo](inflect: true), \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"))
+                    Text(items.isEmpty ? AttributedString(localized: "No photos found there.")
+                         : AttributedString(localized: "^[\(items.count) photo](inflect: true), \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -271,8 +271,8 @@ struct PhotoImportSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(report.safe ? "Safe to format" : "Not safe to format").font(.callout.weight(.semibold))
                 if report.safe {
-                    Text(report.copies == 2 ? String(localized: "^[\(report.copied) photo](inflect: true) in 2 checked copies")
-                         : String(localized: "^[\(report.copied) photo](inflect: true) in 1 checked copy"))
+                    Text(report.copies == 2 ? AttributedString(localized: "^[\(report.copied) photo](inflect: true) in 2 checked copies")
+                         : AttributedString(localized: "^[\(report.copied) photo](inflect: true) in 1 checked copy"))
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(verbatim: report.failed.prefix(3).joined(separator: ", ") + (report.failed.count > 3 ? " …" : ""))
@@ -344,6 +344,8 @@ struct PhotoImportSheet: View {
             samples = samples.filter { key, _ in cams.contains { $0.key == key } }
             offsets = offsets.filter { key, _ in cams.contains { $0.key == key } }
             for cam in cams where samples[cam.key] == nil { setSample(cam, cam.photos[0]) }
+            // Tests: -PluckScreenshotImportClock YES sets the second camera's clock two hours off.
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotImportClock"), cams.count > 1 { offsets[cams[1].key] = 7200 }
             bytes = photos.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         }
     }
@@ -385,7 +387,7 @@ struct PhotoImportSheet: View {
         problem = nil
         progress = 0
         let list = items, folder = self.folder, backup = self.backup, byDate = self.byDate, rename = self.rename, offsets = self.offsets
-        let fromCard = sources.contains(where: cards.contains)
+        let fromCard = sources.contains(where: cards.contains) || (ScreenshotMode.scene == "photo" && UserDefaults.standard.bool(forKey: "PluckScreenshotImportGo"))
         Task {
             var imported: [String] = []
             var pairs: [(source: URL, path: String)] = []
