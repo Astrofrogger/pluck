@@ -170,7 +170,8 @@ const LINK_SECRETS: [&str; 6] = ["roomID", "reg", "auth", "sign", "join", "level
 /// Link fields a 4.0.6 Mac (or a Mac without the link's mail code) doesn't send: left out keeps the stored value,
 /// null clears it (a 4.0.7 Mac sends null, or `notify: {"email": false}`, when they're off).
 // (`ownOrder`: the link's own order, which a Mac reads back; `order` is what the page uses.)
-const LINK_KEPT: [&str; 6] = ["notify", "order", "ownOrder", "customStatuses", "statusDefs", "fieldDefs"];
+// (`portal`: a client page's; a Mac before them drops it, and one without the page's key sends no box: the host's stays.)
+const LINK_KEPT: [&str; 7] = ["notify", "order", "ownOrder", "customStatuses", "statusDefs", "fieldDefs", "portal"];
 
 fn keep_link_fields(inc: &mut Value, stored: Option<&Value>) {
     if let Some(s) = stored {
@@ -178,6 +179,10 @@ fn keep_link_fields(inc: &mut Value, stored: Option<&Value>) {
             if inc.get(k).is_none() && !s[k].is_null() {
                 inc[k] = s[k].clone();
             }
+        }
+        if inc["portal"].is_object() && inc["portal"].get("box").is_none() && s["portal"]["box"].is_string() {
+            inc["portal"]["box"] = s["portal"]["box"].clone();
+            inc["portal"]["links"] = s["portal"]["links"].clone();
         }
         if inc["uploads"].is_object() && inc["uploads"].get("into").is_none() && !s["uploads"]["into"].is_null() {
             inc["uploads"]["into"] = s["uploads"]["into"].clone();
@@ -438,6 +443,18 @@ pub fn changes(m: &Value, since: u64, limit: usize) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A client page edited on a Mac without its key (no box) or on a Mac before client pages (no portal) keeps the host's box.
+    #[test]
+    fn a_client_page_keeps_its_box() {
+        let stored = json!({"id": "C", "portal": {"projects": ["P"], "links": ["L"], "box": "sealed"}});
+        let mut foreign = json!({"id": "C", "portal": {"projects": ["P", "Q"]}});
+        keep_link_fields(&mut foreign, Some(&stored));
+        assert_eq!(foreign["portal"], json!({"projects": ["P", "Q"], "links": ["L"], "box": "sealed"}));
+        let mut old = json!({"id": "C", "title": "Client"});
+        keep_link_fields(&mut old, Some(&stored));
+        assert_eq!(old["portal"], stored["portal"]);
+    }
 
     /// A newer copy from a Pluck that drops the reply's `internal` (a Mac marking the thread done) keeps it internal.
     #[test]

@@ -377,7 +377,7 @@ final class DeliverPeople {
         ReviewHostClient.fakeFingerprint = fingerprint
         ReviewHostClient.fake = { request, _ in
             switch request["op"] as? String {
-            case nil: return ["ok": true, "accounts": 1, "approvals": 1, "roles": 1, "access": "admin"]
+            case nil: return ["ok": true, "accounts": 1, "approvals": 1, "roles": 1, "access": "admin", "portal": 1]
             case "people": return ["team": ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"], "settings": ["editorsInvite": true], "approvals": 1,
                                    "people": [["id": "p1", "name": "Anna Berg", "role": "owner", "lastSeen": iso(3600), "passkeys": [key("c1", "Safari on Mac", 3600)]],
                                               ["id": "p2", "name": "Sam Lee", "role": "editor", "footage": true, "lastSeen": iso(2 * day), "passkeys": [key("c2", "Chrome on Android", 2 * day)]],
@@ -401,8 +401,15 @@ final class DeliverPeople {
             host.roles = 1
             host.access = "admin"
             host.device = "d1"
+            host.portal = 1
             ReviewPublish.shared.add(host)
             testMain = host.id
+        }
+        // Two client pages over the stand-in projects (People › Client Pages).
+        let store = DeliverStore.shared, projects = store.projects.map(\.id)
+        if !projects.isEmpty, !store.links.contains(where: \.isPortal) {
+            _ = try? DeliverClientPage.make(name: "Northwind", projects: Array(projects.prefix(2)), store: store)
+            _ = try? DeliverClientPage.make(name: "Harbour Studio", projects: Array(projects.suffix(1)), store: store)
         }
     }
 }
@@ -537,6 +544,8 @@ struct DeliverPeopleView: View {
             if clients.isEmpty { empty("Clients who sign in on a review link show here") }
         }
         .studioBox()
+
+        if DeliverClientPage.available { DeliverClientPagesSection() }
 
         if admin, model.people.team?.id != nil {
             header("Team settings")

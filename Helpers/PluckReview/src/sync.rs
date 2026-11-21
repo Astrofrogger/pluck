@@ -193,8 +193,8 @@ async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devic
     let ok = |device: Option<String>, role: &str, key: Option<String>| {
         // links: the highest link level it serves (§13.24). Hosts before it (4.0.3) don't say, and serve level 2 only.
         // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say. accounts: People and passkeys (4.0.4). approvals: editor invites wait for an admin (invite-approve).
-        // roles: Macs are admins or editors (device-role); `access` is this Mac's.
-        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1, "roles": 1, "mail": 1,
+        // roles: Macs are admins or editors (device-role); `access` is this Mac's. portal: client pages (4.0.7).
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1, "roles": 1, "mail": 1, "portal": 1,
             "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
         if let Some(d) = &device {
             r["device"] = json!(d);

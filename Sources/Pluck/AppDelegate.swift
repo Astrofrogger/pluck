@@ -73,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DeliverLink.shared.start()
         ReviewHosting.shared.update()
         ReviewPublish.shared.pullRegularly()
+        DeliverClientPage.watch()
         ShareRootNames.start() // which mounted shares are which NAS root, without its API key
         // Proxies still to fetch from the host Mac carry on in the background.
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {

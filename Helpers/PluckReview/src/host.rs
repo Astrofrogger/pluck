@@ -1631,6 +1631,10 @@ impl Host {
             _ if !self.peers[peer].ready => return self.err(peer, &id, "auth"),
             _ => {}
         }
+        // A client page lists links (in `ready`); nothing else is asked of it.
+        if link["portal"].is_object() && t != "identify" && t != "name" {
+            return self.err(peer, &id, "scope");
+        }
         if self.account_op(peer, &id, t, m).is_some() {
             return;
         }
@@ -1819,9 +1823,39 @@ impl Host {
         if self.manifest["branding"].is_object() {
             v["branding"] = self.manifest["branding"].clone();
         }
+        if link["portal"].is_object() {
+            v["portal"] = self.portal(link);
+        }
         self.send(peer, v);
         self.presence(&room);
         self.activity(peer, "opened", Value::Null, Value::Null, Value::Null);
+    }
+
+    /// A client page (4.0.7): the client's live links on this host, each with its title, last update and approvals, and the
+    /// owner's sealed box of their addresses (only a holder of the page's own key opens it; this host never can). Only
+    /// links the box names, in the page's projects, live, for clients (not team, personal or other client pages). As
+    /// Swift's DeliverClientPage.wire.
+    fn portal(&self, page: &Value) -> Value {
+        let projects: Vec<&Value> = Self::arr(&page["portal"], "projects").collect();
+        let named: Vec<&Value> = Self::arr(&page["portal"], "links").collect();
+        let mut rows: Vec<Value> = self.links().filter(|l| {
+            named.contains(&&l["id"]) && projects.contains(&&l["project"]) && servable(l) && self.live(l).is_ok() && !team(l)
+                && l["recipient"].as_str().is_none_or(|r| r.is_empty()) && !l["portal"].is_object()
+        }).map(|l| {
+            let (mut n, mut ok, mut changes, mut updated) = (0, 0, 0, l["created"].as_str().unwrap_or("").to_owned());
+            for a in self.project(l).map(|p| Self::arr(p, "assets").collect::<Vec<_>>()).unwrap_or_default() {
+                if a["id"].as_str().and_then(|id| self.asset_in_scope(l, id)).is_none() { continue }
+                n += 1;
+                match self.status_of(a).as_str() { Some("approved") => ok += 1, Some("needsChanges") => changes += 1, _ => {} }
+                for v in Self::arr(a, "versions") {
+                    if let Some(at) = v["added"].as_str().filter(|at| *at > updated.as_str()) { updated = at.to_owned(); }
+                }
+            }
+            json!({"id": l["id"], "title": l["title"], "updated": updated, "assets": n, "approved": ok, "changes": changes})
+        }).collect();
+        let key = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_owned();
+        rows.sort_by(|a, b| key(b, "updated").cmp(&key(a, "updated")).then(key(a, "title").cmp(&key(b, "title"))).then(key(a, "id").cmp(&key(b, "id"))));
+        json!({"links": rows, "box": page["portal"]["box"]})
     }
 
     fn presence(&self, room: &str) {
@@ -3236,6 +3270,47 @@ mod tests {
         assert!(!h.peers.contains_key("p1"));
         assert_eq!(r.inflight("V"), 0, "the version can be evicted again");
         assert!(!temp.exists());
+    }
+
+    #[tokio::test]
+    async fn a_client_page_lists_only_that_clients_live_links_and_answers_nothing_else() {
+        let (mut h, mut rx) = test_host();
+        let mut m = sample(json!([]));
+        m["projects"][0]["assets"][0]["versions"][0]["added"] = json!("2026-11-20T10:00:00Z");
+        m["projects"][0]["assets"][0]["status"] = json!("approved");
+        m["projects"].as_array_mut().unwrap().push(json!({"id": "Q", "name": "Other client", "folders": [], "assets": []}));
+        let mut whole = link("L1", "R1", json!({"kind": "project", "id": "P"}));
+        whole["title"] = json!("Cuts <b>");
+        whole["created"] = json!("2026-11-01T09:00:00Z");
+        let mut one = link("L2", "R2", json!({"kind": "asset", "id": "B"}));
+        one["created"] = json!("2026-11-21T08:00:00Z");
+        let mut teamish = link("L3", "R3", json!({"kind": "project", "id": "P"}));
+        teamish["audience"] = json!("team");
+        let mut personal = link("L4", "R4", json!({"kind": "project", "id": "P"}));
+        personal["recipient"] = json!("Sam");
+        let mut gone = link("L5", "R5", json!({"kind": "project", "id": "P"}));
+        gone["expires"] = json!("2020-01-01T00:00:00Z");
+        let mut elsewhere = link("L6", "R6", json!({"kind": "project", "id": "Q"}));
+        elsewhere["project"] = json!("Q");
+        let mut page = link("C1", "RC", json!({"kind": "assets", "id": "C1", "assets": []}));
+        page["portal"] = json!({"projects": ["P"], "links": ["L1", "L2", "L3", "L4", "L5", "L6", "C1"], "box": "sealed"});
+        m["links"] = json!([whole, one, teamish, personal, gone, elsewhere, page.clone()]);
+        assert_eq!(h.publish(&m, &json!({}))["ok"], true);
+        ready_peer(&mut h, "p1", "RC");
+        cmds(&mut rx);
+        h.ready("p1", &json!(1), &page);
+        let ready = answer(&mut rx, "p1", 1);
+        assert_eq!(ready["portal"]["box"], "sealed", "the box goes as the owner sealed it");
+        let rows = ready["portal"]["links"].as_array().unwrap();
+        assert_eq!(rows.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), ["L2", "L1"], "newest first; never team, personal, expired, another client's or itself");
+        assert_eq!(rows[1], json!({"id": "L1", "title": "Cuts <b>", "updated": "2026-11-20T10:00:00Z", "assets": 2, "approved": 1, "changes": 0}));
+        assert_eq!(rows[0]["updated"], "2026-11-21T08:00:00Z", "no version date: when the link was made");
+        for (i, t) in ["list", "asset", "fetch", "comments", "comment-add", "mentionable", "subscribe"].iter().enumerate() {
+            h.request("p1", &json!({"id": 10 + i, "t": t, "asset": "A"}));
+            assert_eq!(answer(&mut rx, "p1", 10 + i as u64)["error"]["code"], "scope", "{t}");
+        }
+        h.request("p1", &json!({"id": 30, "t": "identify", "name": "Kim"}));
+        assert_eq!(answer(&mut rx, "p1", 30)["ok"], true);
     }
 
     #[tokio::test]
