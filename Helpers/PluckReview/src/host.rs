@@ -131,6 +131,7 @@ pub struct Host {
     acct_begins: VecDeque<Instant>,           // account-begin on this host, a minute
     pub upload_root: Option<Arc<crate::upload_root::UploadRoot>>, // a main's uploads root: team uploads go there (§4.4)
     root_ups: HashMap<(String, u64), accounts_ops::RootUp>,       // (peer, upload id) → a team upload into it
+    placing: HashMap<String, (String, Value, Value, HUp)>,      // upload id → (peer, request id, entry, upload) while it's copied into its folder
     pub devices: Option<Arc<crate::devices::Devices>>, // the paired Macs: admins count for the last-admin guard (roles)
     pub mail: crate::mail::Mail, // email settings, subscribers and the queue (host_mail.rs)
     pub drops: HashMap<String, PathBuf>, // media root id → where clients' uploads may be written into it (--drop)
@@ -399,7 +400,7 @@ impl Host {
             fields: HashMap::new(), activity: HashMap::new(), attachments: HashMap::new(), uploads: HashMap::new(), up_hour: HashMap::new(),
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
-            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), devices: None,
+            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), placing: HashMap::new(), devices: None,
             mail: crate::mail::Mail::load(data),
             drops: HashMap::new(),
         };
@@ -894,6 +895,10 @@ impl Host {
     pub fn copy_progress(&mut self, version: String, state: Value) {
         if let Some(k) = version.strip_prefix("acct:") {
             return self.acct_back(k, state); // a team upload's hash or a footage thumbnail, done in the background
+        }
+        if let Some(fid) = version.strip_prefix("place:") {
+            let Some((peer, id, entry, u)) = self.placing.remove(fid) else { return };
+            return self.record_upload(&peer, &id, Self::with_placed(entry, state.as_str().map(str::to_owned)), u);
         }
         if let Some(k) = version.strip_prefix("mail:") {
             return self.mail_back(k, state);
@@ -2664,17 +2669,53 @@ impl Host {
             "for": if u.attachment { "attachment" } else { "asset" }, "by": by, "at": now_iso()});
         if !u.into.is_null() {
             entry["into"] = u.into.clone();
-            if let Some(p) = self.place_into(&u, &dest, &fid) {
-                entry["placed"] = json!(p); // moved out of the quarantine: `path` is gone, Pluck adds `placed` by reference
+            if let Some((dir, name)) = self.place_target(&u, &fid) {
+                let (root, folder) = (u.into["root"].as_str().unwrap_or("").to_owned(), u.into["folder"].as_str().unwrap_or("").to_owned());
+                let place = move || crate::upload_root::place(&dest, &dir, &name)
+                    .map_err(|e| log(format!("host: upload {fid} stays in the quarantine: {e}"))).ok()
+                    .map(|p| if folder.is_empty() { format!("{root}/{p}") } else { format!("{root}/{folder}/{p}") });
+                let Some(back) = self.back.clone() else { return self.record_upload(peer, &id, Self::with_placed(entry, place()), u) };
+                // Another dataset means a whole copy (up to 256 GB): off the host task, which keeps answering meanwhile;
+                // the entry is logged and the browser answered when it's done (a switch waits for it).
+                let busy = self.busy.clone();
+                busy.transfers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let fid = entry["id"].as_str().unwrap_or("").to_owned();
+                self.placing.insert(fid.clone(), (peer.to_owned(), id, entry, u));
+                tokio::task::spawn_blocking(move || {
+                    let _ = back.send((format!("place:{fid}"), place().map_or(Value::Null, Value::String)));
+                    busy.transfers.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                });
+                return;
             }
         }
+        self.record_upload(peer, &id, entry, u);
+    }
+
+    /// Where an upload went: `placed` "<root>/<folder>/<name>" (moved out of the quarantine). `root` + `path` say it the way a
+    /// 4.0.6 Mac reads (it adds such an entry by reference instead of fetching a quarantine file that's gone).
+    fn with_placed(mut entry: Value, placed: Option<String>) -> Value {
+        if let Some(p) = placed {
+            entry["placed"] = json!(p);
+            entry["root"] = json!(true);
+            entry["path"] = json!(p);
+        }
+        entry
+    }
+
+    /// A finished upload's entry logged, the browser answered.
+    fn record_upload(&mut self, peer: &str, id: &Value, entry: Value, u: HUp) {
+        let (fid, rel, by) = (entry["id"].clone(), entry["path"].clone(), entry["by"].clone());
         if !self.append(json!({"upload": entry.clone()})) {
-            return self.err(peer, &id, "internal");
+            if entry["placed"].is_string() {
+                log(format!("host: upload {fid} is in its folder but not logged")); // a retry would only make "Name 2"
+            } else {
+                return self.err(peer, id, "internal");
+            }
         }
         if let Some(o) = self.outage.as_ref().filter(|_| self.ident.backup) {
             // Waits here for the main (outage.rs pushes it when it's back), under the same id.
             o.add(json!({"id": fid, "kind": if u.attachment { "attachment" } else { "asset" }, "file": rel, "name": u.name, "size": u.size,
-                "sha256": theirs, "type": u.kind, "link": u.link, "by": by, "at": entry["at"]}));
+                "sha256": entry["sha256"], "type": u.kind, "link": u.link, "by": by, "at": entry["at"]}));
         }
         self.activity(peer, "uploaded", Value::Null, Value::Null, json!({"name": u.name, "size": u.size}));
         let item = json!({"id": fid, "name": u.name, "size": u.size, "type": u.kind});
@@ -2699,17 +2740,14 @@ impl Host {
         crate::upload_root::subdir(base, folder)
     }
 
-    /// A finished asset upload (in the quarantine at `from`) moved into its droppable `into` folder, checked again now:
-    /// "<root>/<folder>/<name>". None leaves it in the quarantine (not droppable, gone, full…): never lost.
-    fn place_into(&self, u: &HUp, from: &Path, fid: &str) -> Option<String> {
-        if u.attachment || self.ident.backup {
+    /// Where a finished asset upload goes from the quarantine: its droppable `into` folder, checked again now, and the name.
+    /// None leaves it in the quarantine (not droppable, gone…): never lost.
+    fn place_target(&self, u: &HUp, fid: &str) -> Option<(PathBuf, String)> {
+        if u.attachment || self.ident.backup || !u.into["root"].is_string() {
             return None;
         }
         let dir = self.into_dir(&u.into, true)?;
-        let name = if crate::upload_root::name_ok(&u.name) { u.name.clone() } else { format!("{fid}.{}", u.ext) };
-        let placed = crate::upload_root::place(from, &dir, &name).map_err(|e| log(format!("host: upload {fid} stays in the quarantine: {e}"))).ok()?;
-        let (root, folder) = (u.into["root"].as_str()?, u.into["folder"].as_str().unwrap_or(""));
-        Some(if folder.is_empty() { format!("{root}/{placed}") } else { format!("{root}/{folder}/{placed}") })
+        Some((dir, if crate::upload_root::name_ok(&u.name) { u.name.clone() } else { format!("{fid}.{}", u.ext) }))
     }
 }
 
@@ -4290,7 +4328,8 @@ mod tests {
         assert_eq!((&e["into"], &e["placed"]), (&into, &json!("m1/Clients/Hero 2.mov")));
         assert_eq!(std::fs::read(media.join("Clients/Hero.mov")).unwrap(), b"theirs", "the existing file is untouched");
         assert_eq!(std::fs::read(media.join("Clients/Hero 2.mov")).unwrap(), b"hello");
-        assert!(!h.data.join(e["path"].as_str().unwrap()).exists(), "moved out of the quarantine");
+        assert!(!h.data.join(format!("uploads/L1/{}.mov", e["id"].as_str().unwrap())).exists(), "moved out of the quarantine");
+        assert_eq!((&e["root"], &e["path"]), (&json!(true), &json!("m1/Clients/Hero 2.mov")), "a 4.0.6 Mac adds it by reference");
         assert!(h.roots.resolve("m1/Clients/Hero 2.mov", false).is_some(), "Pluck can add it by reference");
         // The root itself (no folder), and the link the browser sees doesn't show where files go.
         let (mut h, mut rx, media) = drop_host(true);
@@ -4301,6 +4340,31 @@ mod tests {
         h.ready("p1", &json!(9), &l);
         let ready = answer(&mut rx, "p1", 9);
         assert!(ready["link"]["uploads"].is_object() && ready["link"]["uploads"]["into"].is_null(), "{ready}");
+    }
+
+    #[tokio::test]
+    async fn placing_an_upload_runs_off_the_host_task() {
+        let (mut h, mut rx, media) = drop_host(true);
+        let (tx, mut back) = mpsc::unbounded_channel();
+        h.back = Some(tx);
+        ask_link(&mut h, &mut rx, json!({"root": "m1", "folder": "Clients"}));
+        h.request("p1", &json!({"id": 1, "t": "upload-begin", "name": "Big.mov", "size": 3, "for": "asset"}));
+        let part = cmds(&mut rx).iter().find_map(|c| c["accept"]["path"].as_str().map(PathBuf::from)).unwrap();
+        std::fs::write(&part, b"abc").unwrap();
+        let sha = keys::sha256_b64(b"abc");
+        h.report(&json!({"upload": {"peer": "p1", "upload": 1, "state": "done", "bytes": 3, "sha256": sha}}));
+        h.request("p1", &json!({"id": 2, "t": "upload-end", "upload": 1, "sha256": sha}));
+        assert!(!sent(&mut rx).iter().any(|m| m["msg"]["re"] == 2), "no answer until it's in its folder");
+        assert!(h.entries.iter().all(|e| e.get("upload").is_none()), "not logged half-way (a Mac would move it too)");
+        let pull = h.sync(&json!({"op": "pull", "since": 0}));
+        assert!(pull["seq"].is_u64(), "the host keeps answering meanwhile");
+        let (k, v) = back.recv().await.unwrap();
+        h.copy_progress(k, v);
+        assert_eq!(answer(&mut rx, "p1", 2)["uploaded"]["name"], "Big.mov");
+        let e = h.entries.iter().rev().find_map(|e| e.get("upload")).unwrap();
+        assert_eq!((&e["placed"], &e["path"]), (&json!("m1/Clients/Big.mov"), &json!("m1/Clients/Big.mov")));
+        assert_eq!(std::fs::read(media.join("Clients/Big.mov")).unwrap(), b"abc");
+        assert_eq!(h.busy.transfers.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
