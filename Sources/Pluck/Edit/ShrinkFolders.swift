@@ -1161,6 +1161,8 @@ extension ShrinkFolders {
 
     /// The run's own inventory, rewritten as it goes: "Shrink <date>.csv" at the top of each folder
     /// its originals went into (or the destination), every file, then the projects' totals.
+    static func reportsWritten() {}
+
     static func writeReport(_ run: Run) {
         func cell(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
         let folders = run.destination.map { [URL(fileURLWithPath: $0)] }
@@ -1259,6 +1261,7 @@ final class ShrinkCenter {
     var editing: @MainActor (String) async -> Bool = { await ShrinkCenter.editingNow($0) }
     /// The Mac that asked (a run shared with it) says someone is editing there.
     var held = false
+    func hold(_ on: Bool, for seconds: TimeInterval = 60) { held = on }
     /// How long nothing may be edited before a run paused for it carries on, and how often it looks.
     var editQuiet: TimeInterval = 300
     var editCheck: TimeInterval = 20
@@ -1315,6 +1318,8 @@ final class ShrinkCenter {
     var running: Bool { active != nil }
 
     func run(_ id: UUID) -> ShrinkFolders.Run? { runs.first { $0.id == id } }
+
+    func reclaim(_ id: UUID) {}
 
     /// A run with files still to do (paused, or Pluck quit), here or on the always-on Mac.
     func unfinished(_ run: ShrinkFolders.Run) -> Bool { run.files.contains { $0.state == .pending || $0.state == .working || $0.state == .elsewhere } }
@@ -1748,6 +1753,8 @@ final class ShrinkCenter {
     }
 
     /// Relink in Resolve pointed projects at a run's masters (Put Back then says how to point them back).
+    func markRelinked(_ id: UUID, projects: [String], back: Bool) { markRelinked(id, !back) }
+
     func markRelinked(_ id: UUID, _ on: Bool = true) {
         guard let r = runs.firstIndex(where: { $0.id == id }) else { return }
         runs[r].relinked = on ? .now : nil

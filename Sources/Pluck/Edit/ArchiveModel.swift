@@ -73,6 +73,9 @@ final class ArchiveModel {
         var safe: Bool { problems.isEmpty && finished && masters > 0 && checked == masters }
     }
     typealias Choice = ShrinkFolders.Rules.Choice
+    /// What a run's history row shows that needs the drive (looked at off the main thread, kept).
+    struct RunInfo: Sendable { var canPutBack = false; var ready: [File] = []; var relinkBack = false }
+    private(set) var history: [UUID: RunInfo] = [:]
 
     // MARK: State
 

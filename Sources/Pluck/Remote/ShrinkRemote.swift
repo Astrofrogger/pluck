@@ -11,15 +11,21 @@ enum ShrinkRemote {
     static func register() {
         OfficeActions.register("shrinkState") { arguments, device in state(arguments, device) }
         OfficeActions.register("shrinkStart") { arguments, device in try start(arguments, device) }
-        OfficeActions.register("shrinkHold") { arguments, _ in
-            ShrinkCenter.shared.held = arguments["hold"] as? Bool == true
-            return ["held": ShrinkCenter.shared.held]
-        }
-        OfficeActions.register("shrinkStop") { arguments, _ in
-            let id = try OfficeActions.text(arguments["id"], 40)
-            if ShrinkCenter.shared.active?.uuidString == id { ShrinkCenter.shared.pause() }
-            return ["stopped": true]
-        }
+        OfficeActions.register("shrinkHold") { arguments, device in try hold(arguments, device) }
+        OfficeActions.register("shrinkStop") { arguments, device in try stop(arguments, device) }
+    }
+
+    static func hold(_ arguments: [String: Any], _ device: OfficeRenderServer.Device, center given: ShrinkCenter? = nil) throws -> [String: Any] {
+        let center = given ?? .shared
+        center.hold(arguments["hold"] as? Bool == true)
+        return ["held": center.held]
+    }
+
+    static func stop(_ arguments: [String: Any], _ device: OfficeRenderServer.Device, center given: ShrinkCenter? = nil) throws -> [String: Any] {
+        let center = given ?? .shared
+        let id = try OfficeActions.text(arguments["id"], 40)
+        if center.active?.uuidString == id { center.pause() }
+        return ["stopped": true]
     }
 
     // MARK: Places
@@ -74,8 +80,8 @@ enum ShrinkRemote {
         return mayShrink(admin: OfficeAccess.shared.isAdmin(device), fullTrust: device.allowed.fullTrust, editorHere: editor)
     }
 
-    static func state(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) -> [String: Any] {
-        let center = ShrinkCenter.shared
+    static func state(_ arguments: [String: Any], _ device: OfficeRenderServer.Device, center given: ShrinkCenter? = nil, run go: Bool = true) -> [String: Any] {
+        let center = given ?? .shared
         var answer: [String: Any] = ["version": 1, "can": mayShrink(admin: OfficeAccess.shared.isAdmin(device), fullTrust: device.allowed.fullTrust,
                                                                       editorHere: OfficeAccess.shared.rights(for: device).render),
                                      "name": Host.current().localizedName ?? "Mac"]

@@ -662,5 +662,6 @@ extension PhotoSelfTest {
               report.contains("check_passed") && report.contains("checked_at") && !report.contains("safe_to_delete"), String(report.prefix(300)))
 
         await shrinkSafety4Test()
+        await shrinkSafety5Test()
     }
 }

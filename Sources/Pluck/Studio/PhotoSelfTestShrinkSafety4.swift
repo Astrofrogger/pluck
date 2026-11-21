@@ -165,25 +165,32 @@ extension PhotoSelfTest {
         away.state = .elsewhere
         away.checked = nil
         let lines = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine, half, fineQ, away]))
+        let lineP = lines.first { $0.title == "Client – P" }, lineQ = lines.first { $0.title == "Client – Q" }
         check("shrink safety 4: a project with a file not finished (here or on the other Mac) never says safe to delete",
-              fine.safeNow() && half.notSafe() != nil && lines.count == 2 && lines.allSatisfy { !$0.safe && (!$0.problems.isEmpty || $0.checked < $0.masters || !$0.finished) },
-              "\(lines.map { "\($0.title) \($0.masters) \($0.checked) \($0.problems)" })")
+              fine.safeNow() && half.notSafe() != nil && lines.count == 2 && lines.allSatisfy { !$0.safe }
+              && lineP?.problems.isEmpty == false && lineQ?.problems.isEmpty == true && lineQ?.checked == lineQ?.masters && lineQ?.finished == false,
+              "\(lines.map { "\($0.title) \($0.masters) \($0.checked) \($0.problems) \($0.finished)" })")
         var pendingR = fine
         pendingR.path = "/v/R/next.mov"
         pendingR.projectName = "R"
         pendingR.state = .pending
         let alone = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine, pendingR]))
         let through = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine]))
-        check("shrink safety 4: while its run isn't through, even a checked project isn't called safe; once through, it is",
-              alone.first { $0.title == "Client – P" }?.safe == false && through.first?.safe == true, "\(alone.map { "\($0.title) \($0.safe)" })")
+        var pendingP = fine
+        pendingP.path = "/v/P/next.mov"
+        pendingP.state = .pending
+        let samePending = ArchiveModel(center: center("lines")).checks(S.Run(settings: hd, files: [fine, pendingP]))
+        check("shrink safety 4: while a project still has a file to do it isn't called safe; another project's file to do doesn't hold it back; once through, it is",
+              samePending.first { $0.title == "Client – P" }?.safe == false && alone.first { $0.title == "Client – P" }?.safe == true && through.first?.safe == true,
+              "\(samePending.map { "\($0.title) \($0.safe)" }) \(alone.map { "\($0.title) \($0.safe)" })")
 
         // 6 Deliveries: a delivery word anywhere below the project wins; a reel name alone isn't a camera.
         let k = { S.classify($0, root: "/V/Share", tags: $1).0 }
         check("shrink safety 4: a delivery folder above a rushes word is still a delivery; a reel name alone isn't a camera",
               k("/V/Share/Job/Export/Clips/x.mov", [:]) == .deliveries && k("/V/Share/Job/Deliveries/Media/x.mov", [:]) == .deliveries
-              && k("/V/Share/Job/Final/Raw/x.mov", [:]) == .deliveries && k("/V/Share/Job/x/render.mov", ["reel_name": "A001"]) != .rushes
+              && k("/V/Share/Job/Renders/Raw/x.mov", [:]) == .deliveries && k("/V/Share/Job/x/render.mov", ["reel_name": "A001"]) != .rushes
               && k("/V/Share/Job/Rushes/A001C001.mov", [:]) == .rushes,
-              "\(k("/V/Share/Job/Export/Clips/x.mov", [:])) \(k("/V/Share/Job/Deliveries/Media/x.mov", [:])) \(k("/V/Share/Job/Final/Raw/x.mov", [:])) \(k("/V/Share/Job/x/render.mov", ["reel_name": "A001"]))")
+              "\(k("/V/Share/Job/Export/Clips/x.mov", [:])) \(k("/V/Share/Job/Deliveries/Media/x.mov", [:])) \(k("/V/Share/Job/Renders/Raw/x.mov", [:])) \(k("/V/Share/Job/x/render.mov", ["reel_name": "A001"]))")
 
         // 7 Proxies: one named like a clip of another camera that isn't in the run stays; Resolve's gallery stills stay.
         let twin = projects.appendingPathComponent("Twin"), camA = twin.appendingPathComponent("Rushes/CamA/C0001.MP4"), camB = twin.appendingPathComponent("Rushes/CamB/C0001.MP4")
