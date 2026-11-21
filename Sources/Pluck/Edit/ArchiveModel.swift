@@ -73,6 +73,9 @@ final class ArchiveModel {
         var safe: Bool { problems.isEmpty && finished && masters > 0 && checked == masters }
     }
     typealias Choice = ShrinkFolders.Rules.Choice
+    /// What a run's history row shows that needs the drive (looked at off the main thread, kept).
+    struct RunInfo: Sendable { var canPutBack = false; var ready: [File] = []; var relinkBack = false }
+    private(set) var history: [UUID: RunInfo] = [:]
 
     // MARK: State
 
@@ -160,8 +163,11 @@ final class ArchiveModel {
     /// The files found, each with its project's own size (Keep 4K).
     var files: [File] {
         let k4 = settings.size == .k4 ? nil : settings.with(size: .k4)
+        // (Originals whose master a run made in another folder: nothing more to free by shrinking them.)
+        let mastered = Set(center.runs.filter { $0.destination != nil }.flatMap(\.files).filter { $0.state == .done && $0.moved == nil }.map(\.path))
         return (survey?.files ?? []).map { file in
             var file = file
+            if mastered.contains(file.path) { file.skip = String(localized: "Master made") }
             file.projectSettings = choices[file.project] == .k4 ? k4 : nil
             return file
         }
@@ -267,7 +273,9 @@ final class ArchiveModel {
         let videos = files.compactMap { file in reason(file).map { Untouched(path: file.path, size: file.size, project: names[file.project] ?? "", reason: $0) } }
             .filter { $0.size >= ShrinkFolders.bigSize }
         let more = (survey?.big ?? []).map { Untouched(path: $0.path, size: $0.size, project: names[$0.project] ?? "", reason: $0.reason) }
-        let failed = center.runs.flatMap(\.files).filter { $0.state == .failed || $0.state == .skipped }
+        // (Each file as its newest run left it: skipped once and archived later, it isn't listed.)
+        var newest = Set<String>()
+        let failed = center.runs.flatMap(\.files).filter { newest.insert($0.path).inserted && ($0.state == .failed || $0.state == .skipped) }
             .map { Untouched(path: $0.path, size: $0.size, project: names[$0.project] ?? "", reason: $0.note ?? "") }
         var seen = Set<String>()
         return (failed + videos + more).filter { seen.insert($0.path).inserted }.sorted { $0.size > $1.size }
@@ -413,7 +421,8 @@ final class ArchiveModel {
         let runs = center.runs
         let moved = runs.flatMap(\.files).filter { ($0.state == .done || $0.state == .working) && $0.moved != nil }
         let holdings = Set(moved.compactMap { $0.moved.flatMap(ShrinkFolders.holdingFolder(of:)) })
-        let result = await Task.detached(priority: .utility) { () -> ([Waiting], Int64) in
+        let center = center
+        let result = await Task.detached(priority: .utility) { () -> ([Waiting], Int64, [UUID: RunInfo]) in
             var folders = holdings
             for share in shares { folders.insert(ShrinkFolders.holding(for: URL(fileURLWithPath: share))) }
             // Paths below their folder to delete (the folder by its real path).
@@ -455,6 +464,9 @@ final class ArchiveModel {
                     guard walk.fileAttributes?[.type] as? FileAttributeType == .typeRegular else { continue }
                     let size = (walk.fileAttributes?[.size] as? NSNumber)?.int64Value ?? 0
                     place.bytes += size
+                    // (Finder's and SMB's own: counted, never a reason not to delete.)
+                    let last = (below as NSString).lastPathComponent
+                    if last == ".DS_Store" || last.hasPrefix("._") { continue }
                     // (Pluck's own lists at its top: neither.)
                     // (Pluck's own lists at its top: neither; never an original that's some run's.)
                     if !below.contains("/"), below == "Inventory.csv" || ShrinkFolders.report(below), originals[root]?.contains(below) != true { continue }
@@ -474,10 +486,17 @@ final class ArchiveModel {
                 return place
             }
             // shortcut: proxy folders moved and deleted aren't counted (no size kept for them); keep their size in the run if wanted.
-            let freed = moved.filter { !FileManager.default.fileExists(atPath: $0.moved ?? "") }.reduce(Int64(0)) { $0 + max($1.size - ($1.masterSize ?? 0), 0) }
-            return (waiting, freed)
+            // (Gone from a folder to delete that's there: a share not mounted frees nothing.)
+            let freed = moved.filter { file in
+                !FileManager.default.fileExists(atPath: file.moved ?? "") && file.moved.flatMap(ShrinkFolders.holdingFolder(of:)).map { FileManager.default.fileExists(atPath: $0.path) } == true
+            }.reduce(Int64(0)) { $0 + max($1.size - ($1.masterSize ?? 0), 0) }
+            // What the history rows show from the drive (the last 30 runs).
+            let history = Dictionary(uniqueKeysWithValues: runs.prefix(30).map { run in
+                (run.id, RunInfo(canPutBack: center.canPutBack(run), ready: center.readyToDelete(run), relinkBack: !ShrinkRelink.map([run], back: true).isEmpty))
+            })
+            return (waiting, freed, history)
         }.value
-        (waiting, freedSoFar) = result
+        (waiting, freedSoFar, history) = result
     }
 
     /// The files of a folder to delete that are safe right now (looked at again first), for Show in Finder.
@@ -491,9 +510,12 @@ final class ArchiveModel {
     /// (A file not finished, here or on the other Mac, is a problem of its project; a run not through is never safe.)
     func checks(_ run: ShrinkFolders.Run) -> [ProjectCheck] {
         let mine = run.files.filter { $0.state == .done || ($0.state == .working && ($0.problem != nil || $0.moved != nil)) }
-        let finished = !center.unfinished(run)
-        return Dictionary(grouping: mine) { $0.client.isEmpty ? ($0.folder as NSString).lastPathComponent : ShrinkFolders.title(client: $0.client, project: $0.projectName) }
+        func title(_ file: File) -> String { file.client.isEmpty ? (file.folder as NSString).lastPathComponent : ShrinkFolders.title(client: file.client, project: file.projectName) }
+        // (Per project: one with a file still to do, here or on the other Mac, isn't through; another project's doesn't hold it back.)
+        let open = Set(run.files.filter { $0.state == .pending || $0.state == .working || $0.state == .elsewhere }.map(title))
+        return Dictionary(grouping: mine, by: title)
             .map { title, files in
+                let finished = !open.contains(title)
                 let done = files.filter { $0.state == .done }
                 return ProjectCheck(title: title, masters: done.count, checked: done.filter { $0.safeNow() || $0.notSafe() != nil }.count,
                                     problems: files.compactMap { file in file.notSafe().map { "\((file.path as NSString).lastPathComponent): \($0)" } },
@@ -572,9 +594,15 @@ final class ArchiveModel {
 
     func runAnyway() { center.runAnyway = true }
 
+    /// Resume: the always-on Mac's results brought in first; what it hasn't finished is this Mac's again (claims stop double work).
     func resume(_ run: ShrinkFolders.Run) {
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else { return }
-        Task { await center.resume(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe) }
+        Task {
+            if run.files.contains(where: { $0.state == .elsewhere }) { _ = await ShrinkRemote.poll(run.id, center: center) }
+            center.reclaim(run.id)
+            await center.resume(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            await refreshSpace()
+        }
     }
 
     func putBack(_ run: ShrinkFolders.Run) { Task { await center.putBack(run.id); await refreshSpace() } }
@@ -591,7 +619,7 @@ final class ArchiveModel {
 
     /// The files left alone, as CSV.
     func untouchedCSV() -> String {
-        func cell(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+        let cell = ShrinkFolders.cell
         return "path,bytes,project,reason\n" + untouched.map { "\(cell($0.path)),\($0.size),\(cell($0.project)),\(cell($0.reason))" }.joined(separator: "\n") + "\n"
     }
 }

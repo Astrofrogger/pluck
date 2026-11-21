@@ -58,8 +58,8 @@ struct ArchiveView: View {
             Button("Rename") { if let renaming { model.rename(renaming, to: newName) } }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(item: $relinking) { run in RelinkSheet(run: run) { center.markRelinked(run.id) } }
-        .sheet(item: $relinkingBack) { run in RelinkSheet(run: run, back: true) { center.markRelinked(run.id, false) } }
+        .sheet(item: $relinking) { run in RelinkSheet(run: run) { center.markRelinked(run.id, projects: $0, back: false) } }
+        .sheet(item: $relinkingBack) { run in RelinkSheet(run: run, back: true) { center.markRelinked(run.id, projects: $0, back: true) } }
     }
 
     // MARK: Header and footer
@@ -500,7 +500,9 @@ struct ArchiveView: View {
         let done = run.files.filter { $0.state == .done }
         let failed = run.files.filter { $0.state == .failed }
         let saved = done.reduce(Int64(0)) { $0 + $1.size - ($1.masterSize ?? 0) }
-        let ready = center.readyToDelete(run)
+        // (From the dashboard's last look, made off the main thread: a slow or gone NAS never stalls drawing.)
+        let info = model.history[run.id] ?? ArchiveModel.RunInfo()
+        let ready = info.ready
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Text(run.date, format: .dateTime.day().month().hour().minute()).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
@@ -527,7 +529,7 @@ struct ArchiveView: View {
                                 .help("Reads every master again from the drive and looks at its original before you delete anything")
                         }
                     }
-                    if center.canPutBack(run) {
+                    if info.canPutBack {
                         Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link).disabled(center.checking != nil)
                             .help(run.destination == nil ? "Masters to the Trash, originals back in their place" : "The masters of this run to the Trash")
                     }
@@ -563,7 +565,7 @@ struct ArchiveView: View {
                     }
                 }
             }
-            if run.relinked != nil, !ShrinkRelink.map([run], back: true).isEmpty {
+            if run.relinked != nil, info.relinkBack {
                 HStack(spacing: 8) {
                     Text("Resolve projects relinked to these masters now point at removed files").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
                     Button("Relink to Originals…") { relinkingBack = run }.buttonStyle(.link).font(Design.Studio.hint)
@@ -588,7 +590,8 @@ private struct RelinkSheet: View {
     let run: ShrinkFolders.Run
     /// Back to the originals after Put Back.
     var back = false
-    var relinked: () -> Void = {}
+    /// The projects relinked (each with a clip replaced).
+    var relinked: ([String]) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var projects: [String] = []
     @State private var chosen: Set<String> = []
@@ -656,7 +659,8 @@ private struct RelinkSheet: View {
             do {
                 let done = try await ShrinkRelink.relink([run], projects: projects.filter(chosen.contains), drp: files, back: back)
                 results = done
-                if done.contains(where: { $0.replaced > 0 }) { relinked() }
+                let changed = done.filter { $0.replaced > 0 }.map(\.project)
+                if !changed.isEmpty { relinked(changed) }
             } catch { problem = error.localizedDescription }
             busy = false
         }

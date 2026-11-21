@@ -11,15 +11,32 @@ enum ShrinkRemote {
     static func register() {
         OfficeActions.register("shrinkState") { arguments, device in state(arguments, device) }
         OfficeActions.register("shrinkStart") { arguments, device in try start(arguments, device) }
-        OfficeActions.register("shrinkHold") { arguments, _ in
-            ShrinkCenter.shared.held = arguments["hold"] as? Bool == true
-            return ["held": ShrinkCenter.shared.held]
-        }
-        OfficeActions.register("shrinkStop") { arguments, _ in
-            let id = try OfficeActions.text(arguments["id"], 40)
-            if ShrinkCenter.shared.active?.uuidString == id { ShrinkCenter.shared.pause() }
-            return ["stopped": true]
-        }
+        OfficeActions.register("shrinkHold") { arguments, device in try hold(arguments, device) }
+        OfficeActions.register("shrinkStop") { arguments, device in try stop(arguments, device) }
+    }
+
+    /// Someone edits at the Mac that asked: wait (for a minute, renewed while it lasts). Only a Mac that may start shrinks here.
+    static func hold(_ arguments: [String: Any], _ device: OfficeRenderServer.Device, center given: ShrinkCenter? = nil) throws -> [String: Any] {
+        let center = given ?? .shared
+        try mayStart(device)
+        center.hold(arguments["hold"] as? Bool == true)
+        return ["held": center.held]
+    }
+
+    /// Stops a run here (and keeps it stopped until it's sent again). Only a Mac that may start shrinks here.
+    static func stop(_ arguments: [String: Any], _ device: OfficeRenderServer.Device, center given: ShrinkCenter? = nil) throws -> [String: Any] {
+        let center = given ?? .shared
+        try mayStart(device)
+        let text = try OfficeActions.text(arguments["id"], 40)
+        if let id = UUID(uuidString: text) { center.stoppedRemotely.insert(id) }
+        if center.active?.uuidString == text { center.pause() }
+        return ["stopped": true]
+    }
+
+    /// The rights shrinkState says as "can".
+    static func mayStart(_ device: OfficeRenderServer.Device) throws {
+        guard mayShrink(admin: OfficeAccess.shared.isAdmin(device), fullTrust: device.allowed.fullTrust, editorHere: OfficeAccess.shared.rights(for: device).render)
+        else { throw OfficeLink.Failure.office(String(localized: "Needs Admin or Full Trust on the always-on Mac")) }
     }
 
     // MARK: Places
@@ -58,6 +75,8 @@ enum ShrinkRemote {
         file.moved = file.moved.flatMap(map)
         file.sidecars = file.sidecars?.compactMap(map)
         file.temp = file.temp.flatMap(map)
+        // (Its project too, where its age is looked at; one that can't be: its folder is looked at instead.)
+        if !file.project.isEmpty { file.project = map(file.project) ?? "" }
         return file
     }
 
@@ -74,14 +93,22 @@ enum ShrinkRemote {
         return mayShrink(admin: OfficeAccess.shared.isAdmin(device), fullTrust: device.allowed.fullTrust, editorHere: editor)
     }
 
-    static func state(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) -> [String: Any] {
-        let center = ShrinkCenter.shared
+    static func state(_ arguments: [String: Any], _ device: OfficeRenderServer.Device, center given: ShrinkCenter? = nil, run go: Bool = true) -> [String: Any] {
+        let center = given ?? .shared
         var answer: [String: Any] = ["version": 1, "can": mayShrink(admin: OfficeAccess.shared.isAdmin(device), fullTrust: device.allowed.fullTrust,
                                                                       editorHere: OfficeAccess.shared.rights(for: device).render),
                                      "name": Host.current().localizedName ?? "Mac"]
         if let id = arguments["id"] as? String, let run = center.runs.first(where: { $0.id.uuidString == id }) {
             let files = run.files.compactMap { translated($0) { placeText($0) } }
             answer["files"] = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(files))) ?? []
+            // Idle with this run still to do (restarted after a quit or power cut, or busy with another run before): it carries on.
+            if center.active == nil, answer["can"] as? Bool == true, !center.stoppedRemotely.contains(run.id),
+               run.files.contains(where: { $0.state == .pending || $0.state == .working }) {
+                answer["resumed"] = true
+                if go, let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") {
+                    Task { await center.resume(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe) }
+                }
+            }
             answer["working"] = center.active == run.id
             if center.active == run.id, let left = center.timeLeft { answer["left"] = left }
         }
@@ -108,6 +135,7 @@ enum ShrinkRemote {
         if case .some(nil) = destination { throw OfficeLink.Failure.office(String(localized: "The always-on Mac can’t reach the destination folder.")) }
         let roots = (arguments["roots"] as? [String] ?? []).compactMap(local)
         if !here.isEmpty {
+            center.stoppedRemotely.remove(id)
             center.add(here, settings: settings, destination: destination?.map { URL(fileURLWithPath: $0) }, roots: roots, id: id,
                        months: arguments["months"] as? Int)
             if run, let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") {
@@ -190,6 +218,10 @@ enum ShrinkRemote {
             var remote = remote
             // (An older always-on Mac drops the parts it can't find any more: the clip's parts are the ones this Mac found.)
             if remote.parts.count < mine.parts.count { remote.parts = mine.parts }
+            // (Where it belongs is this Mac's own.)
+            remote.project = mine.project
+            remote.client = mine.client
+            remote.projectName = mine.projectName
             center.set(remote, in: id)
         }
     }
@@ -203,7 +235,8 @@ enum ShrinkRemote {
             let folder = center.run(id)?.roots.first ?? "/"
             let now = await center.editing(folder)
             let editing = !center.runAnyway && (center.waitingForEdit || now)
-            if editing != held, (try? await OfficeRenderClient.shared.ask("shrinkHold", ["hold": editing], timeout: 20)) != nil { held = editing }
+            // (A hold runs out there after a minute: renewed each look while editing goes on.)
+            if editing != held || editing, (try? await OfficeRenderClient.shared.ask("shrinkHold", ["hold": editing], timeout: 20)) != nil { held = editing }
             let working = await poll(id, center: center)
             if !working, center.run(id)?.files.contains(where: { $0.state == .elsewhere }) != true { break }
             try? await Task.sleep(for: .seconds(15))

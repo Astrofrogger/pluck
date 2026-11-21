@@ -129,6 +129,7 @@ extension PhotoSelfTest {
               && !fm.fileExists(atPath: proxy.path))
         let inventory = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).first { $0.hasPrefix("Pluck Inventory ") }
             .flatMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) } ?? ""
+        ShrinkFolders.reportsWritten()
         let report = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).first { $0.hasPrefix("Shrink ") && $0.hasSuffix(".csv") }
             .flatMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) } ?? ""
         check("shrink: inventory and the run's report with its projects", inventory.contains(pro4k.path) && inventory.contains("verified")

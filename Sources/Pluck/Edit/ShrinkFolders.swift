@@ -48,6 +48,10 @@ enum ShrinkFolders {
                                              "final", "finals", "master", "masters", "output", "outputs", "client", "clients", "upload", "uploads", "social",
                                              "levering", "leveringen", "eindversie", "eindversies", "oplevering", "ausgabe", "lieferung", "finale",
                                              "livraison", "livrables", "entrega", "entregas", "consegna", "書き出し", "納品", "납품", "交付", "成片", "entregáveis"]
+    /// Delivery words that say so wherever they are below the project (the broad ones, as client, social, final,
+    /// upload or master, only for the nearest folder: "Client interviews/Rushes" is rushes).
+    static let clearDeliveryWords = deliveryWords.subtracting(["final", "finals", "finale", "master", "masters", "client", "clients", "upload", "uploads", "social",
+                                                               "eindversie", "eindversies"])
     /// Camera file names: A001C003, A001_C003, C0001, DJI_, GoPro, MVI_, IMG_, DSC, PXL_, Panasonic P1000123, CLIP0001.
     static let cameraName = try! NSRegularExpression(pattern: #"^([A-Z]\d{3}_?C\d{3}|C\d{4}|DJI_|G[HXLPS]\d{6}|MVI_|IMG_|DSC|PXL_|P\d{7}$|CLIP\d|MAH\d)"#,
                                                      options: .caseInsensitive)
@@ -85,10 +89,10 @@ enum ShrinkFolders {
         return parts.contains(where: words.contains) || words.contains(parts.joined())
     }
 
-    /// The nearest folder between `inside` and the file whose name says delivery (nil: none).
+    /// The nearest folder between `inside` and the file whose name clearly says delivery (nil: none).
     static func deliveryFolder(_ path: String, inside: String) -> String? {
         guard path.hasPrefix(inside + "/") else { return nil }
-        return path.dropFirst(inside.count + 1).split(separator: "/").dropLast().map(String.init).reversed().first { says($0, deliveryWords) }
+        return path.dropFirst(inside.count + 1).split(separator: "/").dropLast().map(String.init).reversed().first { says($0, clearDeliveryWords) }
     }
 
     /// A file found, and (once in a run) how it went.
@@ -217,6 +221,8 @@ enum ShrinkFolders {
         var shareIDs: [String: String]?
         /// When Relink in Resolve pointed projects at its masters (Put Back then offers the way back).
         var relinked: Date?
+        /// The projects relinked (nil: by an older Pluck).
+        var relinkedProjects: [String]?
         /// The age limit it was started with (months; nil or 0: any age): a project edited since is left.
         var months: Int?
     }
@@ -270,8 +276,7 @@ enum ShrinkFolders {
                     let top = url.deletingLastPathComponent().path == share && (name.hasPrefix("_") || name.hasPrefix("#")) && !container(name)
                     // Packages aren't looked in, except RED's .RDC clip folders (a package when Finder shows them as one item).
                     let package = values.isPackage == true && url.pathExtension.lowercased() != "rdc"
-                    if name == holdingName || name.lowercased().contains("to delete") || skippedFolders.contains(name.lowercased()) || template(name) || top || package
-                        || pluckOutput(all(url)) { walk.skipDescendants() }
+                    if top || package || neverLookedIn(name, names: all(url)) { walk.skipDescendants() }
                     continue
                 }
                 guard values.isSymbolicLink != true, values.isRegularFile == true, seen.insert(url.path).inserted,
@@ -326,6 +331,11 @@ enum ShrinkFolders {
             }
         }
         return done()
+    }
+
+    /// A folder never looked in (by its name, or Pluck's lists in it): the folder to delete, NAS housekeeping, templates, Pluck's output.
+    static func neverLookedIn(_ name: String, names: @autoclosure () -> [String]) -> Bool {
+        name == holdingName || name.lowercased().contains("to delete") || skippedFolders.contains(name.lowercased()) || template(name) || pluckOutput(names())
     }
 
     /// A folder Pluck made of masters (Archive Project's archive and its Media, a destination of Shrink
@@ -590,6 +600,23 @@ enum ShrinkFolders {
         return nil
     }
 
+    /// What's in `from` moved into the folder `into`, folder by folder, never over anything there. Gives what stayed.
+    static func moveInto(_ from: String, _ into: String) -> [String] {
+        var left: [String] = []
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: from)) ?? [] {
+            let source = (from as NSString).appendingPathComponent(name), target = (into as NSString).appendingPathComponent(name)
+            var folder: ObjCBool = false, there: ObjCBool = false
+            FileManager.default.fileExists(atPath: source, isDirectory: &folder)
+            if FileManager.default.fileExists(atPath: target, isDirectory: &there) {
+                if folder.boolValue, there.boolValue {
+                    let below = moveInto(source, target)
+                    if below.isEmpty { rmdir(source) } else { left += below }
+                } else if name != ".DS_Store" { left.append(source) }
+            } else if rename(source, target) != nil { left.append(source) }
+        }
+        return left
+    }
+
     /// Written to the drive for good: F_FULLFSYNC, or fsync where the drive hasn't it. false: neither worked.
     static func flushNow(_ path: String) -> Bool {
         let handle = Darwin.open(path, O_RDONLY)
@@ -722,7 +749,11 @@ enum ShrinkFolders {
                                                         options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return false }
         for case let url as URL in walk {
             // (Pluck's own folder to delete, with its lists, when it's inside: not an edit.)
-            if url.lastPathComponent == holdingName { walk.skipDescendants(); continue }
+            // (Nor what the survey never looks in: NAS thumbnails and recycle bins, templates, folders to delete, Pluck's output.)
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                if neverLookedIn(url.lastPathComponent, names: (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []) { walk.skipDescendants() }
+                continue
+            }
             guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]), values.isRegularFile == true else { continue }
             if (values.contentModificationDate ?? .distantPast) > limit { return true }
         }
@@ -1031,11 +1062,18 @@ enum ShrinkFolders {
         }
         if let moved = file.moved {
             guard fm.fileExists(atPath: moved) else { file.note = String(localized: "The original isn’t in the originals’ folder"); return file }
+            // All of the original first (each part in the folder to delete, or back at its place already), its size as found: else the master stays.
+            let target = (moved as NSString).deletingLastPathComponent
+            func bytes(_ path: String) -> Int64? { (try? fm.attributesOfItem(atPath: path))?[.size] as? Int64 }
+            let pieces = file.parts.map { ((target as NSString).appendingPathComponent(($0 as NSString).lastPathComponent), $0) }
+            let sizes = [bytes(moved)] + pieces.map { bytes($0.0) ?? ($0.1 == master ? nil : bytes($0.1)) }
+            guard !sizes.contains(where: { $0 == nil }), sizes.reduce(Int64(0), { $0 + ($1 ?? 0) }) == file.size else {
+                file.problem = String(localized: "Not all of the original is in the folder to delete: the master stays")
+                return file
+            }
             let (aside, problem) = setAside()
             if let problem { file.problem = problem; return file }
-            let target = (moved as NSString).deletingLastPathComponent
-            let back = [(moved, file.path)] + file.parts.map { ((target as NSString).appendingPathComponent(($0 as NSString).lastPathComponent), $0) }
-                .filter { fm.fileExists(atPath: $0.0) }
+            let back = [(moved, file.path)] + pieces.filter { fm.fileExists(atPath: $0.0) }
             if let why = moveAll(back) {
                 if let aside, rename(aside, master) != nil {
                     file.problem = String(localized: "Couldn’t put the original back: \(why). The master is hidden next to it as \((aside as NSString).lastPathComponent)")
@@ -1109,21 +1147,27 @@ enum ShrinkFolders {
     /// A line in Inventory.csv: the holding folder's (in place) or the destination's.
     static func record(_ file: File, settings: Settings, check: String, in given: URL? = nil) {
         guard let folder = given ?? file.moved.flatMap(holdingFolder(of:)) else { return }
-        func cell(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
         // (Pluck's own name: a user's Inventory.csv in a destination is never written to.)
         let url = folder.appendingPathComponent("Pluck Inventory \(Date.now.formatted(.iso8601.year().month().day())).csv")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try? "date,original,moved_to,master,original_bytes,master_bytes,saved_bytes,settings,size,fps,seconds,channels,kind,check\n".write(to: url, atomically: true, encoding: .utf8)
-        }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let (w, h) = settings.fit(file.width, file.height)
         let line = [ISO8601DateFormatter().string(from: .now), cell(file.path), cell(file.moved ?? ""), cell(file.master ?? ""), "\(file.size)", "\(file.masterSize ?? 0)",
                     "\(file.size - (file.masterSize ?? 0))", cell(settings.label), "\(w)x\(h)", String(format: "%.3f", file.fps), String(format: "%.2f", file.seconds),
                     "\(file.channels)", file.kind.rawValue, check].joined(separator: ",") + "\n"
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data(line.utf8))
+        // Two Macs may write at once (over SMB too): each line one append, the header only by whoever made the file.
+        let header = "date,original,moved_to,master,original_bytes,master_bytes,saved_bytes,settings,size,fps,seconds,channels,kind,check\n"
+        var handle = Darwin.open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_EXCL, 0o644)
+        let text = handle >= 0 ? header + line : line
+        if handle < 0 { handle = Darwin.open(url.path, O_WRONLY | O_APPEND) }
+        guard handle >= 0 else { return }
+        defer { close(handle) }
+        _ = Array(text.utf8).withUnsafeBytes { Darwin.write(handle, $0.baseAddress, $0.count) }
+    }
+
+    /// A CSV cell, kept as text when it starts like a spreadsheet formula.
+    static func cell(_ text: String) -> String {
+        let safe = text.first.map { "=+-@\t\r".contains($0) } == true ? "'" + text : text
+        return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
     static func holdingFolder(of moved: String) -> URL? {
@@ -1161,8 +1205,13 @@ extension ShrinkFolders {
 
     /// The run's own inventory, rewritten as it goes: "Shrink <date>.csv" at the top of each folder
     /// its originals went into (or the destination), every file, then the projects' totals.
+    /// Reports written one after another, off the main thread (a NAS that's slow or gone never stalls the window).
+    static let reportQueue = DispatchQueue(label: "pluck.shrink.reports", qos: .utility)
+    static func writeReportLater(_ run: Run) { reportQueue.async { writeReport(run) } }
+    /// Waits for the reports asked for so far.
+    static func reportsWritten() { reportQueue.sync {} }
+
     static func writeReport(_ run: Run) {
-        func cell(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
         let folders = run.destination.map { [URL(fileURLWithPath: $0)] }
             ?? Array(Set(run.files.compactMap { $0.moved.flatMap(holdingFolder(of:)) }))
         guard !folders.isEmpty else { return }
@@ -1258,7 +1307,10 @@ final class ShrinkCenter {
     /// Someone is editing from the share a folder is on (tests replace it).
     var editing: @MainActor (String) async -> Bool = { await ShrinkCenter.editingNow($0) }
     /// The Mac that asked (a run shared with it) says someone is editing there.
-    var held = false
+    /// (Until when: renewed by its follow every 15 s, so a Mac that sleeps or quits doesn't hold this one for ever.)
+    @ObservationIgnored private var heldUntil: Date?
+    var held: Bool { (heldUntil ?? .distantPast) > .now }
+    func hold(_ on: Bool, for seconds: TimeInterval = 60) { heldUntil = on ? .now.addingTimeInterval(seconds) : nil }
     /// How long nothing may be edited before a run paused for it carries on, and how often it looks.
     var editQuiet: TimeInterval = 300
     var editCheck: TimeInterval = 20
@@ -1316,6 +1368,20 @@ final class ShrinkCenter {
 
     func run(_ id: UUID) -> ShrinkFolders.Run? { runs.first { $0.id == id } }
 
+    /// Resume here: files left to the always-on Mac that it hasn't finished are this Mac's to do again (each
+    /// file's claim keeps the two from making the same master; one it's making stays its).
+    func reclaim(_ id: UUID) {
+        guard let r = runs.firstIndex(where: { $0.id == id }) else { return }
+        for f in runs[r].files.indices where runs[r].files[f].state == .elsewhere {
+            runs[r].files[f].state = .pending
+            runs[r].files[f].note = nil
+        }
+        save()
+    }
+
+    /// Runs the other Mac stopped (shrinkStop): not carried on by themselves until it starts them again.
+    @ObservationIgnored var stoppedRemotely: Set<UUID> = []
+
     /// A run with files still to do (paused, or Pluck quit), here or on the always-on Mac.
     func unfinished(_ run: ShrinkFolders.Run) -> Bool { run.files.contains { $0.state == .pending || $0.state == .working || $0.state == .elsewhere } }
 
@@ -1367,6 +1433,7 @@ final class ShrinkCenter {
         guard active == nil else { return }
         guard mounted(id) else { return }
         await work(id, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        await Task.detached(priority: .utility) { ShrinkFolders.reportsWritten() }.value
         if !stopping, !ShrinkFolders.killed, let run = run(id), !run.files.contains(where: { $0.state == .pending || $0.state == .working }) {
             await check(id, onlyNew: true, ffmpeg: ffmpeg, ffprobe: ffprobe)
             // (Proxies only once their clips' masters are checked.)
@@ -1411,7 +1478,7 @@ final class ShrinkCenter {
         stopping = false
         pace = (0, 0)
         holdAwake(true)
-        defer { active = nil; current = nil; currentTemp = nil; holdAwake(false); if let run = run(id) { ShrinkFolders.writeReport(run) } }
+        defer { active = nil; current = nil; currentTemp = nil; holdAwake(false); if let run = run(id) { ShrinkFolders.writeReportLater(run) } }
         if let r = runs.firstIndex(where: { $0.id == id }), runs[r].paused != nil { runs[r].paused = nil; save() }
         // (Each project looked at once a go: edited within the age limit since the survey, it's left.)
         var edited: [String: Bool] = [:]
@@ -1527,7 +1594,7 @@ final class ShrinkCenter {
             }
             if file.state == .done { pace = (pace.bytes + file.size, pace.seconds + Date.now.timeIntervalSince(began)) }
             set(file, in: id)
-            if let r = runs.firstIndex(where: { $0.id == id }) { ShrinkFolders.writeReport(runs[r]) }
+            if let r = runs.firstIndex(where: { $0.id == id }) { ShrinkFolders.writeReportLater(runs[r]) }
             onFile?(id)
         }
     }
@@ -1658,24 +1725,37 @@ final class ShrinkCenter {
     }
 
     /// Whether a run can still be undone: its masters there and (in place) its originals in their folder.
-    func canPutBack(_ run: ShrinkFolders.Run) -> Bool {
+    nonisolated func canPutBack(_ run: ShrinkFolders.Run) -> Bool {
         run.files.contains { file in
             file.state == .done && (file.moved ?? file.master).map { FileManager.default.fileExists(atPath: $0) } == true
         }
     }
 
     /// Masters made into another folder whose originals are still where they were.
-    func readyToDelete(_ run: ShrinkFolders.Run) -> [ShrinkFolders.File] {
+    nonisolated func readyToDelete(_ run: ShrinkFolders.Run) -> [ShrinkFolders.File] {
         run.destination == nil ? [] : run.files.filter { $0.state == .done && $0.moved == nil && FileManager.default.fileExists(atPath: $0.path) }
     }
 
     func putBack(_ id: UUID) async {
         guard active == nil, let run = run(id) else { return }
         active = id
-        defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReport(run) } }
+        defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReportLater(run) } }
         let settings = run.settings, inventory = run.destination.map { URL(fileURLWithPath: $0) }, trash = trash
-        for (from, to) in run.movedFolders where FileManager.default.fileExists(atPath: to) && !FileManager.default.fileExists(atPath: from) {
-            if (try? FileManager.default.moveItem(atPath: to, toPath: from)) != nil, let r = runs.firstIndex(where: { $0.id == id }) { runs[r].movedFolders[from] = nil }
+        for (from, to) in run.movedFolders where FileManager.default.fileExists(atPath: to) {
+            guard let r = runs.firstIndex(where: { $0.id == id }) else { break }
+            if !FileManager.default.fileExists(atPath: from) {
+                if ShrinkFolders.rename(to, from) == nil { runs[r].movedFolders[from] = nil }
+                continue
+            }
+            // (Made again meanwhile, as Resolve does: what's in it moved back into it, never over a file there; those stay, said.)
+            let left = await Task.detached { ShrinkFolders.moveInto(to, from) }.value
+            if left.isEmpty {
+                runs[r].movedFolders[from] = nil
+                runs[r].proxyNotes?[from] = nil
+                rmdir(to)
+            } else {
+                runs[r].proxyNotes = (runs[r].proxyNotes ?? [:]).merging([from: String(localized: "Left in the folder to delete: \(left.count) proxies with a name that’s in \((from as NSString).lastPathComponent) again")]) { $1 }
+            }
         }
         for file in run.files where file.state == .done {
             set(await Task.detached { ShrinkFolders.putBack(file, settings: settings, inventory: inventory, trash: trash) }.value, in: id)
@@ -1688,7 +1768,7 @@ final class ShrinkCenter {
     func moveOriginals(_ id: UUID, ffmpeg: String, ffprobe: String) async -> [String] {
         guard active == nil, let run = run(id) else { return [] }
         active = id
-        defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReport(run) } }
+        defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReportLater(run) } }
         var problems: [String] = []
         let settings = run.settings
         for file in readyToDelete(run) {
@@ -1720,7 +1800,7 @@ final class ShrinkCenter {
         guard checking == nil, run(id) != nil else { return nil }
         guard mounted(id), let run = run(id) else { return self.run(id)?.paused }
         checking = id
-        defer { checking = nil; if let run = self.run(id) { ShrinkFolders.writeReport(run) } }
+        defer { checking = nil; if let run = self.run(id) { ShrinkFolders.writeReportLater(run) } }
         let folder = holding.map { ShrinkFolders.real($0).path }
         for file in run.files where file.state == .done && (!onlyNew || !file.safeNow())
             && (folder == nil || file.moved.flatMap(ShrinkFolders.holdingFolder(of:)).map { ShrinkFolders.real($0).path } == folder) {
@@ -1748,9 +1828,22 @@ final class ShrinkCenter {
     }
 
     /// Relink in Resolve pointed projects at a run's masters (Put Back then says how to point them back).
-    func markRelinked(_ id: UUID, _ on: Bool = true) {
+    /// (`back`: these projects pointed at the originals again; the warning stays while any other is relinked. A run
+    /// relinked by an older Pluck, without the projects kept, keeps it.)
+    func markRelinked(_ id: UUID, projects: [String], back: Bool) {
         guard let r = runs.firstIndex(where: { $0.id == id }) else { return }
-        runs[r].relinked = on ? .now : nil
+        if back {
+            guard var kept = runs[r].relinkedProjects else { return save() }
+            kept.removeAll(where: projects.contains)
+            runs[r].relinkedProjects = kept
+            if kept.isEmpty { runs[r].relinked = nil }
+        } else {
+            // (Relinked by an older Pluck, which projects isn't known: left unknown, the warning stays.)
+            if runs[r].relinked == nil || runs[r].relinkedProjects != nil {
+                runs[r].relinkedProjects = Array(Set((runs[r].relinked == nil ? [] : runs[r].relinkedProjects ?? []) + projects)).sorted()
+            }
+            runs[r].relinked = .now
+        }
         save()
     }
 
@@ -1875,6 +1968,7 @@ extension ShrinkFolders.Run {
         movedFolders = v(.movedFolders) ?? [:]
         paused = v(.paused)
         relinked = v(.relinked)
+        relinkedProjects = v(.relinkedProjects)
         shares = v(.shares)
         proxyNotes = v(.proxyNotes)
         shareIDs = v(.shareIDs)
