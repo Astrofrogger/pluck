@@ -202,6 +202,7 @@ extension PhotoSelfTest {
         check("send: a folder from before keeps what the first office has, none for others", folder?.sent(at: nil, first: true).count == 1 && folder?.sent(at: two, first: false).isEmpty == true)
         if let device = server.devices.first?.id { await remotePiecesTest(share: share, root: root, local: local, device: device) }
         await remoteLookTest(root: root)
+        remoteGoingHomeTest()
         await pinChecks(share: share, id: id, names: names, proxies: proxies, entries: entries)
     }
 

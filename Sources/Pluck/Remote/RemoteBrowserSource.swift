@@ -21,6 +21,8 @@ final class RemoteFinderSource: FinderSource {
     var asking: String?
     /// The folder whose People sheet is open (its share path).
     var people: String?
+    /// The folder whose Going Home check is open (its share path).
+    var goingHome: String?
     @ObservationIgnored private var client: OfficeRenderClient { OfficeRenderClient.shared }
     /// Pictures asked for at once (each is a connection; the host takes 16 from all Macs).
     @ObservationIgnored private var fetching = 0
@@ -237,6 +239,8 @@ private struct RemoteFinderMenu: View {
                 Button("Originals") { Task { await source.keep(path, originals: true) } }
             }
             .help("Pluck keeps this folder up to date on this Mac, so you can edit offline")
+            Button("Going Home Check…") { source.goingHome = path }
+                .help("Are this folder’s proxies all on this Mac, and can the office be reached")
             if !path.isEmpty {
                 let starred = RemoteFinderSource.favourites(favourites).contains { $0.share == source.share.id && $0.path == path }
                 Divider()
@@ -291,6 +295,9 @@ struct RemoteBrowserView: View {
             if let path = source.people {
                 RemoteAccessSheet(share: source.share.id, path: path, folderName: path.isEmpty ? source.share.name : (path as NSString).lastPathComponent)
             }
+        }
+        .sheet(isPresented: Binding(get: { source.goingHome != nil }, set: { if !$0 { source.goingHome = nil } })) {
+            if let path = source.goingHome { RemoteGoingHomeSheet(share: source.share, path: path) }
         }
         .sheet(isPresented: Binding(get: { source.asking != nil }, set: { if !$0 { source.asking = nil } })) {
             if let path = source.asking {
