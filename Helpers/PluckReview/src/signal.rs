@@ -401,6 +401,16 @@ mod tests {
         }
     }
 
+    /// The next frame that isn't a keep-alive: the client's interval fires its first ping at once, racing the reply (select! picks at random).
+    async fn next_frame(s: &mut Server) -> Option<Result<Message, tokio_tungstenite::tungstenite::Error>> {
+        loop {
+            match s.next().await {
+                Some(Ok(Message::Text(t))) if t.contains("\"ping\"") => continue,
+                other => return other,
+            }
+        }
+    }
+
     async fn session_with(never: bool, replies: Vec<Value>) -> (End, Vec<Ev>, bool) {
         let (c, mut s) = pair().await;
         let (ev, mut evs) = mpsc::unbounded_channel();
@@ -409,8 +419,8 @@ mod tests {
         let server = async move {
             talk(&mut s, &replies).await;
             // What the client did next: closed (true), or kept the room until we hung up (false).
-            match timeout(Duration::from_millis(500), s.next()).await {
-                Ok(Some(Ok(Message::Close(_))) | None) => true,
+            match timeout(Duration::from_millis(500), next_frame(&mut s)).await {
+                Ok(Some(Ok(Message::Close(_))) | Some(Err(_)) | None) => true, // (a close frame, or the connection dropped)
                 _ => { let _ = s.close(None).await; false }
             }
         };
@@ -462,7 +472,8 @@ mod tests {
         for _ in 0..3 {
             let mut s = tokio_tungstenite::accept_async(timeout(Duration::from_secs(5), l.accept()).await.unwrap().unwrap().0).await.unwrap();
             talk(&mut s, &[json!({"t": "registered"})]).await;
-            assert!(matches!(timeout(Duration::from_secs(5), s.next()).await.unwrap(), Some(Ok(Message::Close(_))) | None));
+            // (Hung up: a close frame, or the connection simply dropped: both end the session.)
+            assert!(matches!(timeout(Duration::from_secs(5), next_frame(&mut s)).await.unwrap(), Some(Ok(Message::Close(_))) | Some(Err(_)) | None));
         }
         assert_eq!(room_state(&room), Some(("nohost".into(), true)), "registered → nohost, again and again; H1 holds");
         drop(r);
