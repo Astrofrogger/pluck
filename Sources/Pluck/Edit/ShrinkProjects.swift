@@ -66,6 +66,10 @@ extension ShrinkFolders {
         /// A project's own size: Keep 4K, or Skip (never archived). (Optional: older files have none.)
         enum Choice: String, Codable, Sendable { case k4, skip }
         var sizes: [String: Choice]?
+        /// A project's own second copy: a folder, or "" for the owner's "No second copy" (nil: the default target).
+        var copies: [String: String]?
+        /// Per client (by name): keep originals this many months after a project closes (none: the age filter).
+        var keep: [String: Int]?
 
         static var url: URL {
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Shrink/projects.json")
@@ -79,6 +83,10 @@ extension ShrinkFolders {
             names = entries(.names)
             let read = entries(.sizes).compactMapValues(Choice.init(rawValue:))
             sizes = read.isEmpty ? nil : read
+            let copies = entries(.copies)
+            self.copies = copies.isEmpty ? nil : copies
+            let keep = ((try? c.decodeIfPresent([String: Int].self, forKey: .keep)) ?? nil) ?? [:]
+            self.keep = keep.isEmpty ? nil : keep
         }
         /// A file that can't be read is kept aside (projects.json.unreadable) before it's saved over.
         static func load() -> Rules {

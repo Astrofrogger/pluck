@@ -75,6 +75,10 @@ enum ShrinkRemote {
         file.moved = file.moved.flatMap(map)
         file.sidecars = file.sidecars?.compactMap(map)
         file.temp = file.temp.flatMap(map)
+        // (A second copy somewhere the other Mac can't reach isn't one there.)
+        if var copy = file.copied {
+            if let folder = map(copy.folder), let target = map(copy.target) { (copy.folder, copy.target) = (folder, target); file.copied = copy } else { file.copied = nil }
+        }
         // (Its project too, where its age is looked at; one that can't be: its folder is looked at instead.)
         if !file.project.isEmpty { file.project = map(file.project) ?? "" }
         return file
@@ -138,6 +142,11 @@ enum ShrinkRemote {
             center.stoppedRemotely.remove(id)
             center.add(here, settings: settings, destination: destination?.map { URL(fileURLWithPath: $0) }, roots: roots, id: id,
                        months: arguments["months"] as? Int)
+            // Where the asking Mac wants each project's second copies (a target this Mac can't reach: that Mac makes them).
+            let copies = (arguments["copies"] as? [String: String] ?? [:]).reduce(into: [String: String]()) { found, pair in
+                if let project = local(pair.key), let target = local(pair.value) { found[project] = target }
+            }
+            if !copies.isEmpty { center.update(id) { $0.copyTargets = copies } }
             if run, let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") {
                 Task { await center.resume(id, ffmpeg: ffmpeg, ffprobe: ffprobe) }
             }
@@ -174,6 +183,13 @@ enum ShrinkRemote {
                                         "roots": run.roots.compactMap(place)]
         // (An older always-on Mac doesn't know it: it goes by the survey's age.)
         if let months = run.months { arguments["months"] = months }
+        // Each project's second copy target, as places (an older always-on Mac doesn't know it: this Mac makes them).
+        let rules = ShrinkFolders.Rules.load()
+        var copies: [String: String] = [:]
+        for file in files where !file.project.isEmpty && copies[file.project] == nil {
+            if case .target(let target) = ShrinkFolders.decision(file, rules: rules), let project = place(file.project), let there = place(target) { copies[project] = there }
+        }
+        if !copies.isEmpty { arguments["copies"] = copies }
         if let destination = run.destination {
             guard let there = place(destination) else { return [] }
             arguments["destination"] = there
@@ -213,6 +229,13 @@ enum ShrinkRemote {
         guard let run = center.run(id) else { return }
         for remote in files where [.done, .skipped, .failed, .restored].contains(remote.state) {
             guard let mine = run.files.first(where: { $0.path == remote.path }) else { continue }
+            // A second copy it made of a master this Mac has too: kept here.
+            if mine.state == .done, remote.state == .done, mine.copied == nil, let copy = remote.copied, remote.masterHash == mine.masterHash, mine.masterHash != nil {
+                var mine = mine
+                mine.copied = copy
+                center.set(mine, in: id)
+                continue
+            }
             let open = mine.state == .elsewhere || mine.state == .pending
             guard open || (remote.state == .done && ![.done, .restored, .working].contains(mine.state)) else { continue }
             var remote = remote
