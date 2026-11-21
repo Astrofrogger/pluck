@@ -87031,6 +87031,64 @@
         }
       }
     },
+    "DaVinci Resolve on the host Mac stopped answering about this render." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve auf dem Host-Mac antwortet zu diesem Rendering nicht mehr."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve en el Mac anfitrión dejó de responder sobre este render."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve sur le Mac hôte ne répond plus au sujet de ce rendu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve sul Mac host ha smesso di rispondere su questo rendering."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホスト Mac の DaVinci Resolve がこのレンダリングについて応答しなくなりました。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "호스트 Mac의 DaVinci Resolve가 이 렌더링에 대해 더 이상 응답하지 않습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve op de host-Mac reageert niet meer over deze render."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O DaVinci Resolve no Mac anfitrião parou de responder sobre esta renderização."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机 Mac 上的 DaVinci Resolve 不再回应此渲染的状态。"
+          }
+        }
+      }
+    },
     "Daily" : {
       "localizations" : {
         "de" : {

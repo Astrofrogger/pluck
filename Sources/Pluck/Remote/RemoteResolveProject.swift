@@ -306,27 +306,31 @@ enum RemoteResolveProject {
     /// The conform check on this host: each proxy's original looked up in its share (and checked to
     /// stay in it), other files kept only when they are in a share here (any file here with full trust).
     /// `files`: the editor's own files sent to (or found in) a share, checked to stay in it and swapped without comparing.
+    /// Folder roles count: a file the Mac may not see there (No Access, Viewer) is treated as missing.
     static func conform(_ clips: [Clip], proxies: [RemoteRenderQueue.Proxy], files: [RemoteRenderQueue.Proxy] = [],
-                        trusted: Bool = false) async -> (swaps: [String: String], problems: [String]) {
+                        trusted: Bool = false, device: OfficeRenderServer.Device) async -> (swaps: [String: String], problems: [String]) {
         var swaps: [String: String] = [:], originals: [String: Original] = [:]
         for entry in files {
-            // (Out of the share or not there: left as it is, so it's reported offline.)
-            guard let root = try? RemoteEditHost.share(entry.share).root, let copy = try? RemoteEditHost.resolve(entry.path, in: root),
-                  RemoteDriveWriteHost.stamp(of: copy) != nil else { continue }
+            // (Out of the share, not there or not this Mac's to see: left as it is, so it's reported offline.)
+            guard let place = try? RemoteEditHost.share(entry.share), let copy = try? RemoteEditHost.resolve(entry.path, in: place.root),
+                  OfficeActions.allowed(\.proxies, device, share: place, file: copy), RemoteDriveWriteHost.stamp(of: copy) != nil else { continue }
             swaps[entry.file] = copy.path
             originals[copy.path] = Original()
         }
         for proxy in proxies {
-            guard let root = try? RemoteEditHost.share(proxy.share).root else { swaps[proxy.file] = proxy.path; continue }
-            guard let original = try? RemoteEditHost.resolve(proxy.path, in: root) else { swaps[proxy.file] = root.path + "/" + proxy.path; continue }
+            guard let place = try? RemoteEditHost.share(proxy.share) else { swaps[proxy.file] = proxy.path; continue }
+            let root = place.root
+            // (Out of the share or in a folder the Mac may not see: "missing", never swapped.)
+            guard let original = try? RemoteEditHost.resolve(proxy.path, in: root), OfficeActions.allowed(\.proxies, device, share: place, file: original) else {
+                swaps[proxy.file] = root.path + "/" + proxy.path; continue
+            }
             swaps[proxy.file] = original.path
             guard originals[original.path] == nil, clips.contains(where: { $0.file == proxy.file }) else { continue }
             let info = (try? await RemoteEditHost.mediaInfo(original)) ?? [:]
             originals[original.path] = Original(duration: info["duration"] as? Double, audio: info["audioChannels"] as? Int, timecode: info["timecode"] as? String)
         }
-        let roots = shareRoots()
         for clip in clips where !clip.file.isEmpty && swaps[clip.file] == nil {
-            if let real = RemoteEditHost.realPath(clip.file), trusted || roots.contains(where: { real.hasPrefix($0 + "/") }) { originals[clip.file] = Original() }
+            if let real = RemoteEditHost.realPath(clip.file), trusted || readable(real, by: device) { originals[clip.file] = Original() }
         }
         return conform(clips, swaps: swaps, originals: originals, pieces: Set(proxies.filter { $0.piece == true }.map(\.file)),
                        starts: Dictionary(proxies.compactMap { proxy in proxy.first.map { (proxy.file, $0) } }) { a, _ in a })
@@ -336,6 +340,18 @@ enum RemoteResolveProject {
 
     /// The shares' real paths: everything a paired Mac may have a render read or write.
     static func shareRoots() -> [String] { OfficeArchive.shared.folders.compactMap { RemoteEditHost.realPath($0.path) } }
+
+    /// Whether a render may read a real path for a Mac: inside a share, and the Mac's role in that folder lets it see the
+    /// files (Downloader or more; No Access and Viewer don't). Outside every share, or in two shares and refused by one: no.
+    static func readable(_ real: String, by device: OfficeRenderServer.Device) -> Bool {
+        let places = OfficeArchive.shared.folders.compactMap { folder -> (URL, String)? in
+            guard let base = RemoteEditHost.realPath(folder.path), real == base || real.hasPrefix(base + "/") else { return nil }
+            return (folder, real == base ? "" : String(real.dropFirst(base.count + 1)))
+        }
+        return !places.isEmpty && places.allSatisfy { folder, relative in
+            OfficeActions.allowed(\.proxies, device, share: (folder, OfficeProxies.id(folder)), relative: relative)
+        }
+    }
 
     /// Resolve's own content (the app, its shared Fusion templates and LUTs): only LUTs and known readers may load from it.
     nonisolated static let lutRoot = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
@@ -379,8 +395,9 @@ enum RemoteResolveProject {
     /// a file outside the shares (LUTs and known readers may read Resolve's own content; media must be
     /// a media pool clip), an expression it can't vouch for, a Lua script or Run Command, or a part it
     /// couldn't read (also from the exported project, so inside compound and multicam clips). `roots` and `builtIn` are real paths; a fully
-    /// trusted Mac is never refused.
-    nonisolated static func uses(_ found: [String: Any], roots: [String], builtIn: [String], trusted: Bool = false) -> [String] {
+    /// trusted Mac is never refused. `readable`: whether the Mac may have a file in a share read (`readable(_:by:)`: folder roles).
+    static func uses(_ found: [String: Any], roots: [String], builtIn: [String], trusted: Bool = false,
+                     readable: (String) -> Bool) -> [String] {
         guard !trusted else { return [] }
         func inside(_ path: String, _ list: [String]) -> Bool { list.contains { path == $0 || path.hasPrefix($0 == "/" ? "/" : $0 + "/") } }
         func who(_ entry: [String: Any]) -> String {
@@ -409,7 +426,7 @@ enum RemoteResolveProject {
             // A path in a blob may run on by a byte; a media pool clip or its folder is the clip's own (checked by conform).
             if regid == "blob", media.contains(where: { [$0, ($0 as NSString).deletingLastPathComponent].contains { $0 == path || $0 == String(path.dropLast()) } }) { continue }
             let real = hostPath(path)
-            let allowed = real.map { inside($0, roots) || ((lut || regid == "blob" || readers.contains(regid)) && inside($0, builtIn)) } ?? false
+            let allowed = real.map { (inside($0, roots) && readable($0)) || ((lut || regid == "blob" || readers.contains(regid)) && inside($0, builtIn)) } ?? false
             guard !allowed else { continue }
             add(write ? String(localized: "\(who(entry)) writes \(path), which isn’t shared with this Mac.")
                       : String(localized: "\(who(entry)) loads \(path), which isn’t shared with this Mac."))

@@ -73,8 +73,8 @@ extension PhotoSelfTest {
         let wanted = [Effect(id: "com.neatvideo.NeatVideo5.ofx", name: "Reduce Noise v5"), Effect(id: "com.example.Sparkle", name: "Sparkle"),
                       Effect(id: "com.blackmagicdesign.resolvefx.Glow", name: "Glow"), Effect(id: "", name: "Film Look Creator")]
         let unknownList = RemoteMissing.missing(wanted, installed: nil, root: ofx)
-        check("missing: an OFX bundle installed is found, Resolve's own count when its list is unknown",
-              unknownList.map(\.name) == ["Sparkle", "Film Look Creator"], "\(unknownList)")
+        check("missing: an OFX bundle installed is found, Resolve's own (and name-only ones) count when its list is unknown",
+              unknownList.map(\.name) == ["Sparkle"], "\(unknownList)")
         let known = RemoteMissing.missing(wanted, installed: [Effect(id: "com.blackmagicdesign.resolvefx.Glow", name: "Glow"), Effect(id: "x", name: "Film Look Creator")],
                                           root: base.appendingPathComponent("NoOFX"))
         check("missing: Resolve's list by id or name; a plugin in neither is missing", known.map(\.name) == ["Reduce Noise v5", "Sparkle"], "\(known)")
@@ -127,9 +127,10 @@ extension PhotoSelfTest {
             typealias Clip = RemoteResolveProject.Clip
             let clips = [Clip(id: "1", name: "Logo.png", file: "/home/Logo.png", frames: 125, fps: 25), Clip(id: "2", name: "escape", file: "/home/x.png"),
                          Clip(id: "3", name: "gone", file: "/home/gone.wav")]
+            guard let paired = server.devices.first else { return check("missing: paired device", false) }
             let mapped = await RemoteResolveProject.conform(clips, proxies: [], files: [.init(file: "/home/Logo.png", share: id, path: "Copies/Logo.png"),
                                                                                        .init(file: "/home/x.png", share: id, path: "../outside.png"),
-                                                                                       .init(file: "/home/gone.wav", share: id, path: "Copies/gone.wav")])
+                                                                                       .init(file: "/home/gone.wav", share: id, path: "Copies/gone.wav")], device: paired)
             check("missing: the office swaps a sent file in by the path map, without comparing it",
                   mapped.swaps == ["1": real + "/Copies/Logo.png"] && mapped.problems.count == 2 && mapped.problems.allSatisfy { $0.contains("offline") }, "\(mapped)")
             check("missing: the office says it takes sent files", (try await client.ask("resolveQueue"))["sendMissing"] as? Bool == true)

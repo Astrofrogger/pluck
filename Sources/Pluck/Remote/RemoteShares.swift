@@ -146,6 +146,9 @@ final class RemoteShares {
         for folder in archive.folders {
             let found = await Self.withTimeout(folder.path + "#nas", nil) { OfficeGroup.nasKey(folder) }
             guard let found, share(folder)?.nas != found else { continue }
+            // Its folder roles move with the key (else a No Access folder would fall back to the base role).
+            let local = "local:" + OfficeProxies.id(folder)
+            OfficeAccess.shared.rekey(share(folder)?.nas ?? local, found ?? local)
             update(folder) { $0.nas = found }
             nasChanged = true
         }

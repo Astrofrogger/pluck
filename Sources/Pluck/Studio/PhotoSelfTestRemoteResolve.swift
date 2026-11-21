@@ -27,6 +27,13 @@ extension PhotoSelfTest {
               && links.last?["bin"] as? [String] == ["Share", "Day 2"], "\(links)")
         check("resolve: no host root, no original to link (only an import)", RemoteResolveMap.links(manifest, proxyRoot: proxyRoot, originalRoot: nil).allSatisfy { $0["original"] == nil })
 
+        // A render never replaces an earlier one with the same name (same version twice in a minute).
+        let renders = base.appendingPathComponent("Renders", isDirectory: true)
+        try? fm.createDirectory(at: renders, withIntermediateDirectories: true)
+        for name in ["Edit v1 2026-11-21 10.00.mov", "Edit v1 2026-11-21 10.00 2.mxf"] { fm.createFile(atPath: renders.appendingPathComponent(name).path, contents: Data([1])) }
+        check("resolve: a render's name already taken gets the next number", RemoteRenderQueue.freeName("Edit v1 2026-11-21 10.00", in: renders) == "Edit v1 2026-11-21 10.00 3"
+              && RemoteRenderQueue.freeName("Edit v2 2026-11-21 10.00", in: renders) == "Edit v2 2026-11-21 10.00")
+
         // The conform check (pure).
         typealias Clip = RemoteResolveProject.Clip
         let clips = [Clip(id: "1", name: "good", file: "/p/a.mov", frames: 250, fps: 25, audio: 2, timecode: "01:00:00:00"),
@@ -144,7 +151,7 @@ extension PhotoSelfTest {
             let data = (try? JSONSerialization.data(withJSONObject: found, options: [.prettyPrinted, .sortedKeys])) ?? Data()
             note("uses of \(found["project"] as? String ?? "?"):\n" + String(decoding: data, as: UTF8.self))
             let roots = ProcessInfo.processInfo.environment["PLUCK_USES_SHARE"].flatMap { RemoteEditHost.realPath($0) }.map { [$0] } ?? []
-            for problem in RemoteResolveProject.uses(found, roots: roots, builtIn: RemoteResolveProject.builtInRoots) { note("refused: " + problem) }
+            for problem in RemoteResolveProject.uses(found, roots: roots, builtIn: RemoteResolveProject.builtInRoots, readable: { _ in true }) { note("refused: " + problem) }
             check("resolveuses: read the open project", true)
         } catch {
             skip("resolveuses: read the open project", error.localizedDescription)
@@ -164,7 +171,7 @@ extension PhotoSelfTest {
         try? fm.createSymbolicLink(at: share.appendingPathComponent("link"), withDestinationURL: outside)
         let roots = [RemoteEditHost.realPath(share.path) ?? share.path], resolve = [RemoteEditHost.realPath(builtIn.path) ?? builtIn.path]
         func problems(_ found: [String: Any], trusted: Bool = false) -> [String] {
-            RemoteResolveProject.uses(found, roots: roots, builtIn: resolve, trusted: trusted)
+            RemoteResolveProject.uses(found, roots: roots, builtIn: resolve, trusted: trusted, readable: { _ in true })
         }
         func ref(_ path: String, regid: String = "Loader", lut: Bool = false) -> [String: Any] {
             ["refs": [["item": "Title 1", "tool": lut ? "LUT" : "Loader1", "regid": lut ? "" : regid, "path": path, "lut": lut]]]
@@ -187,8 +194,8 @@ extension PhotoSelfTest {
         check("uses: a dangling symlink in the share is refused", RemoteResolveProject.hostPath(dangling.path) == nil && problems(ref(dangling.path)).count == 1
               && problems(ref(dangling.path + "/deeper.mov")).count == 1)
         check("uses: relative LUTs are Resolve's; one climbing out is refused",
-              RemoteResolveProject.uses(ref("Sony/SLog3.cube", lut: true), roots: [], builtIn: RemoteResolveProject.builtInRoots).isEmpty
-              && RemoteResolveProject.uses(ref("../../../../../../etc/hosts", lut: true), roots: [], builtIn: RemoteResolveProject.builtInRoots).count == 1)
+              RemoteResolveProject.uses(ref("Sony/SLog3.cube", lut: true), roots: [], builtIn: RemoteResolveProject.builtInRoots, readable: { _ in true }).isEmpty
+              && RemoteResolveProject.uses(ref("../../../../../../etc/hosts", lut: true), roots: [], builtIn: RemoteResolveProject.builtInRoots, readable: { _ in true }).count == 1)
         let unreadable: [String: Any] = ["unchecked": [["item": "Compound Clip 1", "why": "compound"], ["item": "Title 2", "why": "comp"]],
                                          "scripts": [["item": "Title 3", "tool": "Text1"]]]
         check("uses: unreadable parts and a render script are refused", problems(unreadable).count == 3, "\(problems(unreadable))")
@@ -376,7 +383,7 @@ def scriptapp(name): return Resolve()
               effects.contains(.init(id: "com.example.Sparkle", name: "Sparkle")) && effects.contains { $0.name == "Film Grain" }
               && (found["unchecked"] as? [Any])?.isEmpty == true, "\(effects)")
         check("uses: the sent project's exported copy is removed", !fm.fileExists(atPath: sent + ".check.drp"))
-        let problems = RemoteResolveProject.uses(found, roots: [share.path], builtIn: RemoteResolveProject.builtInRoots)
+        let problems = RemoteResolveProject.uses(found, roots: [share.path], builtIn: RemoteResolveProject.builtInRoots, readable: { _ in true })
         let expected = ["Music.wav loads /Volumes/Elsewhere/plugin.preset", "Music.wav loads /Volumes/Elsewhere/reverb.ir", "Title 1 (RunCommand1) runs", "Title 1 (Ctl1) runs", "Film (RunCommand1) runs", "Title 1 (Text1) has an expression",
                         "Title 1 (Loader2) loads footage/a.exr", "Title 1 (Loader3) loads /Volumes/Other/x.mov\n", "Film (Loader1) loads /Volumes/Elsewhere/x.png",
                         "Film (Loader1) loads /Volumes/Elsewhere/y.png", "Film (MediaIn1) loads /Volumes/Share/d.mov"]
@@ -390,7 +397,7 @@ def scriptapp(name): return Resolve()
               found["render"] as? String == "Edit (Pluck render)" && found["timelines"] as? [String] == ["Edit"], "\(found["render"] ?? "")")
         let broken = inspect(["MOCK_BROKEN_BLOB": "1"])
         check("uses: a comp blob that doesn't decode is refused",
-              RemoteResolveProject.uses(broken ?? [:], roots: [share.path], builtIn: []).contains { $0.hasPrefix("Film: its Fusion composition") },
+              RemoteResolveProject.uses(broken ?? [:], roots: [share.path], builtIn: [], readable: { _ in true }).contains { $0.hasPrefix("Film: its Fusion composition") },
               "\(broken?["unchecked"] ?? "")")
         check("uses: multicam clips that don't flatten stop the render", inspect(["MOCK_FLATTEN_FAILS": "1"]) == nil)
     }
@@ -502,7 +509,8 @@ def scriptapp(name): return Resolve()
             let proxies = [RemoteRenderQueue.Proxy(file: "/local/Day 1/A001.mov", share: id, path: "Day 1/A001.MXF"),
                            .init(file: "/local/Day 2/A001.mov", share: id, path: "Day 2/A001.MXF"),
                            .init(file: "/local/x.mov", share: id, path: "../outside.mov")]
-            let plan = await RemoteResolveProject.conform(clips, proxies: proxies)
+            guard let macDevice = server.devices.first(where: { $0.id == mac }) else { return check("resolve: paired device", false) }
+            let plan = await RemoteResolveProject.conform(clips, proxies: proxies, device: macDevice)
             let real = RemoteEditHost.realPath(root.path) ?? root.path
             check("resolve: host swaps each proxy for its own original", plan.swaps["1"] == real + "/Day 1/A001.MXF" && plan.swaps["2"] == real + "/Day 2/A001.MXF", "\(plan.swaps)")
             check("resolve: host refuses a path out of the share and files outside shares",
