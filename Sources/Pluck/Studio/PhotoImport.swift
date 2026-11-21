@@ -27,6 +27,14 @@ struct PhotoImportSheet: View {
     @State private var sources: [URL] = []
     @State private var cards: [URL] = []
     @State private var found: [URL] = []
+    @State private var items: [PhotoImporter.Item] = []
+    @State private var cameraList: [PhotoImporter.Camera] = []
+    @State private var samples: [String: URL] = [:]
+    @State private var sampleDates: [String: Date] = [:]
+    @State private var offsets: [String: TimeInterval] = [:]
+    @State private var setting: String?
+    @State private var settingDate = Date.now
+    @State private var report: PhotoImporter.Report?
     @State private var bytes: Int64 = 0
     @State private var album = ""
     @State private var copying = false
@@ -69,11 +77,12 @@ struct PhotoImportSheet: View {
                     .font(.callout)
                 }
                 if !sources.isEmpty {
-                    Text(found.isEmpty ? String(localized: "No photos found there.")
-                         : String(localized: "^[\(found.count) photo](inflect: true), \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"))
+                    Text(items.isEmpty ? String(localized: "No photos found there.")
+                         : String(localized: "^[\(items.count) photo](inflect: true), \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if !cameraList.isEmpty { clocks }
             // How
             Picker("How", selection: $copy) {
                 Text("Copy to a Folder").tag(true)
@@ -129,16 +138,21 @@ struct PhotoImportSheet: View {
             }
             .font(.callout)
             if copying {
-                ProgressView(value: Double(progress), total: Double(max(found.count, 1)))
-                Text("Copying \(progress) of \(found.count)…").font(.caption).foregroundStyle(.secondary)
+                ProgressView(value: Double(progress), total: Double(max(items.count, 1)))
+                Text("Copying \(progress) of \(items.count)…").font(.caption).foregroundStyle(.secondary)
             }
             if let problem { ProblemLabel(text: problem) }
+            if let report { safety(report) }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).disabled(copying)
-                Button(copy ? "Copy and Import" : "Import") { start() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(found.isEmpty || copying || (copy && backupOn && backup == nil))
+                if report != nil {
+                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).disabled(copying)
+                    Button(copy ? "Copy and Import" : "Import") { start() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(items.isEmpty || copying || (copy && backupOn && backup == nil))
+                }
             }
         }
         .padding(Design.Spacing.sheet)
@@ -166,6 +180,104 @@ struct PhotoImportSheet: View {
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotImportGo") {
                 try? await Task.sleep(for: .seconds(1))
                 start()
+            }
+        }
+    }
+
+    // MARK: - Camera clocks
+
+    /// Each camera's clock: a photo of it and what time it really was, so photos of several cameras come in
+    /// in the order they were taken. Only the copies' dates are shifted.
+    private var clocks: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Camera clocks").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(cameraList) { cam in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(verbatim: cam.label).lineLimit(1)
+                        if let sample = samples[cam.key], let date = sampleDates[cam.key] {
+                            Text("\(sample.lastPathComponent) · \(date.formatted(date: .omitted, time: .standard))")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    Menu(offsetText(offsets[cam.key] ?? 0)) {
+                        Button("Clock is right") { offsets[cam.key] = nil }
+                        Button("Set the Real Time…") { settingDate = sampleDates[cam.key].map { $0.addingTimeInterval(offsets[cam.key] ?? 0) } ?? .now; setting = cam.key }
+                        ForEach(cameraList.filter { $0.key != cam.key }) { other in
+                            Button("Same moment as \(other.label)") {
+                                if let date = sampleDates[other.key], let mine = sampleDates[cam.key] {
+                                    offsets[cam.key] = date.addingTimeInterval(offsets[other.key] ?? 0).timeIntervalSince(mine)
+                                }
+                            }
+                        }
+                        Divider()
+                        Button("Another Photo…") { choosePhoto(of: cam) }
+                    }
+                    .fixedSize()
+                    .help("Shifts this camera’s dates in the copies so its photos sort with the others’; the originals aren’t changed")
+                    .popover(isPresented: Binding(get: { setting == cam.key }, set: { if !$0 { setting = nil } })) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Real time of this photo").font(.caption).foregroundStyle(.secondary)
+                            DatePicker("", selection: $settingDate, displayedComponents: [.date, .hourAndMinute]).labelsHidden()
+                            Button("Set") {
+                                if let mine = sampleDates[cam.key] {
+                                    // (To the minute: the camera's own seconds stay.)
+                                    let cal = Calendar.current
+                                    let seconds = cal.component(.second, from: mine)
+                                    let base = cal.date(bySetting: .second, value: seconds, of: settingDate) ?? settingDate
+                                    offsets[cam.key] = (base.timeIntervalSince(mine)).rounded()
+                                }
+                                setting = nil
+                            }
+                            .keyboardShortcut(.defaultAction)
+                        }
+                        .padding(Design.Spacing.sheet)
+                    }
+                }
+                .font(.callout)
+            }
+        }
+    }
+
+    private func offsetText(_ offset: TimeInterval) -> String {
+        guard abs(offset) >= 1 else { return String(localized: "Clock is right") }
+        let format = DateComponentsFormatter()
+        format.unitsStyle = .abbreviated
+        format.maximumUnitCount = 3
+        return (offset < 0 ? "−" : "+") + (format.string(from: abs(offset)) ?? "")
+    }
+
+    private func setSample(_ cam: PhotoImporter.Camera, _ url: URL) {
+        samples[cam.key] = url
+        sampleDates[cam.key] = PhotoImporter.captureDate(url)
+        offsets[cam.key] = nil
+    }
+
+    private func choosePhoto(of cam: PhotoImporter.Camera) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image]
+        panel.directoryURL = samples[cam.key]?.deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url, cam.photos.contains(url) { setSample(cam, url) }
+    }
+
+    /// After a card's copy: safe to format only when every photo is in every copy and read back identical.
+    private func safety(_ report: PhotoImporter.Report) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: report.safe ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(report.safe ? Color.green : Color.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(report.safe ? "Safe to format" : "Not safe to format").font(.callout.weight(.semibold))
+                if report.safe {
+                    Text(report.copies == 2 ? String(localized: "^[\(report.copied) photo](inflect: true) in 2 checked copies")
+                         : String(localized: "^[\(report.copied) photo](inflect: true) in 1 checked copy"))
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text(verbatim: report.failed.prefix(3).joined(separator: ", ") + (report.failed.count > 3 ? " …" : ""))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
             }
         }
     }
@@ -220,9 +332,18 @@ struct PhotoImportSheet: View {
         if named { album = suggested }
         let list = urls
         Task {
-            let photos = await Task.detached(priority: .userInitiated) { PhotoCatalog.photos(in: list).map { URL(fileURLWithPath: $0) } }.value
+            let (photos, grouped, cams) = await Task.detached(priority: .userInitiated) {
+                let photos = PhotoCatalog.photos(in: list).map { URL(fileURLWithPath: $0) }
+                let grouped = PhotoImporter.items(photos)
+                return (photos, grouped, PhotoImporter.cameras(in: grouped.map(\.primary)))
+            }.value
             guard sources == list else { return }  // (a later choice is being looked through)
             found = photos
+            items = grouped
+            cameraList = cams
+            samples = samples.filter { key, _ in cams.contains { $0.key == key } }
+            offsets = offsets.filter { key, _ in cams.contains { $0.key == key } }
+            for cam in cams where samples[cam.key] == nil { setSample(cam, cam.photos[0]) }
             bytes = photos.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         }
     }
@@ -249,10 +370,10 @@ struct PhotoImportSheet: View {
     }
 
     private func start() {
-        guard !found.isEmpty else { return }
+        guard !items.isEmpty else { return }
         let name = album.trimmingCharacters(in: .whitespaces).isEmpty ? (sources.first?.lastPathComponent ?? "Import") : album
         guard copy else {
-            let photos = found.map { (source: $0, path: $0.path) }
+            let photos = items.map { (source: $0.primary, path: $0.primary.path) }
             Task {
                 await applyTemplate(photos)
                 done(photos.map(\.path), name)
@@ -263,112 +384,32 @@ struct PhotoImportSheet: View {
         copying = true
         problem = nil
         progress = 0
-        let photos = found, folder = self.folder, backup = self.backup, byDate = self.byDate, rename = self.rename
+        let list = items, folder = self.folder, backup = self.backup, byDate = self.byDate, rename = self.rename, offsets = self.offsets
+        let fromCard = sources.contains(where: cards.contains)
         Task {
             var imported: [String] = []
             var pairs: [(source: URL, path: String)] = []
-            for photo in photos {
+            var summary = PhotoImporter.Report(total: list.count, copies: backup == nil ? 1 : 2)
+            // In the order they were taken, each camera's clock shifted by its offset.
+            let planned = await Task.detached(priority: .userInitiated) { PhotoImporter.plan(list, offsets: offsets) }.value
+            for photo in planned {
                 let result = await Task.detached(priority: .userInitiated) {
-                    Self.copy(photo, to: folder, backup: backup, byDate: byDate, rename: rename)
+                    PhotoImporter.copy(photo, to: folder, backup: backup, byDate: byDate, rename: rename)
                 }.value
-                switch result {
-                case .success(let path): imported.append(path); pairs.append((photo, path))
-                case .failure(let error): problem = error.localizedDescription
-                }
+                if case .failure(let error) = result { problem = error.localizedDescription }
+                if let path = summary.add(result, photo.item.primary.lastPathComponent) { imported.append(path); pairs.append((photo.item.primary, path)) }
                 progress += 1
             }
             await applyTemplate(pairs)
             copying = false
+            if fromCard { report = summary }
             if !imported.isEmpty {
                 done(imported, name)
-                if problem == nil { dismiss() }
+                if problem == nil && !fromCard { dismiss() }
             }
         }
     }
 
-    /// One photo copied (and its sidecar), to the folder and the backup; the copy's path. A photo
-    /// that's already there (same name and size) isn't copied again.
-    nonisolated private static func copy(_ photo: URL, to folder: URL, backup: URL?, byDate: Bool, rename: Bool) -> Result<String, Error> {
-        let taken = captureDate(photo)
-        var subfolder = ""
-        if byDate {
-            let day = DateFormatter()
-            day.dateFormat = "yyyy/yyyy-MM-dd"
-            subfolder = day.string(from: taken)
-        }
-        var name = photo.lastPathComponent
-        if rename {
-            let stamp = DateFormatter()
-            stamp.dateFormat = "yyyyMMdd-HHmmss"
-            name = stamp.string(from: taken) + "-" + name
-        }
-        var main = ""
-        for (i, root) in ([folder] + (backup.map { [$0] } ?? [])).enumerated() {
-            let place = subfolder.isEmpty ? root : root.appendingPathComponent(subfolder, isDirectory: true)
-            let target = place.appendingPathComponent(name)
-            do {
-                try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
-                // The same photo already there (also as name-2, -3… from an earlier import) isn't copied again;
-                // another photo with this name (a second card) is kept as name-2, -3….
-                var spot = target, n = 1
-                while FileManager.default.fileExists(atPath: spot.path) && !sameFile(photo, spot) {
-                    n += 1
-                    spot = place.appendingPathComponent(target.deletingPathExtension().lastPathComponent + "-\(n)" + (target.pathExtension.isEmpty ? "" : "." + target.pathExtension))
-                }
-                if !FileManager.default.fileExists(atPath: spot.path) {
-                    try FileManager.default.copyItem(at: photo, to: spot)
-                    try checked(photo, spot)
-                }
-                if i == 0 { main = spot.path }
-                // Its sidecar too.
-                for sidecar in PhotoXMP.sidecars(for: photo.path) where FileManager.default.fileExists(atPath: sidecar.path) {
-                    // (A photo kept as name-2 gets its own sidecar name, not the other photo's.)
-                    let copyName = spot != target ? spot.deletingPathExtension().lastPathComponent + "." + sidecar.pathExtension
-                        : rename ? (name as NSString).deletingPathExtension + "." + sidecar.pathExtension : sidecar.lastPathComponent
-                    let to = place.appendingPathComponent(copyName)
-                    if !FileManager.default.fileExists(atPath: to.path) { try? FileManager.default.copyItem(at: sidecar, to: to) }
-                }
-            } catch {
-                return .failure(error)
-            }
-        }
-        return .success(main)
-    }
-
-    /// The copy read back and compared with the card's (as Offload does): a bad one is removed
-    /// and the import stops, so nothing is filed that isn't the photo.
-    nonisolated private static func checked(_ photo: URL, _ copy: URL) throws {
-        func digest(_ url: URL) throws -> SHA256.Digest {
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            var hash = SHA256()
-            while let chunk = try handle.read(upToCount: 8 << 20), !chunk.isEmpty { hash.update(data: chunk) }
-            return hash.finalize()
-        }
-        guard try digest(photo) == digest(copy) else {
-            try? FileManager.default.removeItem(at: copy)
-            throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                String(localized: "The copy of “\(photo.lastPathComponent)” didn’t match the original. Check the card and the drive, then import again.")])
-        }
-    }
-
-    nonisolated private static func sameFile(_ a: URL, _ b: URL) -> Bool {
-        guard let one = try? a.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              let two = try? b.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
-        // (Same size alone isn't enough: two cards' IMG_0001.JPG can be.)
-        return one == two && FileManager.default.contentsEqual(atPath: a.path, andPath: b.path)
-    }
-
-    /// When it was taken (the camera's own date), or the file's date.
-    nonisolated static func captureDate(_ photo: URL) -> Date {
-        if let source = CGImageSourceCreateWithURL(photo as CFURL, nil),
-           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-           let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
-           let text = exif[kCGImagePropertyExifDateTimeOriginal] as? String {
-            let format = DateFormatter()
-            format.dateFormat = "yyyy:MM:dd HH:mm:ss"
-            if let date = format.date(from: text) { return date }
-        }
-        return (try? photo.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .now
-    }
+    /// When it was taken (a sidecar's date, the camera's own date, or the file's date).
+    nonisolated static func captureDate(_ photo: URL) -> Date { PhotoImporter.captureDate(photo) }
 }
