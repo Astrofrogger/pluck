@@ -229,6 +229,8 @@ enum CameraSync {
                 guard o.id != proxy.id, abs(o.duration - proxy.duration) < frame else { return false }
                 if let a = o.timecode, let b = proxy.timecode, abs(a - b) >= frame { return false }
                 if !named.contains(where: { $0.id == o.id }) && proxy.width >= o.width { return false }
+                // (Same name, no proxy sign: only in the same folder tree. Two cameras both write C0001.MP4.)
+                if look == 0 && !sameTree(o.file, proxy.file) { return false }
                 // (Lower resolution alone: at most half the pixels, so two cameras started together aren't taken for one.)
                 let area = proxy.width * proxy.height, full = o.width * o.height
                 let smaller = area > 0 && full > 0 && (area * 2 <= full || (look > 0 && area < full))
@@ -239,6 +241,12 @@ enum CameraSync {
         // A chain (a proxy of a proxy) points at the real original.
         for (proxy, original) in pairs { if let further = pairs[original] { pairs[proxy] = further } }
         return pairs
+    }
+
+    /// One file's folder holds the other (or they share one).
+    static func sameTree(_ a: URL, _ b: URL) -> Bool {
+        let x = a.deletingLastPathComponent().standardizedFileURL.path + "/", y = b.deletingLastPathComponent().standardizedFileURL.path + "/"
+        return x.hasPrefix(y) || y.hasPrefix(x)
     }
 
     /// The file's dates as a last resort: its last change (kept when copied), less its length, else when it was made.
@@ -427,22 +435,23 @@ enum CameraSync {
         let listened = Counter()
         let heardList = await each(sounding, width: options.width) { clip -> (UUID, Heard)? in
             if Task.isCancelled { return nil }
-            if let known = options.cache?.heard(clip.path) { return (clip.id, Heard(channels: known)) }
+            // (Kept per file read: a proxy's rough listen isn't reused for its original.)
+            let proxy = options.width > 1 ? clip.proxy.map { URL(fileURLWithPath: $0) } : nil
+            if let known = options.cache?.heard(proxy?.path ?? clip.path) ?? (proxy != nil ? options.cache?.heard(clip.path) : nil) { return (clip.id, Heard(channels: known)) }
             options.live?(.listening(clip.id))
             defer { options.live?(.heard(clip.id)) }
             let number = listened.next()
             progress(Double(number) / Double(max(sounding.count, 1)) * 0.4, String(localized: "Listening to \(clip.name)"))
             // (The proxy only for this rough listen: the exact match reads the original.)
-            let proxy = options.width > 1 ? clip.proxy.map { URL(fileURLWithPath: $0) } : nil
-            var samples: [Float]?
-            if let proxy { samples = try? await AudioFeatures.samples(of: proxy, ffmpeg: options.ffmpeg) }
+            var samples: [Float]?, read = clip.path
+            if let proxy { samples = try? await AudioFeatures.samples(of: proxy, ffmpeg: options.ffmpeg); if samples != nil { read = proxy.path } }
             if samples == nil, let file = options.sound(clip) { samples = try? await AudioFeatures.samples(of: file, ffmpeg: options.ffmpeg) }
             guard let samples else { return nil }
             let features = AudioFeatures(samples: samples)
             // The first values jump just for the sound starting (nothing before it): left out, or every clip's start "matches".
             let skip = Int(AudioFeatures.latency / AudioFeatures.step) + 3
             let channels = ([features.onset] + features.bands).map { curve in curve.enumerated().map { $0.offset < skip ? 0 : $0.element } }
-            options.cache?.keep(clip.path, channels)
+            options.cache?.keep(read, channels)
             return (clip.id, Heard(channels: channels))
         }
         let heard = Dictionary(heardList.compactMap { $0 }, uniquingKeysWith: { a, _ in a })

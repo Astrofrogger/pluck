@@ -802,7 +802,8 @@ final class PhotoCatalog {
                 found.append(url.path)
             }
         }
-        return found.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        // (Once each: a folder and a photo in it, or a folder inside another, both on the list.)
+        return Array(Set(found)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     nonisolated static func isPhoto(_ url: URL) -> Bool {

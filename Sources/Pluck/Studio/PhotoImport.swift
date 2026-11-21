@@ -221,6 +221,7 @@ struct PhotoImportSheet: View {
         let list = urls
         Task {
             let photos = await Task.detached(priority: .userInitiated) { PhotoCatalog.photos(in: list).map { URL(fileURLWithPath: $0) } }.value
+            guard sources == list else { return }  // (a later choice is being looked through)
             found = photos
             bytes = photos.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         }
@@ -307,24 +308,23 @@ struct PhotoImportSheet: View {
             let target = place.appendingPathComponent(name)
             do {
                 try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
-                if !sameFile(photo, target) {
-                    if FileManager.default.fileExists(atPath: target.path) {
-                        // Another photo with this name: keep both.
-                        let other = place.appendingPathComponent(target.deletingPathExtension().lastPathComponent + "-2." + target.pathExtension)
-                        try FileManager.default.copyItem(at: photo, to: other)
-                        try checked(photo, other)
-                        if i == 0 { main = other.path }
-                    } else {
-                        try FileManager.default.copyItem(at: photo, to: target)
-                        try checked(photo, target)
-                        if i == 0 { main = target.path }
-                    }
-                } else if i == 0 {
-                    main = target.path
+                // The same photo already there (also as name-2, -3… from an earlier import) isn't copied again;
+                // another photo with this name (a second card) is kept as name-2, -3….
+                var spot = target, n = 1
+                while FileManager.default.fileExists(atPath: spot.path) && !sameFile(photo, spot) {
+                    n += 1
+                    spot = place.appendingPathComponent(target.deletingPathExtension().lastPathComponent + "-\(n)" + (target.pathExtension.isEmpty ? "" : "." + target.pathExtension))
                 }
+                if !FileManager.default.fileExists(atPath: spot.path) {
+                    try FileManager.default.copyItem(at: photo, to: spot)
+                    try checked(photo, spot)
+                }
+                if i == 0 { main = spot.path }
                 // Its sidecar too.
                 for sidecar in PhotoXMP.sidecars(for: photo.path) where FileManager.default.fileExists(atPath: sidecar.path) {
-                    let copyName = rename ? (name as NSString).deletingPathExtension + "." + sidecar.pathExtension : sidecar.lastPathComponent
+                    // (A photo kept as name-2 gets its own sidecar name, not the other photo's.)
+                    let copyName = spot != target ? spot.deletingPathExtension().lastPathComponent + "." + sidecar.pathExtension
+                        : rename ? (name as NSString).deletingPathExtension + "." + sidecar.pathExtension : sidecar.lastPathComponent
                     let to = place.appendingPathComponent(copyName)
                     if !FileManager.default.fileExists(atPath: to.path) { try? FileManager.default.copyItem(at: sidecar, to: to) }
                 }
@@ -355,7 +355,8 @@ struct PhotoImportSheet: View {
     nonisolated private static func sameFile(_ a: URL, _ b: URL) -> Bool {
         guard let one = try? a.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               let two = try? b.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
-        return one == two
+        // (Same size alone isn't enough: two cards' IMG_0001.JPG can be.)
+        return one == two && FileManager.default.contentsEqual(atPath: a.path, andPath: b.path)
     }
 
     /// When it was taken (the camera's own date), or the file's date.

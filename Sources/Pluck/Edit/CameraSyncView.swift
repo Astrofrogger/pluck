@@ -38,6 +38,8 @@ final class CameraSyncModel {
     /// Dropped while clips were still being read: read right after (a second drop used to report ffmpeg missing).
     @ObservationIgnored private var pending: [URL] = []
     @ObservationIgnored let cache = SyncCache()
+    /// The running sync's events (a stopped run's late ones are dropped).
+    @ObservationIgnored private var currentBuffer: LiveBuffer?
 
     var running: Bool { task != nil }
     /// The cameras as drawn: while syncing, with the places found so far.
@@ -83,11 +85,6 @@ final class CameraSyncModel {
             self.cameras = cameras
             if found.isEmpty { problem = String(localized: "No clips in what was dropped.") }
             finish()
-            if !pending.isEmpty {
-                let next = pending
-                pending = []
-                add(next)
-            }
         }
     }
 
@@ -140,11 +137,12 @@ final class CameraSyncModel {
         if let only { for c in input.indices { for i in input[c].clips.indices where input[c].clips[i].id == only { input[c].clips[i].locked = false } } }
         let cache = cache, audioFirst = audioFirst, shownTimecode = shownTimecode
         let buffer = LiveBuffer()
+        currentBuffer = buffer
         // What's found is shown about ten times a second, not on every event.
         let flusher = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
-                self?.apply(buffer.take())
+                self?.apply(buffer.take(), from: buffer)
             }
         }
         let slates = String(localized: "Looking for timecode slates")
@@ -155,7 +153,7 @@ final class CameraSyncModel {
                 buffer.add(.progress(share, text == slates ? .reading : share < 0.4 ? .listening : .matching, text))
             }
             flusher.cancel()
-            apply(buffer.take())
+            apply(buffer.take(), from: buffer)
             for c in result.indices { for i in result[c].clips.indices where held.contains(result[c].clips[i].id) { result[c].clips[i].locked = false } }
             guard !Task.isCancelled else { return }
             withAnimation(.smooth(duration: 0.5)) { cameras = result }
@@ -184,17 +182,24 @@ final class CameraSyncModel {
 
     private func finish() {
         task = nil
+        currentBuffer = nil
         status = nil
         share = 0
         live = [:]
         listening = []
         liveLine = nil
         stage = nil
+        // What was dropped while busy (reading or syncing) is read now.
+        if !pending.isEmpty {
+            let next = pending
+            pending = []
+            add(next)
+        }
     }
 
     /// What a sync reported since the last look.
-    private func apply(_ events: [LiveBuffer.Item]) {
-        guard task != nil, !events.isEmpty else { return }
+    private func apply(_ events: [LiveBuffer.Item], from buffer: LiveBuffer) {
+        guard task != nil, buffer === currentBuffer, !events.isEmpty else { return }
         for item in events {
             switch item {
             case .progress(let value, let stage, let text):
