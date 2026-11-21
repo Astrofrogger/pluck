@@ -157,7 +157,7 @@ struct DeliverClientPagesSection: View {
             Image(systemName: "person.crop.rectangle.stack").font(.system(size: 13)).foregroundStyle(Design.Studio.textQuiet)
                 .frame(width: 26, height: 26).background(Design.Studio.raised, in: .circle)
             Text(verbatim: page.title).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
-            StudioChip(text: Text("\(count) links"), symbol: "link")
+            StudioChip(text: Text(verbatim: "\(count)"), symbol: "link")
             Spacer(minLength: 8)
             if let url {
                 Button { DeliverLinkShare.copy(url); copied = page.id } label: {
