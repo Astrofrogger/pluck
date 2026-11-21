@@ -122,6 +122,7 @@ pub struct Ctx {
     pub ident: host::Ident,
     pub fp: String,
     pub acceptor: TlsAcceptor,
+    pub busy: Arc<update::Busy>, // the host's: put/get count as busy for a self-update switch
 }
 
 impl Ctx {
@@ -303,6 +304,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
         let reply = match name.as_str() {
             "list" => json!({"files": list(&bundle)}),
             "put" => {
+                let _t = ctx.busy.transfer();
                 let size = op["size"].as_u64().filter(|s| *s <= MAX_PUT);
                 let (Some(path), Some(size)) = (path, size) else { anyhow::bail!("bad put") }; // can't skip the bytes safely
                 let tmp = path.with_extension("part-upload");
@@ -320,6 +322,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 let file = if mac { upload.clone().or(bundled) } else { bundled };
                 match file.as_ref().and_then(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| (p, m.len()))) {
                     Some((p, len)) => {
+                        let _t = ctx.busy.transfer();
                         let off = op["offset"].as_u64().unwrap_or(0).min(len);
                         let n = op["length"].as_u64().unwrap_or(len - off).min(len - off);
                         w.write_all(format!("{}\n", json!({"ok": true, "size": n})).as_bytes()).await?;
@@ -610,7 +613,7 @@ pub mod tests {
         (Arc::new(Ctx { data: data.into(), key: Arc::new(RwLock::new(vec![7u8; 32])), roots: Arc::new(Roots(vec![])), to_host: tx,
             devices: Arc::new(Devices::load(data)), uploads, outage: Some(crate::outage::Outage::load(data, false, None)),
             ident: host::Ident { id: "H".into(), name: "Office NAS".into(), backup: false },
-            fp, acceptor }), rx)
+            fp, acceptor, busy: Arc::default() }), rx)
     }
 
     async fn ask<R: AsyncBufReadExt + Unpin, W: AsyncWriteExt + Unpin>(r: &mut R, w: &mut W, v: Value) -> Value {
@@ -773,7 +776,7 @@ pub mod tests {
         let o = crate::outage::Outage::load(&data, true, None);
         let backup = Arc::new(Ctx { data: data.clone(), key: main.key.clone(), roots: main.roots.clone(), to_host: main.to_host.clone(), devices: main.devices.clone(),
             uploads: root, outage: Some(o.clone()), ident: host::Ident { id: "B".into(), name: "Backup".into(), backup: true }, fp: main.fp.clone(),
-            acceptor: main.acceptor.clone() });
+            acceptor: main.acceptor.clone(), busy: Arc::default() });
         let open = |c: Arc<Ctx>| async move {
             let (client, server) = tokio::io::duplex(1 << 16);
             tokio::spawn(async move { let _ = session(server, &c, None).await; });

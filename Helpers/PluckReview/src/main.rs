@@ -354,7 +354,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         }
         let shared_key = Arc::new(std::sync::RwLock::new(key));
         let ctx = Arc::new(sync::Ctx { data: data.clone(), key: shared_key.clone(), roots: roots.clone(), to_host: sync_tx.clone(),
-            devices: devices.clone(), uploads, outage: Some(outage.clone()), ident: me.clone(), fp: fp.clone(), acceptor: acceptor.clone() });
+            devices: devices.clone(), uploads, outage: Some(outage.clone()), ident: me.clone(), fp: fp.clone(), acceptor: acceptor.clone(), busy: busy.clone() });
         if let Some(listen) = hc["listen"].as_str() {
             let (ctx, listen) = (ctx.clone(), listen.to_owned());
             tokio::spawn(async move {
