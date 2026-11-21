@@ -13,6 +13,7 @@ struct ArchiveView: View {
     @State private var showAll = false
     @State private var relinking: ShrinkFolders.Run?
     @State private var relinkingBack: ShrinkFolders.Run?
+    @FocusState private var searchFocused: Bool
     private var center: ShrinkCenter { model.center }
     private let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
     private var flow: Bool { [.folders, .projects, .settings].contains(model.screen) }
@@ -117,6 +118,11 @@ struct ArchiveView: View {
                              prominent: true, button: "New Archive…") { model.newArchive() }
                 .padding(.vertical, 60)
         } else {
+            StudioSearchField(text: $model.query, prompt: "Search archived clips", key: "", focused: $searchFocused)
+        }
+        if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
+            searchResults
+        } else if model.survey != nil || model.archivingNow != nil {
             let free = model.freeable
             VStack(alignment: .leading, spacing: 6) {
                 Text("You can free").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
@@ -156,6 +162,42 @@ struct ArchiveView: View {
         StudioFootnote(text: "Pluck never deletes: originals and proxies go to “Pluck · Originals to delete”", symbol: "checkmark.shield")
     }
 
+    /// The search's clips: thumbnail, name, project, when, and where the original is now.
+    @ViewBuilder private var searchResults: some View {
+        if model.results.isEmpty {
+            Text("No archived clips found").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+        }
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(model.results) { clip in
+                HStack(spacing: 12) {
+                    ArchiveThumb(path: clip.thumbnail.map { ArchiveCatalog.folder(clip.folder).appendingPathComponent($0).path })
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: (clip.original as NSString).lastPathComponent).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
+                        Text(verbatim: [ShrinkFolders.title(client: clip.client, project: clip.project), clip.modified.formatted(date: .abbreviated, time: .omitted),
+                                        clip.camera, "\(clip.width)×\(clip.height)", clip.timecode].compactMap { $0 }.joined(separator: " · "))
+                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Text(verbatim: placeLabel(clip)).font(Design.Studio.hint).foregroundStyle(clip.status == "deleted" && clip.copy == nil ? Design.Studio.textFaint : Design.Studio.textQuiet)
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: clip.master ?? clip.original)]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show the master in Finder")
+                }
+                .frame(height: 48)
+                .help(clip.original)
+            }
+        }
+    }
+
+    private func placeLabel(_ clip: ArchiveCatalog.Clip) -> String {
+        let original: String = switch clip.status {
+        case "to delete": String(localized: "Original waiting to delete")
+        case "deleted": String(localized: "Original deleted")
+        case "restored": String(localized: "Original restored")
+        default: String(localized: "Original in place")
+        }
+        return clip.copyTarget.map { original + " · " + String(localized: "second copy on \(($0 as NSString).lastPathComponent)") } ?? original
+    }
+
     /// What's in each share's folder to delete: the space only comes back once it's deleted.
     private var waitingList: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -178,6 +220,10 @@ struct ArchiveView: View {
                         if place.notSafe > 0 {
                             Text("Not safe \(bytes(place.notSafe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.bad)
                         }
+                        if place.uncopied > 0 {
+                            Text("No second copy \(bytes(place.uncopied))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.warn)
+                                .help("Its project has a second copy turned on: safe once that copy is checked")
+                        }
                         Button("Check") { model.check(place) }.buttonStyle(.link).font(Design.Studio.hint)
                             .disabled(center.checking != nil || center.running).help("Reads every master again before you delete its original")
                         if !place.safeFiles.isEmpty {
@@ -194,6 +240,15 @@ struct ArchiveView: View {
                             .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2)
                             .help(place.unsafeFiles.joined(separator: "\n"))
                     }
+                    if let measured = place.measured {
+                        let sign = measured.freed >= 0 ? "+" : "−"
+                        Text("Deleted \(bytes(measured.deleted)) · free space \(sign)\(bytes(abs(measured.freed)))")
+                            .font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                            .help("Measured on the share: snapshots and recycle bins can hold deleted files’ space for a while")
+                    }
+                    if let days = place.snapshotDays, days > 0 {
+                        Text("Snapshots keep deleted files: space returns in about \(days) days").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+                    }
                     if let bin = place.recycle {
                         Text("Deleted files stay in \(bin) on this share until it’s emptied").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
                     }
@@ -201,8 +256,10 @@ struct ArchiveView: View {
             }
             Text("Safe means a checked master exists — at master quality, not the original’s.")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-            Text("Space comes back once you delete these. On TrueNAS, snapshots keep deleted files until they expire.")
-                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+            if model.waiting.contains(where: { $0.snapshotDays == nil }) {
+                Text("Space comes back once you delete these. Snapshots on the NAS may keep it until they expire.")
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+            }
         }
     }
 
@@ -228,6 +285,13 @@ struct ArchiveView: View {
                 }
             }
             StudioProgress(share: Double(now.freed) / Double(max(now.total, 1)))
+            if center.copying != nil {
+                HStack(spacing: 8) {
+                    Text(verbatim: String(localized: "Second copy") + (center.copyingNow.map { " · " + ($0 as NSString).lastPathComponent } ?? ""))
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
+                    Button("Pause") { model.stopCopies() }.buttonStyle(.link).font(Design.Studio.hint)
+                }
+            }
             Text("Pauses only for editing on this Mac: another Mac using a file over the network can’t be seen")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
             if !center.running, let why = center.runs.first(where: center.unfinished)?.paused {
@@ -235,7 +299,7 @@ struct ArchiveView: View {
             }
             HStack(spacing: 8) {
                 Text("\(bytes(now.freed)) of \(bytes(now.total)) freed").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                if now.parts.isEmpty { Text("Paused").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
+                if now.parts.isEmpty, center.copying == nil { Text("Paused").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
             }
             ForEach(Array(now.parts.enumerated()), id: \.offset) { _, part in
                 HStack(spacing: 8) {
@@ -342,7 +406,15 @@ struct ArchiveView: View {
         .padding(.top, 6)
         .opacity(open.isEmpty ? 0.55 : 1)
         .help(String(localized: "All of this client's projects on or off"))
-        .contextMenu { sizeMenu(rows.map(\.project)) }
+        .contextMenu {
+            sizeMenu(rows.map(\.project))
+            if let client = rows.first?.project.client {
+                Menu("Keep Originals After Closing") {
+                    Button("None") { model.keepOriginals(client, months: nil) }
+                    ForEach([3, 6, 12, 24], id: \.self) { months in Button(String(localized: "\(months) months")) { model.keepOriginals(client, months: months) } }
+                }
+            }
+        }
     }
 
     private func projectRow(_ row: ArchiveModel.ProjectRow, grouped: Bool = false) -> some View {
@@ -362,7 +434,10 @@ struct ArchiveView: View {
                 }
                 .menuStyle(.button).buttonStyle(.plain).fixedSize().help("This project’s size")
             }
-            if let dim = row.dim { Text(verbatim: dim).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
+            if let label = ArchiveProject.label(model.projectInfo[project.folder]) {
+                StudioChip(text: Text(verbatim: label), colour: model.projectInfo[project.folder]?.hold == true ? Design.Studio.warn : Design.Studio.textQuiet, tinted: true)
+            }
+            if let dim = row.dim, dim != ArchiveProject.label(model.projectInfo[project.folder]) { Text(verbatim: dim).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
             Text(verbatim: bytes(project.total)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).frame(width: 72, alignment: .trailing)
             Text(verbatim: row.saving > 0 ? "−" + bytes(row.saving) : "").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Brand.pink)
                 .frame(width: 80, alignment: .trailing)
@@ -385,6 +460,10 @@ struct ArchiveView: View {
             Button("Detect Again") { model.detectAgain(project) }
             Divider()
             sizeMenu([project])
+            Divider()
+            let info = model.projectInfo[project.folder]
+            Toggle("Closed", isOn: Binding(get: { info?.isClosed == true }, set: { model.close(project, $0) })).disabled(info?.hold == true)
+            Toggle("Hold", isOn: Binding(get: { info?.hold == true }, set: { model.hold(project, $0) }))
         }
     }
 
@@ -426,6 +505,17 @@ struct ArchiveView: View {
                     Button("To Another Folder or NAS…") { model.destination = pickFolder() ?? model.destination }.buttonStyle(.link).font(Design.Studio.hint)
                 }
                 .padding(.leading, 102)
+            }
+            field("Second copy") {
+                Menu {
+                    if let target = model.copyTarget { Button(String(localized: "To \((target as NSString).lastPathComponent)")) {} .disabled(true) }
+                    Button("Choose Folder…") { if let folder = pickFolder() { model.copyTarget = folder.path } }
+                    if model.copyTarget != nil { Button("None") { model.copyTarget = nil } }
+                } label: {
+                    StudioMenuLabel(title: model.copyTarget.map { String(localized: "To \(($0 as NSString).lastPathComponent)") } ?? String(localized: "None"))
+                }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                .help("Optional: a checked copy of the originals on another drive before they’re safe to delete")
             }
             field("Runs on") {
                 StudioSegmented(options: [(ArchiveModel.Machine.here, "This Mac"), (.office, "Always-on Mac"), (.both, "Both")], selection: $model.machine)
@@ -551,7 +641,18 @@ struct ArchiveView: View {
             }
             ForEach(model.checks(run).filter { $0.checked > 0 || !$0.problems.isEmpty }) { project in
                 if project.safe {
-                    Text("\(project.title) · \(project.masters) masters checked · safe to delete").font(Design.Studio.hint).foregroundStyle(Design.Studio.good)
+                    HStack(spacing: 8) {
+                        Text("\(project.title) · \(project.masters) masters checked · safe to delete").font(Design.Studio.hint).foregroundStyle(Design.Studio.good)
+                        copyLine(project, run)
+                    }
+                } else if project.problems.isEmpty, project.finished, project.checked == project.masters, project.copyNeeded {
+                    HStack(spacing: 8) {
+                        Text(verbatim: project.title).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                        copyLine(project, run)
+                    }
+                    if let why = project.copyProblem {
+                        Text(verbatim: why).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).lineLimit(2).padding(.leading, 12)
+                    }
                 } else {
                     Text(verbatim: project.title).font(Design.Studio.hint).foregroundStyle(project.problems.isEmpty ? Design.Studio.warn : Design.Studio.bad)
                     ForEach(project.problems.prefix(10), id: \.self) { problem in
@@ -574,6 +675,39 @@ struct ArchiveView: View {
         }
     }
 
+    /// A project's second copy: how far it is, and the choices (make it now, where, or none).
+    @ViewBuilder private func copyLine(_ project: ArchiveModel.ProjectCheck, _ run: ShrinkFolders.Run) -> some View {
+        Group {
+            switch project.decision {
+            case .none: EmptyView()
+            case _ where project.copied == project.masters: Text("Second copy checked").foregroundStyle(Design.Studio.good)
+            case .target: Text("Second copy \(project.copied) of \(project.masters)").foregroundStyle(Design.Studio.warn)
+            }
+        }
+        .font(Design.Studio.hint)
+        if center.copying == run.id {
+            Button("Pause") { model.stopCopies() }.buttonStyle(.link).font(Design.Studio.hint)
+        } else if !center.running {
+            if case .target = project.decision, project.copied < project.masters {
+                Button("Make Second Copy") { model.makeCopies(run, project: project.folder) }.buttonStyle(.link).font(Design.Studio.hint)
+                    .disabled(center.copying != nil || center.checking != nil)
+            }
+            Menu {
+                Button("Restore Originals") { model.restore(run, project: project.folder) }
+                    .disabled(center.copying != nil || center.checking != nil)
+                    .help("Back at their places from the folder to delete, or from the second copy, checked by hash; the masters to the Trash")
+                Divider()
+                Button(model.copyTarget.map { String(localized: "To \(($0 as NSString).lastPathComponent)") } ?? String(localized: "Default")) {
+                    model.setCopy(project.folder, share: project.share, nil)
+                }
+                Button("Another Folder…") { if let folder = pickFolder() { model.setCopy(project.folder, share: project.share, folder.path) } }
+                Divider()
+                Button("No Second Copy") { model.setCopy(project.folder, share: project.share, "") }.disabled(project.decision == .none)
+            } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Design.Studio.textQuiet) }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize().help("Where this project’s second copy goes")
+        }
+    }
+
     private func pickFolder() -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -583,6 +717,25 @@ struct ArchiveView: View {
     }
 }
 
+
+/// A clip's small picture from its master (grey until it's read, or when there's none).
+private struct ArchiveThumb: View {
+    let path: String?
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            Design.Studio.raised
+            if let image { Image(nsImage: image).resizable().scaledToFill() }
+        }
+        .frame(width: 64, height: 36)
+        .clipShape(.rect(cornerRadius: 4))
+        .task(id: path) {
+            guard let path else { image = nil; return }
+            image = await Task.detached(priority: .utility) { NSImage(contentsOfFile: path) }.value
+        }
+    }
+}
 
 /// Relink in Resolve: the projects to point at this run's masters, chosen from Resolve's project
 /// manager or as .drp files; nothing is opened that isn't chosen.

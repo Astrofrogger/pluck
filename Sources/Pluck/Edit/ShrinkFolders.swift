@@ -150,6 +150,13 @@ enum ShrinkFolders {
         var problem: String?
         /// The master as it was when it was checked (size, date, file number): "safe" holds only while it still is.
         var masterStamp: Stamp?
+        /// The original's second copy, checked by hash read back from where it went (nil: none yet), and why the last try didn't make it.
+        var copied: Copied?
+        var copyProblem: String?
+        /// The original's start timecode, reel name and camera, as Check Before Deleting read them (for the catalogue).
+        var timecode: String?
+        var reel: String?
+        var camera: String?
 
         /// The check passed (as it was then; `safeNow` looks at the master now).
         var safeToDelete: Bool { state == .done && checked != nil && checkProblems?.isEmpty == true }
@@ -225,6 +232,8 @@ enum ShrinkFolders {
         var relinkedProjects: [String]?
         /// The age limit it was started with (months; nil or 0: any age): a project edited since is left.
         var months: Int?
+        /// Where each project's originals get their second copy (project folder → target folder), when the Mac that asked said.
+        var copyTargets: [String: String]?
     }
 
     // MARK: Finding the files
@@ -1099,7 +1108,23 @@ enum ShrinkFolders {
     // MARK: Check Before Deleting
 
     /// What Check Before Deleting found: problems (empty: safe), the master's checksum read from the drive, and the master as it was.
-    struct Checked: Sendable { var problems: [String]; var hash: String?; var stamp: Stamp? }
+    struct Checked: Sendable {
+        var problems: [String]; var hash: String?; var stamp: Stamp?
+        /// The original's start timecode, reel name and camera, as read (for the catalogue).
+        var timecode: String?; var reel: String?; var camera: String?
+    }
+
+    /// What a master keeps of its original, compared: the start timecode, the reel name (the original's, or its file
+    /// name as the master was given), the frame rate and the sound channels. Empty: the same.
+    static func keptProblems(master: ProjectArchive.Streams, original: ProjectArchive.Streams, name: String) -> [String] {
+        var problems: [String] = []
+        if master.timecode != original.timecode { problems.append(String(localized: "The start timecode differs")) }
+        let reel = original.reel ?? (name.components(separatedBy: ".").first ?? "")
+        if (master.reel ?? "") != reel { problems.append(String(localized: "The reel name differs")) }
+        if original.fps > 0, abs(master.fps - original.fps) > 0.01 { problems.append(String(localized: "The frame rate differs")) }
+        if master.channels != original.channels { problems.append(String(localized: "The sound channels differ")) }
+        return problems
+    }
 
     /// One file whose master is in place, read again from the drive: the master there under its name with
     /// Pluck's tag and its size; its checksum read back from the drive (cache dropped, read twice) and the same
@@ -1133,6 +1158,13 @@ enum ShrinkFolders {
         let frames = file.frames ?? reference?.frames ?? 0, length = file.duration ?? reference?.duration ?? 0
         let made = ProjectArchive.streams(master, ffprobe: ffprobe)
         if made.frames != frames { problems.append(String(localized: "\(made.frames) frames of \(frames)")) }
+        // Timecode, reel, frame rate and sound channels as the original's (read from it where it waits).
+        let source = reference ?? ProjectArchive.reference(original, ffprobe: ffprobe, count: false, open: open)
+        if let source {
+            problems += keptProblems(master: made, original: source, name: (original as NSString).lastPathComponent)
+        } else {
+            problems.append(String(localized: "The original can’t be read"))
+        }
         if abs(made.duration - length) > 1 / max(made.fps > 0 ? made.fps : file.fps, 1) + 0.001 { problems.append(String(localized: "The length differs")) }
         let folder = (original as NSString).deletingLastPathComponent
         let sizes = ([original] + file.parts.map { (folder as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }).map(size)
@@ -1141,7 +1173,10 @@ enum ShrinkFolders {
         } else if sizes.reduce(Int64(0), { $0 + ($1 ?? 0) }) != file.size || file.originalHead.map({ headHash(original) != $0 }) == true {
             problems.append(String(localized: "The original changed"))
         }
-        return Checked(problems: Array(NSOrderedSet(array: problems)) as? [String] ?? problems, hash: read.hash, stamp: stamp(master))
+        let camera = source.map { tags in ["make", "model"].compactMap { key in tags.tags.first { $0.key.lowercased().hasSuffix(key) }?.value }.joined(separator: " ") }
+        return Checked(problems: Array(NSOrderedSet(array: problems)) as? [String] ?? problems, hash: read.hash, stamp: stamp(master),
+                       timecode: source?.timecode, reel: source?.reel ?? ((original as NSString).lastPathComponent.components(separatedBy: ".").first),
+                       camera: camera?.isEmpty == false ? camera : nil)
     }
 
     /// A line in Inventory.csv: the holding folder's (in place) or the destination's.
@@ -1273,6 +1308,11 @@ final class ShrinkCenter {
     private(set) var current: String?
     /// The run whose masters are being checked (Check Before Deleting).
     private(set) var checking: UUID?
+    /// The run whose originals get their second copy (or are being restored), and the file now.
+    var copying: UUID?
+    var copyingNow: String?
+    /// Stop the copies after the piece now (it carries on from there next time).
+    @ObservationIgnored var stopCopies = false
     private var currentTemp: String?
     private var stopping = false
     /// Bytes of originals done and seconds spent in this go (for the time left).
@@ -1438,6 +1478,9 @@ final class ShrinkCenter {
             await check(id, onlyNew: true, ffmpeg: ffmpeg, ffprobe: ffprobe)
             // (Proxies only once their clips' masters are checked.)
             moveProxies(id)
+            // Then the originals' second copies, where their projects' go.
+            await secondCopies(id, retry: false)
+            await catalogue(id, ffmpeg: ffmpeg)
         }
     }
 
@@ -1482,11 +1525,27 @@ final class ShrinkCenter {
         if let r = runs.firstIndex(where: { $0.id == id }), runs[r].paused != nil { runs[r].paused = nil; save() }
         // (Each project looked at once a go: edited within the age limit since the survey, it's left.)
         var edited: [String: Bool] = [:]
+        // (And its .pluck-project.json, shared by every Mac: on hold it's never touched; closed, its originals stay until their day.)
+        var gates: [String: (reason: String?, ripe: Bool)] = [:]
+        let keep = ShrinkFolders.Rules.load().keep ?? [:]
         while !stopping, let r = runs.firstIndex(where: { $0.id == id }), let f = next(runs[r]) {
             let run = runs[r], settings = run.settings, quiet = quiet, freeSpace = freeSpace, capacity = capacity, mac = claimName
             let destination = run.destination.map { URL(fileURLWithPath: $0) }
             var file = run.files[f]
-            if file.state == .pending, let months = run.months, months > 0 {
+            let gateFolder = file.project.isEmpty ? file.folder : file.project
+            if file.state == .pending {
+                if gates[gateFolder] == nil {
+                    let months = keep[file.client]
+                    gates[gateFolder] = await Task.detached(priority: .utility) { ArchiveProject.gate(ArchiveProject.read(gateFolder), months: months) }.value
+                }
+                if let why = gates[gateFolder]?.reason {
+                    file.state = .skipped
+                    file.note = why
+                    set(file, in: id)
+                    continue
+                }
+            }
+            if file.state == .pending, gates[gateFolder]?.ripe != true, let months = run.months, months > 0 {
                 let project = file.project.isEmpty ? file.folder : file.project
                 if edited[project] == nil { edited[project] = await Task.detached(priority: .utility) { ShrinkFolders.editedSince(project, months: months) }.value }
                 if edited[project] == true {
@@ -1663,6 +1722,8 @@ final class ShrinkCenter {
         let projects = Set(runs[r].files.filter { $0.state == .done && $0.moved != nil }.map(\.project))
         let kinds = ProjectArchive.videoKinds.union(ProjectArchive.rawMasterKinds)
         for project in projects {
+            // (On hold: never touched.)
+            if ArchiveProject.read(project)?.hold == true { continue }
             let clips = runs[r].files.filter { $0.project == project }
             let proxyFolders = runs[r].proxyFolders[project] ?? []
             // Every video of the project now (its proxy folders aside): a proxy named like one that isn't a checked master stays.
@@ -1760,6 +1821,7 @@ final class ShrinkCenter {
         for file in run.files where file.state == .done {
             set(await Task.detached { ShrinkFolders.putBack(file, settings: settings, inventory: inventory, trash: trash) }.value, in: id)
         }
+        await catalogue(id, ffmpeg: nil)
     }
 
     /// A destination run's originals, moved into their share's folder to delete (where Pluck may write), each only
@@ -1809,10 +1871,12 @@ final class ShrinkCenter {
             now.checked = .now
             now.checkProblems = found.problems
             now.masterStamp = found.stamp
+            (now.timecode, now.reel, now.camera) = (found.timecode ?? now.timecode, found.reel ?? now.reel, found.camera ?? now.camera)
             // (A master made before checksums: its checksum kept once it passed against its original.)
             if now.masterHash == nil, found.problems.isEmpty { now.masterHash = found.hash }
             set(now, in: id)
         }
+        await catalogue(id, ffmpeg: ffmpeg)
         return nil
     }
 
@@ -1850,6 +1914,13 @@ final class ShrinkCenter {
     func remove(_ id: UUID) {
         guard active != id else { return }
         runs.removeAll { $0.id == id }
+        save()
+    }
+
+    /// Changes a run and saves it.
+    func update(_ id: UUID, _ change: (inout ShrinkFolders.Run) -> Void) {
+        guard let r = runs.firstIndex(where: { $0.id == id }) else { return }
+        change(&runs[r])
         save()
     }
 
@@ -1950,6 +2021,11 @@ extension ShrinkFolders.File {
         checkProblems = v(.checkProblems)
         problem = v(.problem)
         masterStamp = v(.masterStamp)
+        copied = v(.copied)
+        copyProblem = v(.copyProblem)
+        timecode = v(.timecode)
+        reel = v(.reel)
+        camera = v(.camera)
     }
 }
 
@@ -1973,6 +2049,7 @@ extension ShrinkFolders.Run {
         proxyNotes = v(.proxyNotes)
         shareIDs = v(.shareIDs)
         months = v(.months)
+        copyTargets = v(.copyTargets)
     }
 }
 
