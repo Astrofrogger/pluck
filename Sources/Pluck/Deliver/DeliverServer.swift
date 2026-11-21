@@ -610,7 +610,8 @@ final class DeliverServer {
         if let lang = message["lang"] as? String { op["lang"] = String(lang.prefix(8)) }
         if peer.name.isEmpty == false { op["name"] = peer.name }
         Task {
-            if let answer = await mailAsk(op), answer["ok"] as? Bool == true {
+            let answer = await mailAsk(op)
+            if let answer, answer["ok"] as? Bool == true {
                 peer.subscription = (email, mode)
                 // (A typed address waits for the host's confirmation mail: the page says to check the inbox.)
                 reply(peer, id, ["ok": true, "pending": answer["pending"] as? Bool == true])

@@ -123,6 +123,7 @@ struct DeliverHostSheet: View {
             Text(verbatim: ([DeliverHostUpdate.text(state)] + [checked].compactMap { $0 }).joined(separator: " · "))
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 14)
             if case .failed(let error?) = state { Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14) }
+            if case .rolledBack(let error?) = state { Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14) }
         }
         if let last = updates.results[host.id], last.result != "ok", let error = last.error {
             Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14)

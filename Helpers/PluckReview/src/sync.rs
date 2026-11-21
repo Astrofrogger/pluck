@@ -301,6 +301,17 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
             w.flush().await?;
             continue;
         }
+        // A switch is waiting: no new byte transfers (those running finish), so the count drains; the Mac or backup tries later.
+        if (name == "put" || name == "get") && ctx.busy.preparing() {
+            if name == "put" {
+                let size = op["size"].as_u64().filter(|s| *s <= MAX_PUT).context("bad put")?;
+                let n = tokio::io::copy(&mut (&mut *r).take(size), &mut tokio::io::sink()).await?;
+                anyhow::ensure!(n == size, "upload cut short");
+            }
+            w.write_all(format!("{}\n", json!({"error": "later"})).as_bytes()).await?;
+            w.flush().await?;
+            continue;
+        }
         let reply = match name.as_str() {
             "list" => json!({"files": list(&bundle)}),
             "put" => {
@@ -595,6 +606,7 @@ impl Client {
             (op["offset"], op["length"]) = (json!(o), json!(n));
         }
         let h = self.ask(&op).await?;
+        anyhow::ensure!(h["error"] != "later", "the host is about to update: later"); // (not "missing": tried again next round)
         let Some(n) = h["size"].as_u64().filter(|_| h["ok"] == true) else { return Ok(None) };
         let got = tokio::io::copy(&mut (&mut self.r).take(n), out).await?;
         anyhow::ensure!(got == n, "cut short");
@@ -656,6 +668,14 @@ pub mod tests {
         assert_eq!(ask(&mut r, &mut w, json!({"op": "_accounts"})).await["error"], "scope", "only a backup gets the accounts file");
         assert_eq!(hello["accounts"], 1, "says it has People (4.0.4)");
         assert_eq!(hello["approvals"], 1, "and approves editors' invites; `accounts` stays 1 so Pluck 4.0.4 test builds keep People");
+        // A switch waiting: new gets and puts are told to come back later (a put's bytes are read and dropped), so it can go.
+        c.busy.preparing.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "get", "path": "uploads/L1/a.png"})).await["error"], "later");
+        w.write_all(format!("{}\n", json!({"op": "put", "path": "copies/V/poster.jpg", "size": 3})).as_bytes()).await.unwrap();
+        w.write_all(b"abc").await.unwrap();
+        assert_eq!(line(&mut r).await.unwrap().unwrap()["error"], "later");
+        assert!(!data.join("bundle/copies/V/poster.jpg").exists() && c.busy.transfers.load(std::sync::atomic::Ordering::Relaxed) == 0);
+        c.busy.preparing.store(false, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(ask(&mut r, &mut w, json!({"op": "delete", "path": "uploads/L1/a.png"})).await["ok"], true);
         assert!(!data.join("uploads/L1/a.png").exists());
         drop(task);

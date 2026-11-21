@@ -242,9 +242,10 @@ fn crashes_path(data: &Path) -> PathBuf {
     home(data).join("crashes.json")
 }
 
-/// Stopped by a person or the service manager (SIGTERM/SIGINT), not a fault of the version.
+/// Stopped by a person or the service manager (SIGTERM/SIGINT), or killed from outside (SIGKILL: the OOM killer, a
+/// container stop that timed out): not a fault of the version.
 fn stopped(code: i32) -> bool {
-    code == 128 + libc::SIGTERM || code == 128 + libc::SIGINT
+    code == 128 + libc::SIGTERM || code == 128 + libc::SIGINT || code == 128 + libc::SIGKILL
 }
 
 /// Notes a crash of kept version `v` at `now`; true at the CRASHES-th within an hour (then it's marked bad).
@@ -517,7 +518,8 @@ pub fn op(data: &Path, op: &Value) -> Value {
     status(data)
 }
 
-/// The `selfUpdate` object in `status`: state upToDate | available (Updates off) | downloading | waiting | failed.
+/// The `selfUpdate` object in `status`: state upToDate | available (Updates off) | downloading | waiting | failed |
+/// rolledBack (the target was undone; `error` says why).
 pub fn status(data: &Path) -> Value {
     let s = read_json(&settings_path(data));
     let st = read_json(&state_path(data));
@@ -574,10 +576,16 @@ async fn quiet(to_host: &mpsc::Sender<host::Sync>, now: bool) -> bool {
 /// One look: what to do now. Returns true when the host should exit SWITCH.
 pub async fn tick(data: &Path, trust: &Trust, to_host: &mpsc::Sender<host::Sync>, retry: &mut Option<Instant>) -> bool {
     let mut s = read_json(&settings_path(data));
-    let Some(t) = s["target"].as_str().map(str::to_owned).filter(|t| newer(t, VERSION) && !is_bad(data, t)) else {
+    let Some(t) = s["target"].as_str().map(str::to_owned).filter(|t| newer(t, VERSION)) else {
         set_state(data, "upToDate", None);
         return false;
     };
+    if is_bad(data, &t) {
+        // Tried and undone (it failed its check or kept crashing): said so, until Update Now tries it once more.
+        let why = read_json(&bad_path(data))[plain(&t)]["why"].as_str().map(str::to_owned);
+        set_state(data, "rolledBack", why);
+        return false;
+    }
     let now = s["now"] == true;
     if !auto(&s) && !now {
         set_state(data, "available", None);
@@ -769,7 +777,7 @@ mod tests {
         assert!(!crashed(&d, "4.0.8", 1000) && !crashed(&d, "4.0.8", 2000));
         assert!(!crashed(&d, "4.0.8", 5000), "the first one is over an hour ago");
         assert!(crashed(&d, "4.0.8", 5100));
-        assert!(!stopped(134) && stopped(143) && stopped(130));
+        assert!(!stopped(134) && stopped(143) && stopped(130) && stopped(137), "SIGKILL (OOM) isn't the version's crash");
         let _ = std::fs::remove_dir_all(d);
     }
 
@@ -810,6 +818,7 @@ mod tests {
         assert_eq!(read_json(&settings_path(&d))["now"], false);
         mark_bad(&d, "99.0.0", "test");
         assert!(!tick(&d, &trust, &host_task(0, false), &mut retry).await, "a bad version is never retried by itself");
+        assert_eq!((status(&d)["state"].clone(), status(&d)["error"].clone()), (json!("rolledBack"), json!("test")), "said, not \"up to date\"");
         // not kept yet and GitHub unreachable: failed, tried again in an hour
         set(json!({"target": "98.0.0"}));
         assert!(!tick(&d, &trust, &host_task(0, false), &mut retry).await);

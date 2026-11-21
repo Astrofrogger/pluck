@@ -678,9 +678,10 @@ extension PhotoSelfTest {
         check("review: Update Now says when it can't update the NAS", stuck && !updates.noUpdater.contains(nasHost.id) && updates.asking.isEmpty
               && updates.results[nasHost.id]?.result == "ok", "")
         // A host that updates itself (4.0.7): its state in words, and Update Now through `self-update` (no API key).
-        let states = [["state": "waiting"], ["state": "downloading"], ["state": "available"], ["state": "failed", "error": "e"], ["state": "upToDate"], [:]]
+        let states = [["state": "waiting"], ["state": "downloading"], ["state": "available"], ["state": "failed", "error": "e"], ["state": "upToDate"], [:],
+                      ["state": "rolledBack", "error": "crashed"]]
             .map { DeliverHostUpdate.selfState($0) }
-        let mapped = states == [.updating, .updating, .available, .failed("e"), .upToDate, .upToDate] && DeliverHostUpdate.selfState(nil) == nil
+        let mapped = states == [.updating, .updating, .available, .failed("e"), .upToDate, .upToDate, .rolledBack("crashed")] && DeliverHostUpdate.selfState(nil) == nil
             && DeliverHostUpdate.text(.updating) == String(localized: "Updating at the next quiet moment")
             && DeliverHostUpdate.checked(["checked": "2026-11-20T10:00:00Z"]) != nil
         var selfOps: [[String: Any]] = []
