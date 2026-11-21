@@ -102,6 +102,28 @@ enum PhotoXMP {
         try xmp.write(to: sidecar, options: .atomic)
     }
 
+    /// A photo's date (and how far its camera's clock was shifted) into the sidecar, keeping everything else
+    /// in it. Only ever the sidecar of a copy: the original file is never changed. Atomic.
+    static func writeDate(_ path: String, taken: String, offset: TimeInterval) throws {
+        let list = sidecars(for: path)
+        let sidecar = list.first { FileManager.default.fileExists(atPath: $0.path) } ?? list[0]
+        let metadata: CGMutableImageMetadata
+        if let data = try? Data(contentsOf: sidecar), let existing = CGImageMetadataCreateFromXMPData(data as CFData),
+           let copy = CGImageMetadataCreateMutableCopy(existing) {
+            metadata = copy
+        } else {
+            metadata = CGImageMetadataCreateMutable()
+        }
+        CGImageMetadataRegisterNamespaceForPrefix(metadata, namespace, prefix, nil)
+        CGImageMetadataSetValueWithPath(metadata, nil, "exif:DateTimeOriginal" as CFString, taken as CFString)
+        CGImageMetadataSetValueWithPath(metadata, nil, "xmp:CreateDate" as CFString, taken as CFString)
+        CGImageMetadataSetValueWithPath(metadata, nil, "pluck:ClockOffset" as CFString, "\(Int(offset.rounded()))" as CFString)
+        guard let xmp = CGImageMetadataCreateXMPData(metadata, nil) as Data? else {
+            throw NSError(domain: "Pluck", code: 20, userInfo: [NSLocalizedDescriptionKey: "The XMP couldn’t be made."])
+        }
+        try xmp.write(to: sidecar, options: .atomic)
+    }
+
     /// Lightroom's label names (it has no orange).
     private static func xmpLabel(_ label: String) -> String {
         ["red": "Red", "orange": "Orange", "yellow": "Yellow", "green": "Green", "blue": "Blue", "purple": "Purple"][label] ?? label.capitalized
