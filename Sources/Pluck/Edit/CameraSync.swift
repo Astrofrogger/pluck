@@ -19,7 +19,7 @@ struct SyncClip: Identifiable, Hashable, Sendable {
     var fps = 0.0
     var hasAudio = false
     var hasVideo = false
-    /// The first frame's timecode, in seconds.
+    /// The first frame's timecode, in real seconds (23.976/29.97/59.94 frames 1001/1000 longer, as sound and slates count).
     var timecode: Double?
     /// Its timecode is drop frame (; or . before the frames).
     var dropFrame = false
@@ -131,6 +131,7 @@ enum CameraSync {
             clip.hasVideo = true
             clip.hasAudio = info.audioChannels > 0 || ((try? source.audio()) ?? nil) != nil
             clip.timecode = info.timecode.flatMap { seconds(timecode: $0, fps: info.fps) }
+            clip.dropFrame = info.timecode.map(isDropFrame) ?? false
             fileClock(&clip)
             let serial = ["camera_id", "serial_number", "camera_serial_number", "Camera Serial #"].lazy.compactMap { info.meta[$0] }.first { !$0.isEmpty }
             return Probe(clip: clip, root: root, serial: serial, model: info.camera)
@@ -168,7 +169,7 @@ enum CameraSync {
         for source in [format["tags"]] + streams.map({ $0["tags"] }) {
             for (key, value) in source as? [String: Any] ?? [:] { if let value = value as? String, tags[key.lowercased()] == nil { tags[key.lowercased()] = value } }
         }
-        if let text = tags["timecode"], clip.fps > 0 { clip.timecode = seconds(timecode: text, fps: clip.fps) }
+        if let text = tags["timecode"], clip.fps > 0 { clip.timecode = seconds(timecode: text, fps: clip.fps); clip.dropFrame = isDropFrame(text) }
         // A sound recorder's (BWF) timecode: samples since midnight.
         if clip.timecode == nil, !clip.hasVideo, let samples = tags["time_reference"].flatMap(Double.init), let rate = number(audio?["sample_rate"]), rate > 0 {
             clip.timecode = samples / rate
@@ -259,14 +260,16 @@ enum CameraSync {
         clip.clockFromFile = clip.created != nil
     }
 
-    /// "01:02:03:04" (or with ; or . for drop frame) in seconds, counted in whole frames.
-    /// shortcut: drop-frame timecode is counted as non-drop (off by up to 3.6 s an hour at 29.97), fine for matching clips of one camera.
+    /// "01:02:03:04" (or with ; or . for drop frame) in real seconds: at 23.976/29.97/59.94 the label's frames last
+    /// 1001/1000 longer (10:00:00:00 non-drop is 36036 s), as sound, BWF and slates count.
     static func seconds(timecode: String, fps: Double) -> Double? {
         let parts = timecode.split(whereSeparator: { ":;.".contains($0) }).compactMap { Int($0) }
         guard parts.count == 4, fps > 0 else { return nil }
-        let base = max(Int(fps.rounded()), 1)
-        return Double(((parts[0] * 60 + parts[1]) * 60 + parts[2]) * base + parts[3]) / Double(base)
+        let base = max(fps.rounded(), 1)
+        return shownSeconds(parts, drop: isDropFrame(timecode), rate: base, fractional: abs(fps - base) > 0.01)
     }
+
+    static func isDropFrame(_ timecode: String) -> Bool { timecode.contains { ";.".contains($0) } }
 
     /// Clips into cameras: by serial number in the metadata, else the camera letter in RED and
     /// Blackmagic names, else the card's camera, else the card's folder (split by file name
@@ -913,7 +916,7 @@ enum CameraSync {
         }()
         for c in cameras.indices {
             let own = offsets(cameras[c])
-            let frame = 1 / max(cameras[c].clips.first?.fps ?? 25, 1)
+            let fps = cameras[c].clips.first?.fps ?? 0, frame = 1 / (fps > 0 ? fps : 25)
             var offset: Double?, confidence = 0.0
             if own.count >= 2, let lo = own.min(), let hi = own.max(), hi - lo <= frame { offset = median(own); confidence = 0.85 }
             else if own.count == 1 { offset = own[0]; confidence = 0.55 }
@@ -930,7 +933,7 @@ enum CameraSync {
 
     /// A clip's timecode if it can be used: there, within a day, at a plausible rate.
     static func usableTimecode(_ clip: SyncClip) -> Double? {
-        guard let tc = clip.timecode, tc >= 0, tc < 86400, !clip.hasVideo || (1...240).contains(clip.fps) else { return nil }
+        guard let tc = clip.timecode, tc >= 0, tc < 86400 * 1.001, !clip.hasVideo || (1...240).contains(clip.fps) else { return nil }
         return tc
     }
 
@@ -966,7 +969,8 @@ enum CameraSync {
             }
         }
         guard !groups.isEmpty else { return nil }
-        func frame(_ sources: [Source]) -> Double { 1 / max(cameras[sources[0].c].clips[sources[0].i].fps, 1) }
+        // (A sound recorder, no picture rate: a 25 fps frame.)
+        func frame(_ sources: [Source]) -> Double { let fps = cameras[sources[0].c].clips[sources[0].i].fps; return 1 / (fps > 0 ? fps : 25) }
         // Each group's offset from the sound, then the one most groups share: the sound's place in timecode.
         var own: [Int: (value: Double, members: Set<Int>)] = [:]
         for (key, sources) in groups {
@@ -1054,7 +1058,8 @@ enum CameraSync {
     /// and every reading. Quick: a frame at the start and near the end, a dozen where one shows a timecode,
     /// two readings at least. `thorough`: a frame every 2 s through the first and last 10 s (a few in between
     /// if none), a dozen at the first that shows one; one reading is enough (its confidence is low).
-    /// shortcut: the slate is taken to run at the clip's rate unless it shows a higher frame number (then 30/50/60/120); RED/BRAW aren't read.
+    /// The slate's rate: the clip's, half it, 24, 25, 30 (50/60/120 past those), above the highest frame shown, whichever more readings agree on.
+    /// shortcut: 24/30/60 count 1001/1000 longer only on a 23.976/29.97/59.94 camera (a 23.976 slate filmed at 25 reads as 24); RED/BRAW aren't read.
     static func slate(_ clip: SyncClip, ffmpeg: String, thorough: Bool = false) async -> (value: Double, shown: [ShownTimecode])? {
         guard clip.hasVideo, clip.fps > 0, !RawFormats.isRawVideo(clip.file) else { return nil }
         return await Task.detached { () -> (value: Double, shown: [ShownTimecode])? in
@@ -1079,20 +1084,25 @@ enum CameraSync {
             look(spots)
             if thorough, readings.isEmpty, clip.duration > 25 { look((1...4).map { at(clip.duration * Double($0) / 5) }) }
             guard readings.count >= (thorough ? 1 : 2), let most = readings.map({ $0.tc[3] }).max() else { return nil }
-            let own = clip.fps.rounded()
-            let rate = Double(most) < own ? own : [30.0, 50, 60, 120].first { Double(most) < $0 } ?? own
-            // A slate on a 29.97/59.94 camera counts frames at that rate, drop frame or not: whichever more readings agree on
+            let own = clip.fps.rounded(), ntsc = abs(clip.fps - own) > 0.01
+            // (A 50p camera filming a 25 slate shows each frame twice and never frame 25 or more: at 50 it'd be up to half a second off.)
+            var rates: [Double] = []
+            for rate in [own, own / 2, 24, 25, 30, 50, 60, 120] where rate == rate.rounded() && Double(most) < rate && !rates.contains(rate) { rates.append(rate) }
+            // A slate on a 29.97/59.94 camera counts frames 1001/1000 longer, drop frame or not: whichever more readings agree on
             // (a ; is often read as a :), drop frame on a tie where one showed a ; or .
-            let fractional = rate == own && abs(clip.fps - own) > 0.01
             let shownDrop = readings.contains(where: \.drop)
-            func agreement(_ drop: Bool) -> (value: Double, members: [Int])? {
+            func agreement(_ rate: Double, _ fractional: Bool, _ drop: Bool) -> (value: Double, members: [Int])? {
                 var offsets = readings.map { shownSeconds($0.tc, drop: drop, rate: rate, fractional: fractional) - Double($0.frame) / clip.fps }
                 // Past midnight.
                 if let high = offsets.max() { offsets = offsets.map { high - $0 > 43200 ? $0 + 86400 : $0 } }
                 return consensus(offsets, tolerance: 1 / rate)
             }
-            let tried = (fractional ? [shownDrop, !shownDrop] : [false]).compactMap { drop in agreement(drop).map { (drop, $0) } }
-            guard let (drop, agreed) = tried.max(by: { $0.1.members.count < $1.1.members.count }), agreed.members.count >= (thorough ? 1 : 2) else { return nil }
+            // (Ties: the first, the clip's own rate.)
+            let tried = rates.flatMap { rate in
+                let fractional = ntsc && [24.0, 30, 48, 60, 120].contains(rate)
+                return (fractional ? [shownDrop, !shownDrop] : [false]).compactMap { drop in agreement(rate, fractional, drop).map { (rate, fractional, drop, $0) } }
+            }
+            guard let (rate, fractional, drop, agreed) = tried.max(by: { $0.3.members.count < $1.3.members.count }), agreed.members.count >= (thorough ? 1 : 2) else { return nil }
             let members = Set(agreed.members)
             let shown = readings.enumerated().map { k, reading in
                 ShownTimecode(frame: reading.frame, text: timecodeText(reading.tc, drop: drop && fractional), agrees: members.contains(k))

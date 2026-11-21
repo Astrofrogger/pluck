@@ -17,7 +17,14 @@ final class CameraSyncModel {
     var audioFirst = false
     /// Timecode shown on camera (a slate, a phone's timecode app, burned-in): looked for through each clip's first and last 10 s.
     var shownTimecode = false {
-        didSet { if shownTimecode != oldValue { for c in cameras.indices { for i in cameras[c].clips.indices { cameras[c].clips[i].slateChecked = false } } } }
+        didSet {
+            guard shownTimecode != oldValue else { return }
+            // (Undo and Redo too: a clip they bring back is read again.)
+            func unread(_ cameras: inout [SyncCamera]) { for c in cameras.indices { for i in cameras[c].clips.indices { cameras[c].clips[i].slateChecked = false } } }
+            unread(&cameras)
+            for k in history.indices { unread(&history[k]) }
+            for k in future.indices { unread(&future[k]) }
+        }
     }
     /// Proxies of clips that are here as originals: not synced, not sent.
     var proxiesLeftOut: [CameraSync.Probe] = []
@@ -64,7 +71,8 @@ final class CameraSyncModel {
         guard task == nil else { pending += urls; return }
         problem = nil
         done = nil
-        let known = clips
+        // (Proxies set aside aren't read again either.)
+        let known = clips + proxiesLeftOut.map(\.clip)
         task = Task {
             status = String(localized: "Reading the clips")
             stage = .reading
@@ -76,12 +84,15 @@ final class CameraSyncModel {
                 if let probe = await Task.detached(operation: { CameraSync.probe(item.file, root: item.root, ffprobe: ffprobe) }).value { probes.append(probe) }
             }
             guard !Task.isCancelled else { return }
+            let before = self.cameras
             probes = leaveOutProxies(probes)
             // New clips join the camera they belong to; the rest make new cameras.
             var cameras = self.cameras
             for camera in CameraSync.group(probes) {
                 if let index = cameras.firstIndex(where: { $0.key == camera.key }) { cameras[index].clips += camera.clips } else { cameras.append(camera) }
             }
+            // Undo would take the new clips away again (or bring back one just set aside as a proxy).
+            if cameras != before { history = []; future = [] }
             self.cameras = cameras
             if found.isEmpty { problem = String(localized: "No clips in what was dropped.") }
             finish()

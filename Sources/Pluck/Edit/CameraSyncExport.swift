@@ -18,8 +18,15 @@ enum CameraSyncExport {
 
     /// The timeline's rate: the cameras' most common one.
     static func rate(_ cameras: [SyncCamera]) -> Double {
-        let rates = cameras.flatMap(\.clips).filter(\.hasVideo).map { ($0.fps * 1000).rounded() / 1000 }.filter { $0 > 0 }
+        let rates = cameras.flatMap(\.clips).filter(\.hasVideo).map { standard($0.fps) }.filter { $0 > 0 }
         return Dictionary(grouping: rates, by: { $0 }).max { $0.value.count < $1.value.count }?.key ?? 25
+    }
+
+    /// The standard rate within 1% of `fps` (a phone's variable 29.98 or 29.87 is 30000/1001, exactly), else to 0.001.
+    static func standard(_ fps: Double) -> Double {
+        let standards: [Double] = [24000.0 / 1001, 24, 25, 30000.0 / 1001, 30, 48000.0 / 1001, 48, 50, 60000.0 / 1001, 60, 120000.0 / 1001, 120]
+        let near = standards.min { abs($0 - fps) < abs($1 - fps) }!
+        return abs(near - fps) < fps * 0.01 ? near : (fps * 1000).rounded() / 1000
     }
 
     /// The timeline's first frame in timecode when the clips sit in timecode (some placed at their
@@ -32,12 +39,26 @@ enum CameraSyncExport {
     }
 
     /// Frames as "HH:MM:SS:FF" (wrapping at a day).
-    /// shortcut: non-drop frame; a 29.97 timeline's start reads up to 3.6 s an hour off its drop-frame timecode.
-    static func dropFrame(_ cameras: [SyncCamera], rate: Double) -> Bool { false }
+    /// A 29.97/59.94 timeline in drop frame: a clip placed at its own timecode has drop-frame timecode.
+    static func dropFrame(_ cameras: [SyncCamera], rate: Double) -> Bool {
+        let base = rate.rounded()
+        return abs(rate - base) > 0.01 && Int(base) % 30 == 0 && cameras.flatMap(\.clips).contains { $0.dropFrame && $0.method == .timecode }
+    }
 
+    /// `drop`: the label drop frame shows for that many frames ("HH:MM:SS;FF", 29.97/59.94 only).
     static func timecode(_ frames: Int, rate: Double, drop: Bool = false) -> String {
-        let base = max(Int(rate.rounded()), 1), total = ((frames % (base * 86400)) + base * 86400) % (base * 86400)
-        return String(format: "%02d:%02d:%02d:%02d", total / base / 3600, total / base / 60 % 60, total / base % 60, total % base)
+        let base = max(Int(rate.rounded()), 1)
+        var frames = frames
+        if drop, base % 30 == 0 {
+            // The frame numbers skipped (2 at 29.97, 4 at 59.94, each minute but every tenth) added back.
+            let skip = base / 15, tenMinutes = base * 600 - skip * 9, minute = base * 60 - skip, day = tenMinutes * 144
+            frames = (frames % day + day) % day
+            let tens = frames / tenMinutes, rest = frames % tenMinutes
+            frames += skip * 9 * tens + (rest > skip ? skip * ((rest - skip) / minute) : 0)
+        }
+        let total = ((frames % (base * 86400)) + base * 86400) % (base * 86400)
+        return String(format: "%02d:%02d:%02d", total / base / 3600, total / base / 60 % 60, total / base % 60) + (drop && base % 30 == 0 ? ";" : ":")
+            + String(format: "%02d", total % base)
     }
 
     static func placements(_ cameras: [SyncCamera], rate: Double) -> [Placement] {
@@ -83,7 +104,7 @@ enum CameraSyncExport {
         for (number, placement) in placements.enumerated() {
             let clip = placement.clip, id = "a\(number + 1)"
             // The clip's own timecode is where its media starts (as Resolve reads it).
-            let ownRate = clip.fps > 0 ? clip.fps : rate
+            let ownRate = clip.fps > 0 ? standard(clip.fps) : rate
             let start = time(Int(((clip.timecode ?? 0) * ownRate).rounded()), rate: ownRate)
             resources.append("    <asset id=\"\(id)\" name=\"\(escaped(clip.name))\" start=\"\(start)\" duration=\"\(time(placement.frames, rate: rate))\" "
                              + "hasVideo=\"\(clip.hasVideo ? 1 : 0)\" hasAudio=\"\(clip.hasAudio ? 1 : 0)\"\(clip.hasVideo ? " format=\"r0\"" : "")>"
@@ -103,7 +124,7 @@ enum CameraSyncExport {
           <library>
             <event name="\(escaped(name))">
               <project name="\(escaped(name))">
-                <sequence format="r0" duration="\(time(total, rate: rate))" tcStart="\(tcStart)" tcFormat="NDF">
+                <sequence format="r0" duration="\(time(total, rate: rate))" tcStart="\(tcStart)" tcFormat="\(dropFrame(cameras, rate: rate) ? "DF" : "NDF")">
                   <spine>
                     <gap name="Gap" offset="\(tcStart)" start="0s" duration="\(time(total, rate: rate))">
         \(clips.joined(separator: "\n"))
@@ -151,16 +172,17 @@ enum CameraSyncExport {
             if let fps = Double(text.split(separator: " ").first ?? ""), fps > 0 { rates[path] = fps }
         }
         let made = try await ResolveBridge.createTimeline(name, frameRate: rate)
-        // Resolve kept another rate: the places in that one.
-        let used = abs(made.rate - rate) > 0.01 ? self.placements(cameras, rate: made.rate) : placements
-        let start = startFrame(cameras, rate: made.rate).map { timecode($0, rate: made.rate) }
+        // Resolve kept another rate: the places in that one. (Its 29.97 is 30000/1001.)
+        let timelineRate = abs(made.rate - rate) > 0.01 ? standard(made.rate) : rate
+        let used = timelineRate != rate ? self.placements(cameras, rate: timelineRate) : placements
+        let start = startFrame(cameras, rate: timelineRate).map { timecode($0, rate: timelineRate, drop: dropFrame(cameras, rate: timelineRate)) }
         var videoNames: [String: Int] = [:], audioNames: [String: Int] = [:]
         for placement in used {
             if let track = placement.videoTrack { videoNames[placement.camera] = track }
             if let track = placement.audioTrack { audioNames[placement.camera] = track }
         }
         let answer = try await ResolveBridge.run(["action": "syncTimeline", "name": made.name,
-                                                  "items": resolveItems(used, rate: made.rate, sourceRates: rates),
+                                                  "items": resolveItems(used, rate: timelineRate, sourceRates: rates),
                                                   "videoTracks": videoNames.values.max() ?? 1, "audioTracks": audioNames.values.max() ?? 1,
                                                   "videoNames": videoNames.map { [$0.value, $0.key] as [Any] },
                                                   "audioNames": audioNames.map { [$0.value, $0.key] as [Any] },
@@ -211,7 +233,7 @@ if action == "syncTimeline":
         infos.append({"mediaPoolItem": clip, "startFrame": item["sourceIn"], "endFrame": item["sourceOut"],
                       "trackIndex": item["track"], "recordFrame": start + item["recordIn"], "mediaType": item["mediaType"]})
     placed = [p for p in (pool.AppendToTimeline(infos) or []) if p]
-    out({"timeline": timeline.GetName(), "placed": len(placed), "asked": len(infos)})
+    out({"timeline": timeline.GetName(), "placed": len(placed), "asked": len(cmd["items"])})
 
 out({"error": "Unknown action " + action})
 """#
