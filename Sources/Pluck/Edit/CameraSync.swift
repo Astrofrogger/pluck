@@ -8,8 +8,8 @@ import Vision
 /// flashes the synced cameras saw too. Clock times only hint (narrow the search, a rough place).
 
 /// One clip: what it is, and where it sits once synced (timeline time = start + t · (1 + drift)).
-struct SyncClip: Identifiable, Hashable, Sendable {
-    enum Method: String, Sendable { case audio, timecode, timecodeOffset, slate, flashes, manual }
+struct SyncClip: Identifiable, Hashable, Sendable, Codable {
+    enum Method: String, Sendable, Codable { case audio, timecode, timecodeOffset, slate, flashes, manual }
     enum Quality { case good, fair, poor, rough, none }
 
     var id = UUID()
@@ -63,14 +63,14 @@ struct SyncClip: Identifiable, Hashable, Sendable {
 }
 
 /// A timecode read off a clip's picture: at which frame, what it read.
-struct ShownTimecode: Hashable, Sendable {
+struct ShownTimecode: Hashable, Sendable, Codable {
     var frame: Int
     var text: String
     var agrees: Bool
 }
 
 /// One camera (or sound recorder): its clips in order.
-struct SyncCamera: Identifiable, Hashable, Sendable {
+struct SyncCamera: Identifiable, Hashable, Sendable, Codable {
     var id = UUID()
     var name: String
     /// What it was grouped by (a serial, a camera letter, a folder).
@@ -418,6 +418,7 @@ enum CameraSync {
             progress(0.85, String(localized: "Looking for flashes"))
             await placeByFlashes(&cameras, options: options)
         }
+        joinRollovers(&cameras)
         for (c, i) in all where cameras[c].clips[i].start == nil { cameras[c].clips[i].rough = clockHint(cameras, c, i, shared: true) }
         checkSlates(&cameras)
         progress(1, "")
@@ -1022,6 +1023,43 @@ enum CameraSync {
             }
         }
         return cameras
+    }
+
+    // MARK: Recorder rollover
+
+    /// A sound recorder's next file continues the take (it split at a size limit): it starts where
+    /// the one before ends, by timecode (BWF) or, without, by its date and a name in common.
+    static func rollsOver(_ a: SyncClip, _ b: SyncClip) -> Bool {
+        guard !a.hasVideo, !b.hasVideo, a.duration > 0, a.file.deletingLastPathComponent() == b.file.deletingLastPathComponent() else { return false }
+        if let x = a.timecode, let y = b.timecode { return abs(y - (x + a.duration)) < 0.05 }
+        guard let x = a.created, let y = b.created, !a.clockFromFile, !b.clockFromFile else { return false }
+        return abs(y.timeIntervalSince(x) - a.duration) < 2 && a.name.prefix(4).uppercased() == b.name.prefix(4).uppercased()
+    }
+
+    /// A recorder's split files as one continuous lane: each piece right after the one before, from the
+    /// surest placed piece of the take (a piece held by hand stays, the ones after it follow it).
+    static func joinRollovers(_ cameras: inout [SyncCamera]) {
+        for c in cameras.indices where cameras[c].isSoundRecorder {
+            var runs: [[Int]] = []
+            for i in cameras[c].clips.indices {
+                if let last = runs.last?.last, rollsOver(cameras[c].clips[last], cameras[c].clips[i]) { runs[runs.count - 1].append(i) } else { runs.append([i]) }
+            }
+            for run in runs where run.count > 1 {
+                func sure(_ i: Int) -> Double { let clip = cameras[c].clips[i]; return clip.locked ? 2 : clip.confidence }
+                guard let anchor = run.filter({ cameras[c].clips[$0].start != nil }).max(by: { sure($0) < sure($1) }), let at = run.firstIndex(of: anchor) else { continue }
+                func follow(_ i: Int, from k: Int, after: Bool) {
+                    guard !cameras[c].clips[i].locked, let start = cameras[c].clips[k].start else { return }
+                    let from = cameras[c].clips[k], drift = from.drift
+                    cameras[c].clips[i].start = after ? start + from.duration * (1 + drift) : start - cameras[c].clips[i].duration * (1 + drift)
+                    cameras[c].clips[i].drift = drift
+                    cameras[c].clips[i].method = from.method
+                    cameras[c].clips[i].confidence = from.confidence
+                    cameras[c].clips[i].rough = nil
+                }
+                for n in run.indices.dropFirst(at + 1) { follow(run[n], from: run[n - 1], after: true) }
+                for n in stride(from: at - 1, through: 0, by: -1) { follow(run[n], from: run[n + 1], after: false) }
+            }
+        }
     }
 
     // MARK: Clock time

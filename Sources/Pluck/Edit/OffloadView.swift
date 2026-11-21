@@ -592,6 +592,12 @@ private struct OffloadRow: View {
                         center.retryProblems(job.id)
                     }
                 }
+                if job.quick != true, job.backup == nil {
+                    OffloadIconButton(symbol: "rectangle.stack.badge.play", label: "Sync These Cameras", help: "Opens Sync Cameras with this offload’s checked clips") {
+                        CameraSyncModel.shared.add(offload: job)
+                        StudioNavigator.shared.open(.syncCameras)
+                    }
+                }
                 if let report = OffloadReport.url(job) {
                     OffloadIconButton(symbol: "doc.text", label: "Report", help: "The PDF report") { NSWorkspace.shared.open(report) }
                 }
