@@ -92,5 +92,36 @@ extension PhotoSelfTest {
         let old = (try? Deliver.encoder.encode(now!)).flatMap { try? Deliver.decoder.decode(Old.self, from: $0) }
         check("portal: an older Mac decodes it", old?.title == "Northwind" && old?.scope == .assets([], project: mine.id))
         for link in store.links { store.revoke(link.id) }
+        await hostWatchChecks()
+    }
+
+    /// A NAS that stops answering (4.0.7): told once after 10 minutes, never while this Mac is offline, then once it's back.
+    static func hostWatchChecks() async {
+        let watch = DeliverHostWatch(), nas = Deliver.Host(name: "Studio NAS", kind: .nas), office = Deliver.Host(name: "Office Mac", kind: .mac)
+        var answers = false, online = true, told: [String] = []
+        watch.probe = { _ in answers }
+        watch.online = { online }
+        watch.tell = { host, back, _ in told.append("\(host.name) \(back ? "back" : "down")") }
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        for minutes in [0.0, 5, 9] { await watch.check([nas, office], now: t0 + minutes * 60) }
+        let early = told
+        await watch.check([nas, office], now: t0 + 600)
+        await watch.check([nas, office], now: t0 + 900)
+        check("host watch: told once after 10 minutes", early.isEmpty && told == ["Studio NAS down"], "\(told)")
+        online = false
+        await watch.check([nas], now: t0 + 960)
+        online = true
+        answers = true
+        await watch.check([nas], now: t0 + 1020)
+        answers = false
+        for minutes in [18.0, 25] { await watch.check([nas], now: t0 + minutes * 60) }
+        check("host watch: back once; a new outage starts its own 10 minutes", told == ["Studio NAS down", "Studio NAS back"], "\(told)")
+        let quiet = DeliverHostWatch()
+        quiet.probe = { _ in false }
+        quiet.online = { false }
+        var none: [String] = []
+        quiet.tell = { host, _, _ in none.append(host.name) }
+        for minutes in [0.0, 11, 30] { await quiet.check([nas], now: t0 + minutes * 60) }
+        check("host watch: this Mac offline says nothing", none.isEmpty && quiet.since.isEmpty)
     }
 }
