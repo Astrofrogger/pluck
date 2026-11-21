@@ -28,7 +28,7 @@ final class PhotoRemove {
     nonisolated private static var folder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Models", isDirectory: true)
     }
-    nonisolated private static var compiled: URL { folder.appendingPathComponent("LaMa.mlmodelc") }
+    nonisolated static var compiled: URL { folder.appendingPathComponent("LaMa.mlmodelc") }
 
     private init() {
         if Self.isReady { state = .ready }
@@ -131,6 +131,12 @@ final class PhotoRemove {
                 config.computeUnits = .all // (as the conversion was checked)
                 model = try? MLModel(contentsOf: compiled, configuration: config)
                 loadFailed = model == nil
+                if loadFailed {
+                    // A damaged copy (a partial install): taken away, so Try Again shows instead of a Remove doing nothing.
+                    try? FileManager.default.removeItem(at: compiled)
+                    let message = String(localized: "The download didn’t check out. Try again.")
+                    Task { @MainActor in shared.state = .failed(message) }
+                }
                 // (The first fill after loading came back black: one made and thrown away first.)
                 _ = model.flatMap { try? $0.prediction(from: MLDictionaryFeatureProvider(dictionary: [
                     "image": MLFeatureValue(pixelBuffer: input), "mask": MLFeatureValue(pixelBuffer: holeBuffer)])) }

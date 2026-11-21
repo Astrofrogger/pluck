@@ -10,6 +10,7 @@ extension PhotoSelfTest {
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else {
             return check("sync shown: ffmpeg", false, "no ffmpeg")
         }
+        syncRatesTest()
         // Parsing and drop frame.
         check("sync shown: timecode text parsed (: ; . and spaces), letters refused",
               CameraSync.parseTimecode("10:00:51:03") == [10, 0, 51, 3] && CameraSync.parseTimecode("01:00:00;02") == [1, 0, 0, 2]
@@ -39,6 +40,8 @@ extension PhotoSelfTest {
                  + "drawtext=\(font):timecode='09\\:59\\:58\\:12':rate=25:fontsize=30:fontcolor=white:x=428:y=170:enable='lt(t,4)'"),
             // 29.97 drop frame: the last ten seconds cross 00:01:00, whose ;00 and ;01 don't exist.
             Made(folder: "DF", tc: "00:00:45;00", rate: "30000/1001", filter: burn("00:00:45;00", rate: "30000/1001")),
+            // A 50p camera filming a 25 fps slate: each slate frame shown twice, never past frame 24.
+            Made(folder: "Fifty", tc: "10:00:02:00", rate: "25", filter: burn("10:00:02:00", rate: "25") + ",fps=50"),
             Made(folder: "None", tc: nil, rate: "25", filter: "null"),
             Made(folder: "Once", tc: "10:00:03:00", rate: "25", filter: burn("10:00:03:00", rate: "25", extra: ":enable='eq(n,0)'")),
             Made(folder: "Blur", tc: "10:00:05:00", rate: "25", filter: burn("10:00:05:00", rate: "25", size: 11) + ",gblur=sigma=2.2"),
@@ -68,7 +71,7 @@ extension PhotoSelfTest {
         }
         func rate(_ made: Made) -> Double { made.rate == "25" ? 25 : 30 }
         // The start timecode read: the slate value less the half frame it adds.
-        for name in ["Cam1", "Cam2", "Phone", "DF"] {
+        for name in ["Cam1", "Cam2", "Phone", "DF", "Fifty"] {
             guard let made = made.first(where: { $0.folder == name }), let truth = expected(made), let found = clip(name) else { continue }
             let read = found.slate.map { $0 - 0.5 / rate(made) }
             check("sync shown: \(name) start timecode read exactly", read.map { abs($0 - truth) < 1e-6 } ?? false,
@@ -81,7 +84,7 @@ extension PhotoSelfTest {
               && dropped.contains { $0.text.hasPrefix("00:01:0") && $0.text.contains(";") }, dropped.map { "\($0.frame) \($0.text) \($0.agrees)" }.joined(separator: ", "))
         // The places: exactly the timecodes apart.
         if let one = clip("Cam1")?.start, let truth1 = expected(made[0]) {
-            let apart = ["Cam2", "Phone", "DF"].compactMap { name -> String? in
+            let apart = ["Cam2", "Phone", "DF", "Fifty"].compactMap { name -> String? in
                 guard let m = made.first(where: { $0.folder == name }), let truth = expected(m), let start = clip(name)?.start else { return "\(name) not placed" }
                 // (The half frame added differs between 25 and 29.97.)
                 let wanted = truth - truth1 + 0.5 / rate(m) - 0.5 / 25
@@ -92,11 +95,12 @@ extension PhotoSelfTest {
             check("sync shown: Cam1 placed", false)
         }
         let none = clip("None"), once = clip("Once"), blur = clip("Blur")
+        let onceTruth = made.first { $0.folder == "Once" }.flatMap(expected) ?? 0, blurTruth = made.first { $0.folder == "Blur" }.flatMap(expected) ?? 0
         check("sync shown: a clip with no timecode has none", none != nil && none?.slate == nil && none?.shown.isEmpty == true && none?.method != .slate, "\(none?.shown.count ?? -1)")
         check("sync shown: read in one frame only: placed, to check", once?.method == .slate && once?.quality == .fair && once?.shown.count == 1
-              && once.flatMap { c in c.slate.map { abs($0 - 0.02 - expected(made[5])!) < 1e-6 } } == true,
+              && once.flatMap { c in c.slate.map { abs($0 - 0.02 - onceTruth) < 1e-6 } } == true,
               "\(once?.method?.rawValue ?? "-") \(once?.confidence ?? -1) \(once?.shown.map(\.text) ?? [])")
-        let blurRight = blur?.slate.map { abs($0 - 0.02 - expected(made[6])!) < 0.04 } ?? true
+        let blurRight = blur?.slate.map { abs($0 - 0.02 - blurTruth) < 0.04 } ?? true
         check("sync shown: small and blurred: not sure, never wrong", blur != nil && (blur?.method != .slate || blur?.quality != .good) && blurRight,
               "\(blur?.quality == .good) \(blur?.shown.map(\.text) ?? [])")
         // Off: only the quick look (first frame and near the end), two readings needed.
