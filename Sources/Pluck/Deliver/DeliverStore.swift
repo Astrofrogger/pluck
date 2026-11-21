@@ -671,6 +671,7 @@ final class DeliverStore {
         lastApproval[asset] = approval.id
         if let data = try? Deliver.encoder.encode(approval), let json = try? JSONSerialization.jsonObject(with: data) { note(.entries([["approval": json]])) }
         setStatus(decision == .approve ? .approved : .needsChanges, of: asset, by: approval.author)
+        if decision == .approve { DeliverProjectFile.approvedIfAll(project, store: self) }
         commentsChanged += 1
         return approval
     }
@@ -691,6 +692,7 @@ final class DeliverStore {
         guard !known.contains(where: { $0.id == approval.id }) else { return false }
         write(known + [approval], approvalsFile(project))
         setStatus(approval.decision == .approve ? .approved : .needsChanges, of: approval.asset, by: approval.author)
+        if approval.decision == .approve { DeliverProjectFile.approvedIfAll(project, store: self) }
         commentsChanged += 1
         return true
     }

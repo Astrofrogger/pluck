@@ -348,6 +348,25 @@ impl Host {
         self.mail.push(items);
     }
 
+    /// A client downloaded an original (wf-deliver): the webhook, and the team's mail ("<name> downloaded <file>").
+    pub(super) fn mail_download(&mut self, peer: &str, asset: &Value, version: &Value) {
+        let Some(p) = self.peers.get(peer) else { return };
+        let Some(l) = self.link(&p.room).cloned() else { return }; // (a team room isn't a link)
+        if self.ident.backup || team(&l) || is(&l, "muted") {
+            return;
+        }
+        let name = p.name.clone();
+        let x = json!({"asset": asset, "version": version, "link": l["id"]});
+        self.post_hook("downloaded", &x, false, &name, "");
+        if !self.mail_on() {
+            return;
+        }
+        self.sync_rows();
+        let items = self.rows().iter().filter(|r| r["kind"] == "team" && !r["mute"].as_array().is_some_and(|m| m.contains(&l["id"])))
+            .map(|r| { let mut q = Self::item(r, "downloaded", &l["id"], asset, version, &Value::Null, &Value::Null); q["name"] = json!(name); q }).collect();
+        self.mail.push(items);
+    }
+
     /// A new version is ready: client rows whose link holds the asset hear.
     pub(super) fn mail_version(&mut self, asset: &str, version: &str) {
         if !self.mail_on() {
@@ -379,6 +398,17 @@ impl Host {
             self.sync_rows();
             let items: Vec<Value> = soon.iter().flat_map(|(lid, d)| self.rows().into_iter().filter(move |r| r["kind"] == "client" && r["link"] == *lid)
                 .map(move |r| { let mut q = Self::item(&r, "deadline", lid, &Value::Null, &Value::Null, &Value::Null, &Value::Null); q["id"] = json!(format!("d:{}:{d}:{}", lid.as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""))); q }))
+                .collect();
+            self.mail.push(items);
+        }
+        // A delivered link's one reminder, 7 days before it expires (wf-deliver), to the people who get its mail.
+        let week = super::iso(now + 7 * 86_400);
+        let ending: Vec<(Value, String)> = self.links().filter(|l| l["delivered"].is_string() && Self::mail_code(l).is_some() && self.live(l).is_ok())
+            .filter_map(|l| Some((l["id"].clone(), l["expires"].as_str().and_then(super::norm_iso).filter(|e| *e > from && *e <= week)?))).collect();
+        if !ending.is_empty() {
+            self.sync_rows();
+            let items: Vec<Value> = ending.iter().flat_map(|(lid, e)| self.rows().into_iter().filter(move |r| r["kind"] == "client" && r["link"] == *lid)
+                .map(move |r| { let mut q = Self::item(&r, "expiry", lid, &Value::Null, &Value::Null, &Value::Null, &Value::Null); q["id"] = json!(format!("x:{}:{e}:{}", lid.as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""))); q }))
                 .collect();
             self.mail.push(items);
         }
@@ -490,9 +520,10 @@ impl Host {
                     let Some(a) = self.approvals.iter().find(|a| a["id"] == q["approval"]) else { continue };
                     (a["author"].as_str().unwrap_or("").to_owned(), None)
                 }
+                "downloaded" => (q["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Guest").to_owned(), None),
                 _ => (String::new(), None),
             };
-            let asset = if ev == "deadline" { link.and_then(|l| l["title"].as_str()).unwrap_or("").to_owned() } else { asset_name(&q["asset"]) };
+            let asset = if ev == "deadline" || ev == "expiry" { link.and_then(|l| l["title"].as_str()).unwrap_or("").to_owned() } else { asset_name(&q["asset"]) };
             let n = self.manifest["projects"].as_array().into_iter().flatten().flat_map(|p| Self::arr(p, "assets")).flat_map(|a| Self::arr(a, "versions"))
                 .find(|v| v["id"] == q["version"]).map(|v| v["number"].to_string()).unwrap_or_default();
             first_link = first_link.or(link);

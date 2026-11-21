@@ -233,6 +233,12 @@ final class DeliverServer {
             send(peer, ["t": "bye", "code": "paused"])
             return close(peer, "paused")
         }
+        // Archived (wf-deliver): the link stays, the page says so calmly until it's reopened (as "paused" to an older page).
+        guard link.archived == nil else {
+            reply(peer, id, ["error": ["code": "paused", "archived": true]])
+            send(peer, ["t": "bye", "code": "paused", "archived": true])
+            return close(peer, "archived")
+        }
         // Past the feedback deadline (§13.9): every request, auth too; the room stays, so a reopened link works again.
         if let deadline = DeliverDeadlines.effective(link, store: store), deadline <= clock() {
             reply(peer, id, ["error": ["code": "deadline", "at": Self.date(deadline)]])
@@ -317,6 +323,7 @@ final class DeliverServer {
         } else { info["uploads"] = NSNull() }
         if let header = store.branding(for: link.project)?.header { info["header"] = "data:image/jpeg;base64," + header.base64EncodedString() }
         if let deadline = DeliverDeadlines.effective(link, store: store) { info["deadline"] = Self.date(deadline) }
+        if let delivered = link.delivered { info["delivered"] = Self.date(delivered) }
         // Workflow plan 3, 5, 6 (optional; old pages ignore them): the link's own order, custom statuses' and fields' names.
         let content = store.content(link.project)
         if let order = link.order?.isEmpty == false ? link.order : Deliver.folderOrder(content.folders, assets: content.assets) {
@@ -366,7 +373,7 @@ final class DeliverServer {
         // A link that asks for a name: nothing but the name until it's given.
         if link.requireName == true, peer.name.isEmpty, type != "identify", type != "name" { throw Deliver.Failure("auth") }
         if Self.writes.contains(type) {
-            guard link.mode == .review else { throw Deliver.Failure("readonly") }
+            guard link.mode == .review, link.delivered == nil else { throw Deliver.Failure("readonly") }
             // Comments, replies (drawings too) and approvals carry a name: the page asks for one on `needName`.
             if peer.name.isEmpty, ["comment-add", "reply-add", "approve"].contains(type) { throw Deliver.Failure("needName") }
             // Every write, ticks included: 30 a minute per peer.
@@ -753,8 +760,10 @@ final class DeliverServer {
                                        "fpsNum": current.probe?.fpsNum ?? 25, "fpsDen": current.probe?.fpsDen ?? 1, "ready": ready(current) != nil,
                                        "comments": store.comments(asset.id, version: current.id).filter { visible($0, link) }.count]
         if let pages = current.pages { current_["pages"] = pages }
-        return ["id": asset.id.uuidString, "name": asset.name, "kind": asset.kind.rawValue, "status": asset.status.rawValue,
-                "current": current_, "versions": versions(asset, link).count, "fields": fields(asset, link)]
+        var summary: [String: Any] = ["id": asset.id.uuidString, "name": asset.name, "kind": asset.kind.rawValue, "status": asset.status.rawValue,
+                                      "current": current_, "versions": versions(asset, link).count, "fields": fields(asset, link)]
+        if let group = asset.group { summary["group"] = group }   // a deliverable group: one card (wf-deliver; older pages ignore it)
+        return summary
     }
 
     private func wire(_ asset: Deliver.Asset, _ link: Deliver.ShareLink) -> [String: Any] {
@@ -1108,7 +1117,12 @@ final class DeliverServer {
                 let link = store.link(peer.link)
                 // A password set or changed since this session got in ends it too.
                 let passwordChanged = peer.stage == .ready && link.map { $0.passwordHash != peer.admittedHash } == true
-                guard link?.isLive != true || link?.isPaused == true || passwordChanged else { continue }
+                guard link?.isLive != true || link?.isPaused == true || link?.archived != nil || passwordChanged else { continue }
+                if link?.isLive == true, link?.archived != nil {   // (wf-deliver: "paused" to an older page)
+                    send(peer, ["t": "bye", "code": "paused", "archived": true])
+                    close(peer, "archived")
+                    continue
+                }
                 let code = link?.revoked != nil || link == nil ? "revoked" : link?.isPaused == true ? "paused" : link?.isLive != true ? "expired" : "password"
                 send(peer, ["t": "bye", "code": code])
                 close(peer, code)
@@ -1172,6 +1186,14 @@ enum DeliverNotify {
         let content = UNMutableNotificationContent()
         content.title = name.isEmpty ? String(localized: "“\(link.title)” was opened") : String(localized: "\(name) opened “\(link.title)”")
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-open-" + link.id.uuidString, content: content, trigger: nil))
+    }
+
+    static func downloaded(_ link: Deliver.ShareLink, by name: String, file: String) {
+        guard ScreenshotMode.scene == nil else { return }
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "\(name.isEmpty ? String(localized: "Guest") : name) downloaded \(file)")
+        content.body = link.title
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-download-" + UUID().uuidString, content: content, trigger: nil))
     }
 
     // MARK: @mentions (4.1.0)

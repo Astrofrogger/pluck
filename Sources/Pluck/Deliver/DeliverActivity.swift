@@ -32,6 +32,11 @@ extension DeliverStore {
         if let json = try? JSONSerialization.jsonObject(with: data) { note(.entries([["activity": json]])) }
         activityChanged += 1
         if activityChanged % 200 == 0 { trimActivity(entry.link) }
+        // "<name> downloaded <file>" (wf-deliver): here or on a host; a host's backlog from long ago stays quiet.
+        if entry.kind == "downloaded", entry.detail?.what != "proxy", Date.now.timeIntervalSince(entry.at) < 3600,
+           let link = self.link(entry.link), !link.isTeam, link.muted != true {
+            DeliverNotify.downloaded(link, by: entry.name ?? "", file: entry.asset.flatMap { find($0)?.asset.name } ?? "")
+        }
         return true
     }
 

@@ -170,7 +170,8 @@ const LINK_SECRETS: [&str; 6] = ["roomID", "reg", "auth", "sign", "join", "level
 /// Link fields a 4.0.6 Mac (or a Mac without the link's mail code) doesn't send: left out keeps the stored value,
 /// null clears it (a 4.0.7 Mac sends null, or `notify: {"email": false}`, when they're off).
 // (`ownOrder`: the link's own order, which a Mac reads back; `order` is what the page uses.)
-const LINK_KEPT: [&str; 6] = ["notify", "order", "ownOrder", "customStatuses", "statusDefs", "fieldDefs"];
+// (`delivered`, `archived`: wf-deliver, 4.0.7.)
+const LINK_KEPT: [&str; 8] = ["notify", "order", "ownOrder", "customStatuses", "statusDefs", "fieldDefs", "delivered", "archived"];
 
 fn keep_link_fields(inc: &mut Value, stored: Option<&Value>) {
     if let Some(s) = stored {
@@ -195,6 +196,10 @@ fn keep_link_fields(inc: &mut Value, stored: Option<&Value>) {
 /// (`c:…`) or `cf:*` values, so the stored ones stay.
 fn keep_workflow(inc: &mut Value, stored: Option<&Value>) {
     let Some(s) = stored else { return };
+    // A deliverable group (wf-deliver): a Mac that doesn't know groups leaves it out and keeps it; null clears it.
+    if inc.get("group").is_none() && s["group"].is_string() {
+        inc["group"] = s["group"].clone();
+    }
     if inc.get("wf").is_some() {
         return;
     }

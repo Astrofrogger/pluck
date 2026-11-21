@@ -456,6 +456,7 @@ final class DeliverSync {
         }
         if !custom.isEmpty { asset.customFields = Dictionary(custom, uniquingKeysWith: { a, _ in a }) }
         if asset.fields?.isEmpty == true { asset.fields = nil }
+        asset.group = wire["group"] as? String
         stamp(&asset, wire)
         return asset
     }
@@ -497,6 +498,8 @@ final class DeliverSync {
         // or a folder's arrangement would freeze into the link; only 4.0.7 Macs, which send both, know link orders).
         link.order = (wire["ownOrder"] as? [String]).map { $0.compactMap(UUID.init(uuidString:)) }
         link.customStatuses = (wire["customStatuses"] as? Bool) == true ? true : nil
+        link.delivered = date(wire["delivered"])
+        link.archived = date(wire["archived"])
         if let mark = wire["watermark"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: mark) {
             link.watermark = try? Deliver.decoder.decode(Deliver.ShareLink.Watermark.self, from: data)
         }

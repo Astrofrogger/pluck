@@ -309,6 +309,7 @@ struct DeliverSettings: View {
     @AppStorage(ReviewHosting.settingKey) private var hosting = false
     @AppStorage(DeliverUploadDestination.newFootageKey) private var footageOnNAS = true
     @AppStorage(DeliverStore.activityDaysKey) private var activityDays = 90
+    @AppStorage(DeliverShareArchive.forgetKey) private var forgetMonths = 12
     @State private var space: Int64?
     @State private var publish = ReviewPublish.shared
     @State private var adding = false
@@ -333,6 +334,12 @@ struct DeliverSettings: View {
                         ForEach(DeliverStore.activityChoices, id: \.self) { Text($0 == 0 ? String(localized: "Forever") : String(localized: "\($0) days")).tag($0) }
                     }
                     .onChange(of: activityDays) { DeliverStore.shared.trimAllActivity() }
+                }
+                SettingRow("Clear client data", help: String(localized: "Clients’ emails and the activity of an archived link are deleted then. Approvals keep the name and date.")) {
+                    SettingMenu(title: forgetMonths == 0 ? String(localized: "Never") : String(localized: "\(forgetMonths) months after archiving"), selection: $forgetMonths) {
+                        ForEach(DeliverShareArchive.forgetChoices, id: \.self) { Text($0 == 0 ? String(localized: "Never") : String(localized: "\($0) months after archiving")).tag($0) }
+                    }
+                    .onChange(of: forgetMonths) { DeliverShareArchive.forget() }
                 }
             }
             SettingsCard("Statuses and Fields") {

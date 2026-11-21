@@ -88,7 +88,18 @@ final class ShareBuilderSession: Identifiable {
         link.latestOnly = draft.latestOnly
         link.expires = draft.expires
         link.order = draft.order
+        link.delivered = draft.delivered
         DeliverLinkOptions.apply(draft, to: &link)
+    }
+
+    /// Delivered (wf-deliver): masters to download (originals on), comments read only, and an expiry (30 days unless
+    /// one is set) whose reminder mail goes 7 days before. Off: back to a review link, as it was.
+    func setDelivered(_ on: Bool) {
+        draft.delivered = on ? (baseline.delivered ?? .now) : nil
+        guard on else { return }
+        draft.allowDownload = true
+        if draft.watermark?.burned == true { draft.watermark?.burned = false }   // (originals carry no watermark)
+        if draft.expires == nil { draft.expires = Calendar.current.startOfDay(for: Date.now.addingTimeInterval(30 * 86400)).addingTimeInterval(17 * 3600) }
     }
 
     func revert() {
@@ -128,6 +139,8 @@ final class ShareBuilderSession: Identifiable {
         if store === DeliverStore.shared, before.watermark != now.watermark || (before.scope != now.scope && now.watermark?.burned == true) {
             DeliverCopies.shared.remark(now)
         }
+        // Delivered (wf-deliver): into the project's NAS folder, for Archive (off again: taken out).
+        if before.delivered != now.delivered { DeliverProjectFile.mark("delivered", now.delivered, project: now.project, store: store, replace: true) }
         draft = now
         baseline = now
         return true

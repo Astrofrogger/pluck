@@ -91,6 +91,17 @@ struct DeliverPage: View {
                         if view != "shareedit" { session.draft.watermark = .init(); session.draft.layout = "list" }
                     }
                 }
+            case "delivered", "deliveredphone":
+                // wf-deliver: a link marked Delivered (not updated yet), its files grouped as one deliverable, two approved.
+                nav.deliver = .project(project.id, folder: nil)
+                let assets = store.content(project.id).assets
+                for (id, group) in Deliver.suggestedGroups(assets) { store.setGroup(group, of: [id]) }
+                for asset in assets.filter({ $0.group != nil }).prefix(2) { store.setStatus(.approved, of: asset.id, by: "Client") }
+                if let link = store.links.first(where: { $0.project == project.id && $0.recipient == nil }) {
+                    ShareBuilder.shared.open(link.id)
+                    ShareBuilder.shared.session?.setDelivered(true)
+                    ShareBuilder.shared.session?.phone = view == "deliveredphone"
+                }
             case "hostupdate":
                 // Update Now on a NAS that didn't move (no TrueNAS API key here): the message and the key field.
                 let sample = Deliver.Host(name: "Studio NAS", kind: .nas, address: "192.0.2.10:8790", pin: Array(repeating: "AB", count: 32).joined(separator: ":"), role: "main")

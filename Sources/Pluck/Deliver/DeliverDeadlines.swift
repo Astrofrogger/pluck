@@ -22,7 +22,8 @@ final class DeliverDeadlines {
     }
 
     static func effective(_ link: Deliver.ShareLink, store: DeliverStore) -> Date? {
-        // (`distantFuture`: reopened with none while the project's own has passed.)
+        // (`distantFuture`: reopened with none while the project's own has passed. Delivered: feedback is over, downloads stay.)
+        if link.delivered != nil { return nil }
         let deadline = link.deadline ?? store.project(link.project)?.deadline
         return deadline == .distantFuture ? nil : deadline
     }
