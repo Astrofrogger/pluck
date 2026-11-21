@@ -1013,7 +1013,7 @@ struct PhotoPage: View {
     /// Tests: the folder the import sheet starts from.
     static var importTest: [URL] {
         guard ScreenshotMode.scene == "photo", let folder = UserDefaults.standard.string(forKey: "PluckScreenshotImport") else { return [] }
-        return [URL(fileURLWithPath: folder)]
+        return folder.split(separator: "|").map { URL(fileURLWithPath: String($0)) }  // (several: "a|b")
     }
 
     /// The import sheet (a card or a folder; copied or used where they are).
