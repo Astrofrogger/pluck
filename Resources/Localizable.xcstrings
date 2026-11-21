@@ -365760,6 +365760,180 @@
           }
         }
       }
+    },
+    "Not all of the original is in the folder to delete: the master stays" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht das ganze Original ist im Ordner zum Löschen: der Master bleibt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No todo el original está en la carpeta para borrar: el máster se queda"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’original n’est pas entièrement dans le dossier à supprimer : le master reste"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non tutto l’originale è nella cartella da eliminare: il master resta"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オリジナルの一部が削除用フォルダにありません：マスターはそのままです"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "원본이 모두 삭제할 폴더에 있지 않습니다: 마스터는 그대로 둡니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niet het hele origineel staat in de map om te verwijderen: de master blijft"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nem todo o original está na pasta a apagar: o master fica"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待删除文件夹中的原始文件不完整：母版保留"
+          }
+        }
+      }
+    },
+    "Left in the folder to delete: %lld proxies with a name that’s in %@ again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Ordner zum Löschen gelassen: %1$lld Proxys, deren Name wieder in %2$@ ist"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se quedan en la carpeta para borrar: %1$lld proxies con un nombre que vuelve a estar en %2$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laissés dans le dossier à supprimer : %1$lld proxys dont le nom est de nouveau dans %2$@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lasciati nella cartella da eliminare: %1$lld proxy con un nome di nuovo in %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除用フォルダに残しました：%2$@ に同じ名前が再びあるプロキシ %1$lld 件"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "삭제할 폴더에 남겨 둠: %2$@에 같은 이름이 다시 있는 프록시 %1$lld개"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blijft in de map om te verwijderen: %1$lld proxy’s met een naam die weer in %2$@ staat"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deixados na pasta a apagar: %1$lld proxies com um nome que está de novo em %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "留在待删除文件夹：%1$lld 个代理的名称又出现在 %2$@ 中"
+          }
+        }
+      }
+    },
+    "Master made" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master erstellt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Máster hecho"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master créé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master creato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マスター作成済み"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "마스터 만듦"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master gemaakt"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master feito"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已制作母版"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

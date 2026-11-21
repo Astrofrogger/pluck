@@ -20,7 +20,7 @@ enum ShrinkRelink {
 
     /// Old path → master for every master of these runs that's there (`back`: master → original, for the
     /// files put back whose master had another name, the original there again).
-    static func map(_ runs: [ShrinkFolders.Run], back: Bool = false) -> [String: String] {
+    nonisolated static func map(_ runs: [ShrinkFolders.Run], back: Bool = false) -> [String: String] {
         var map: [String: String] = [:]
         for run in runs {
             if back {

@@ -229,6 +229,7 @@ extension PhotoSelfTest {
         let checkCenter = center("check")
         let checkID = await checkCenter.start(scan(checkFolder), settings: hd, roots: [checkFolder.path], ffmpeg: ffmpeg, ffprobe: ffprobe)
         let checkedFiles = checkCenter.run(checkID)?.files ?? []
+        ShrinkFolders.reportsWritten()
         let inventoryJSON = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).filter { $0.hasPrefix("Shrink ") && $0.hasSuffix(".json") }
             .compactMap { try? Data(contentsOf: holding.appendingPathComponent($0)) }.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }
             .flatMap { $0 }.filter { ($0["original"] as? String)?.hasPrefix(checkFolder.path) == true }
@@ -290,7 +291,7 @@ extension PhotoSelfTest {
         restored.state = .restored
         restored.master = relinkFolder.appendingPathComponent("C0009.mov").path
         relinkCenter.set(restored, in: relinkID)
-        relinkCenter.markRelinked(relinkID)
+        relinkCenter.markRelinked(relinkID, projects: ["Edit"], back: false)
         let bridgeBefore = ShrinkRelink.bridge
         final class Sent { var map: [String: String] = [:] }
         let sent = Sent()
@@ -656,6 +657,7 @@ extension PhotoSelfTest {
         check("shrink safety: a proxy folder with a file that isn't a proxy or a cache stays, saying why",
               fm.fileExists(atPath: mixedProxy.appendingPathComponent("notes.txt").path) && mixedCenter.run(mixedID)?.files.first?.state == .done
               && mixedCenter.run(mixedID)?.proxyNotes?.isEmpty == false, "\(mixedCenter.run(mixedID)?.proxyNotes ?? [:])")
+        ShrinkFolders.reportsWritten()
         let report = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).filter { $0.hasPrefix("Shrink ") && $0.hasSuffix(".csv") }
             .compactMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) }.first ?? ""
         check("shrink safety: the report says check_passed and checked_at, never a lasting safe_to_delete",
