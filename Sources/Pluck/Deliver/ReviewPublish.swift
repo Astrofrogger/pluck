@@ -1158,10 +1158,14 @@ final class ReviewHosting {
         }
     }
 
-    /// `mail-state` for a Mac that isn't an Admin: subscribers without their emails and names.
+    /// `mail-state` for a Mac that isn't an Admin: subscribers without their emails and names, webhooks without their
+    /// URLs (they carry credentials), as a NAS host answers an editor Mac.
     nonisolated static func withoutPeople(_ state: [String: Any]) -> [String: Any] {
         var state = state
         state["subscribers"] = (state["subscribers"] as? [[String: Any]] ?? []).map { $0.filter { !["email", "name"].contains($0.key) } }
+        if let hooks = state["hooks"] as? [String: [String: Any]] {
+            state["hooks"] = hooks.mapValues { $0.merging(["url": NSNull()]) { $1 } }
+        }
         return state
     }
 

@@ -28,6 +28,8 @@ final class DeliverMail {
     private(set) var queued = 0
     private(set) var subscribers: [Subscriber] = []
     private(set) var hooks: [String: String] = [:]
+    /// Projects whose webhook also gets team-only comments (kept when the URL is changed here).
+    private(set) var internalHooks: Set<String> = []
     /// Tests: stands in for the host.
     @ObservationIgnored var fake: (([String: Any]) -> [String: Any])?
 
@@ -62,6 +64,7 @@ final class DeliverMail {
                               pending: row["pending"] as? Bool == true)
         }
         hooks = (answer["hooks"] as? [String: [String: Any]] ?? [:]).compactMapValues { $0["url"] as? String }
+        internalHooks = Set((answer["hooks"] as? [String: [String: Any]] ?? [:]).filter { $0.value["internal"] as? Bool == true }.keys)
     }
 
     /// One op on the main host; nil when there is no host or it can't be reached.

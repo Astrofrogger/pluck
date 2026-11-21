@@ -730,6 +730,8 @@ final class DeliverStore {
         made.reminded = nil
         made.rev = nil
         made.madeOn = Host.current().localizedName
+        // The client's email stays with its own link: a copy (often for someone else) must not mail them about it.
+        made.notify?.recipientEmail = nil
         if let recipient {
             let name = Deliver.clean(recipient, limit: Self.authorLimit)
             made.recipient = name.isEmpty ? nil : name

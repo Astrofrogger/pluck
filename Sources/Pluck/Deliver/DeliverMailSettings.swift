@@ -114,9 +114,12 @@ struct DeliverMailSection: View {
     }
 
     private func setHook(_ project: UUID) async {
-        let url = (hookDrafts[project] ?? "").trimmingCharacters(in: .whitespaces)
+        // Return in a field nobody typed in changes nothing (it shows the saved URL; sending "" would delete the hook).
+        guard let typed = hookDrafts[project] else { return }
+        let url = typed.trimmingCharacters(in: .whitespaces)
         guard url.isEmpty || url.lowercased().hasPrefix("https://") else { note = String(localized: "A webhook needs an https address."); return }
-        _ = await mail.ask(["op": "hook-set", "project": project.uuidString, "url": url.isEmpty ? NSNull() : url, "internal": false])
+        _ = await mail.ask(["op": "hook-set", "project": project.uuidString, "url": url.isEmpty ? NSNull() : url,
+                            "internal": mail.internalHooks.contains(project.uuidString)])
         hookDrafts[project] = nil
         await mail.refresh()
     }
