@@ -1143,10 +1143,12 @@ final class ReviewHosting {
         // sends for its own links, as a NAS does). Reading for any paired Mac; changes for an Admin (or Full Trust).
         OfficeActions.register("reviewMail") { arguments, device in
             guard shared.isOn else { throw OfficeLink.Failure.office(String(localized: "This Mac doesn’t host reviews.")) }
-            guard let op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
+            guard var op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
             let admin = OfficeAccess.shared.isAdmin(device) || OfficeAccess.shared.rights(for: device).fullTrust
-            // (A mail's own token is the right for these two, as on a NAS.)
-            if !["mail-state", "unsubscribe", "subscribe-confirm"].contains(name), !admin { throw OfficeActions.refused() }
+            // (A mail's own token is the right for these two, as on a NAS; an Editor forwards its browsers' subscribes and asks
+            // for due reminders, and the host refuses it the team's rows, as a NAS does.)
+            if !["mail-state", "unsubscribe", "subscribe-confirm", "subscriber-set", "mail-remind"].contains(name), !admin { throw OfficeActions.refused() }
+            op["_mac"] = ["admin": admin]
             // The state for an Editor too (the share sheet's Email updates), but who subscribed only for an Admin.
             if !admin, name == "mail-state" { try OfficeActions.require(\.render, device) }
             let answer = try await shared.mail(op)
@@ -1173,7 +1175,7 @@ final class ReviewHosting {
     }
 
     nonisolated static let mailOps: Set<String> = ["mail-set", "mail-state", "mail-test", "subscriber-set", "subscriber-remove", "hook-set",
-                                                   "unsubscribe", "subscribe-confirm"]
+                                                   "unsubscribe", "subscribe-confirm", "mail-remind"]
 
     /// One mail op over the hosted folders: a test from one, a webhook to its project's folder, the state merged, the
     /// rest to every one (an id only one of them has: that one's answer).

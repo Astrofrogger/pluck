@@ -318,7 +318,9 @@ final class DeliverSync {
         }) { a, _ in a }
         for file in files {
             let size = (try? file.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-            if there[file.path] != size { _ = try await session.put(file.path, file.url) }
+            // (A re-made transcript or captions can keep its size: those small files go again each time.)
+            let remade = ["transcript.json", "captions.vtt"].contains(file.url.lastPathComponent)
+            if there[file.path] != size || remade { _ = try await session.put(file.path, file.url) }
         }
     }
 

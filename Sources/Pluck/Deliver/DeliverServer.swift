@@ -614,7 +614,11 @@ final class DeliverServer {
                 peer.subscription = (email, mode)
                 // (A typed address waits for the host's confirmation mail: the page says to check the inbox.)
                 reply(peer, id, ["ok": true, "pending": answer["pending"] as? Bool == true])
-            } else { fail(peer, id, .init("off")) }
+            } else {
+                // The host's own refusal as a NAS host answers it ("later": an address change too soon), else off.
+                let code = (answer?["error"] as? [String: Any])?["code"] as? String
+                fail(peer, id, .init(code.flatMap { ["later", "invalid"].contains($0) ? $0 : nil } ?? "off"))
+            }
         }
     }
 
