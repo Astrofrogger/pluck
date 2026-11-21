@@ -18,7 +18,7 @@ struct RemoteDriveNode: Sendable, Equatable {
     var writable = false
 }
 
-enum RemoteDriveError: Error { case noEntry, io, notFolder, readOnly, denied, exists, notEmpty, isFolder, busy }
+enum RemoteDriveError: Error { case noEntry, io, notFolder, readOnly, denied, exists, notEmpty, isFolder, busy, invalid }
 
 protocol RemoteDriveBackend: AnyObject, Sendable {
     func node(_ path: String) async throws -> RemoteDriveNode
@@ -365,6 +365,7 @@ final class RemoteDriveServer: @unchecked Sendable {
         case .notEmpty: .notempty
         case .isFolder: .isdir
         case .busy: .jukebox
+        case .invalid: .inval
         default: .io
         }
     }
@@ -596,7 +597,8 @@ extension RemoteDriveServer {
                 out.u32(Status.stale.rawValue); for _ in 0..<4 { out.u32(0) }; return
             }
             let toNode = await after(toFolder)
-            guard let from = Self.child(path, fromName), let to = Self.child(toFolder, toName), toNode?.folder == true else {
+            // (A folder never moves into itself or its own subfolder.)
+            guard let from = Self.child(path, fromName), let to = Self.child(toFolder, toName), toNode?.folder == true, !to.hasPrefix(from + "/") else {
                 out.u32(Status.inval.rawValue); wcc(node, handle: handle, &out); wcc(toNode, handle: toHandle, &out); return
             }
             do {

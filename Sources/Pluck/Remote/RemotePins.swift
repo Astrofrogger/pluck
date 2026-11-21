@@ -242,6 +242,8 @@ final class RemotePins {
         guard let index = pins.firstIndex(where: { $0.id == pin.id }) else { return }
         var pin = pin
         if keepingProblem, pin.problem == nil { pin.problem = pins[index].problem }
+        // (A limit set while this pass ran stays; the pass's copy is older.)
+        pin.limit = pins[index].limit
         pins[index] = pin
         save()
     }
@@ -252,7 +254,13 @@ final class RemotePins {
         defer { current.remove(entry.proxy) }
         let fm = FileManager.default
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let partial = target.appendingPathExtension("part")
+        let partial = Self.partial(target, for: entry)
+        // A part of another version of the file (replaced at the office since), or from before parts were tagged: started over.
+        let folder = target.deletingLastPathComponent(), prefix = target.lastPathComponent + "."
+        for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where name != partial.lastPathComponent && name.hasPrefix(prefix) && name.hasSuffix(".part") {
+            let tag = name.dropFirst(prefix.count).dropLast(".part".count)
+            if name == prefix + "part" || (!tag.isEmpty && !tag.contains(".")) { try? fm.removeItem(at: folder.appendingPathComponent(name)) }
+        }
         if !fm.fileExists(atPath: partial.path) { fm.createFile(atPath: partial.path, contents: nil) }
         guard let handle = FileHandle(forWritingAtPath: partial.path) else {
             throw OfficeLink.Failure.office(String(localized: "The file couldn’t be saved on this Mac."))
@@ -282,6 +290,13 @@ final class RemotePins {
         // (A changed file: the new one in its place, the old one to the Trash.)
         if fm.fileExists(atPath: target.path) { try? fm.trashItem(at: target, resultingItemURL: nil) }
         try fm.moveItem(at: partial, to: target)
+    }
+
+    /// The part a file is fetched into, named for the version it's of (checksum, else size and date at the office), so a
+    /// part is only ever resumed with bytes of that same version.
+    nonisolated static func partial(_ target: URL, for entry: RemoteManifestEntry) -> URL {
+        let tag = entry.checksum.map { String($0.lowercased().prefix(16)) } ?? "\(entry.size)-\(Int64((entry.modified ?? 0).isFinite ? entry.modified ?? 0 : 0))"
+        return target.appendingPathExtension("\(tag).part")
     }
 
     // MARK: - The drive

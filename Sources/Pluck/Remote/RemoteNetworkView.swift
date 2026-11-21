@@ -4,22 +4,10 @@ import SwiftUI
 /// Host: whether paired Macs may stream the proxies (Pluck's own drive, no File Sharing involved).
 struct RemoteNetworkHostView: View {
     @AppStorage(RemoteNetworkHost.streamKey) private var allowed = true
-    @AppStorage(RemoteDriveWriteHost.keepKey) private var keepDays = 7
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            streaming
-            // What Editors save on the drive replaces a file only after the old one is kept; deletes go to a hidden trash.
-            HStack(spacing: 12) {
-                Text("Keep replaced and deleted files").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                Spacer(minLength: 0)
-                Picker("Keep replaced and deleted files", selection: $keepDays) {
-                    ForEach([3, 7, 14, 30], id: \.self) { Text("\($0) days").tag($0) }
-                }
-                .labelsHidden().fixedSize()
-            }
-        }
-    }
+    // (What Editors save on the drive replaces a file only after the old one is kept in .pluck-versions; deletes go to
+    // .pluck-trash. Both are kept: Pluck never deletes on the owner's storage.)
+    var body: some View { streaming }
 
     private var streaming: some View {
         HStack(alignment: .top, spacing: 12) {

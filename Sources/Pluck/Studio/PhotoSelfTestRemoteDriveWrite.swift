@@ -48,13 +48,14 @@ extension PhotoSelfTest {
               && fm.fileExists(atPath: folder.path))
         let old = root.appendingPathComponent(RemoteDriveWriteHost.trashName).appendingPathComponent("2001-01-01")
         try? fm.createDirectory(at: old, withIntermediateDirectories: true)
-        RemoteDriveWriteHost.cleanup(root)
-        check("drive write: versions and trash older than the setting go", !fm.fileExists(atPath: old.path) && !trash.isEmpty
-              && fm.fileExists(atPath: root.appendingPathComponent(RemoteDriveWriteHost.trashName).path))
+        RemoteDriveWriteHost.cleanup(folder: folder, now: Date.now.addingTimeInterval(400 * 86_400))
+        check("drive write: versions and trash are never emptied by Pluck (the owner's storage)", fm.fileExists(atPath: old.path) && !trash.isEmpty)
+        check("drive write: nobody writes into versions or trash", RemoteDriveWriteHost.inHidden(".pluck-trash/2001-01-01")
+              && RemoteDriveWriteHost.inHidden(RemoteDriveWriteHost.versionsName) && !RemoteDriveWriteHost.inHidden("Day 1/.pluck-trash") && !RemoteDriveWriteHost.inHidden(""))
         let stalePart = RemoteSendInto.partial(folder, name: "gone.mov", size: 10, modified: 1), freshPart = RemoteSendInto.partial(folder, name: "going.mov", size: 10, modified: 2)
         fm.createFile(atPath: stalePart.path, contents: Data(count: 4)); fm.createFile(atPath: freshPart.path, contents: Data(count: 4))
         try? fm.setAttributes([.modificationDate: Date.now.addingTimeInterval(-2 * 86_400)], ofItemAtPath: stalePart.path)
-        RemoteDriveWriteHost.cleanup(root, folder: folder)
+        RemoteDriveWriteHost.cleanup(folder: folder)
         check("drive write: uploads left unfinished for a day go, newer ones stay", !fm.fileExists(atPath: stalePart.path) && fm.fileExists(atPath: freshPart.path))
 
         // Hostile numbers at the boundary: refused, never a crash.
@@ -77,6 +78,16 @@ extension PhotoSelfTest {
         if let op = units.nextOp() { units.opDone(op, renamed: "G (M)") }
         check("drive write: a folder renamed under another name at the office takes its files' office paths along",
               units.snapshot.items["G"]?.remote == "G (M)" && units.snapshot.items["G/x.txt"]?.remote == "G (M)/x.txt", "\(units.snapshot.items.mapValues { $0.remote })")
+        check("drive write: a folder never moves into its own subfolder", (try? units.rename("G", to: "G/inner")) == nil && units.snapshot.items["G"] != nil)
+        // Renamed here while its last piece went: placed under the old name, so the office renames it after.
+        _ = try? units.create("G/a.txt", folder: false)
+        let spoolA = units.snapshot.items["G/a.txt"]?.spool
+        try? units.rename("G/a.txt", to: "G/b.txt")
+        while let op = units.nextOp() { units.opDone(op) }
+        units.sent(spool: spoolA, path: "G/a.txt", version: 0, remote: "G (M)/a.txt", base: nil, conflict: false)
+        check("drive write: a rename during the last piece keeps the new name and renames at the office",
+              units.snapshot.items["G/b.txt"]?.remote == "G (M)/b.txt" && units.nextOp() == .rename(from: "G (M)/a.txt", to: "G (M)/b.txt", base: nil),
+              "\(String(describing: units.snapshot.items["G/b.txt"]?.remote)) \(String(describing: units.nextOp()))")
     }
 
     /// Over the real mount (`point`, a paired office on this Mac sharing `root`, share `id`).
@@ -156,6 +167,14 @@ extension PhotoSelfTest {
         _ = await onMount { rename($0.appendingPathComponent("Renders/cut.mov").path, $0.appendingPathComponent("Renders/final cut.mov").path) }
         check("drive write: a rename goes to the office", await wait("rename") { fm.fileExists(atPath: root.appendingPathComponent("Renders/final cut.mov").path)
             && !fm.fileExists(atPath: root.appendingPathComponent("Renders/cut.mov").path) })
+        // "New Folder with Selection": a new folder and a sent file moved into it at once (the rename waits for the folder).
+        _ = await onMount { point in
+            try? FileManager.default.createDirectory(at: point.appendingPathComponent("Renders/Picked"), withIntermediateDirectories: false)
+            rename(point.appendingPathComponent("Renders/final cut.mov").path, point.appendingPathComponent("Renders/Picked/final cut.mov").path)
+        }
+        check("drive write: a sent file moved into a new folder lands there at the office", await wait("picked") {
+            fm.fileExists(atPath: root.appendingPathComponent("Renders/Picked/final cut.mov").path) }
+            && !fm.fileExists(atPath: root.appendingPathComponent("Renders/final cut.mov").path) && writes.summary(id).problems.isEmpty, "\(writes.summary(id).problems)")
         _ = await onMount { try? FileManager.default.removeItem(at: $0.appendingPathComponent("Day 1/edit.drp")) }
         check("drive write: a delete goes to the office's trash", await wait("delete") { !fm.fileExists(atPath: root.appendingPathComponent("Day 1/edit.drp").path) }
               && (fm.enumerator(atPath: root.appendingPathComponent(RemoteDriveWriteHost.trashName).path)?.allObjects as? [String] ?? []).contains { $0.hasSuffix("Day 1/edit.drp") })
@@ -183,6 +202,12 @@ extension PhotoSelfTest {
         check("drive write: a Viewer's folder refuses writes (EACCES), others don't", !refusedThere.0 && refusedThere.1 == EACCES && refusedThere.2, "\(refusedThere)")
         OfficeAccess.shared.set(subject: device.id.uuidString, folder: key, role: nil)
         check("drive write: nothing waits at the end", await wait("idle") { writes.summary(id).pending == 0 }, "\(writes.summary(id))")
+
+        // Two offices with a share of the same id: each keeps its own overlay.
+        let first = writes.overlay(office: "test-a-\(office)", share: id), second = writes.overlay(office: "test-b-\(office)", share: id)
+        check("drive write: overlays go by office and share", writes.overlay(office: "test-a-\(office)", share: id) === first && first !== second
+              && writes.overlay(office: office, share: id).office == office)
+        try? fm.removeItem(at: first.folder); try? fm.removeItem(at: second.folder)
     }
 
     // Needs Resolve (written down, not run here: the self-tests never start Resolve). On a home Mac streaming a share from

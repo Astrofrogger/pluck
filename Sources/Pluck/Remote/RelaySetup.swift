@@ -238,6 +238,9 @@ enum RelaySetup {
             guard let port = address.split(separator: ":").last.flatMap({ UInt16($0) }) else { throw PrivateNetwork.Failure.timeout }
             let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
             defer { Darwin.close(fd) }
+            // (A listener that closed early must not take Pluck with it: EPIPE, not SIGPIPE.)
+            var on: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
             var target = sockaddr_in(sin_len: UInt8(MemoryLayout<sockaddr_in>.size), sin_family: sa_family_t(AF_INET), sin_port: port.bigEndian,
                                      sin_addr: in_addr(s_addr: inet_addr("127.0.0.1")), sin_zero: (0, 0, 0, 0, 0, 0, 0, 0))
             let connected = withUnsafePointer(to: &target) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 } }

@@ -13,7 +13,7 @@ import Foundation
 //   sent or knew). Changed meanwhile, or already there for a new file: the office keeps its file and saves this one as
 //   "Name (Mac's name).ext"; the user is told. Replacing an unchanged one keeps the old one in `.pluck-versions`.
 // - Deletes and renames go as actions too; a delete moves to the share's `.pluck-trash`. Both hidden folders are dated
-//   per day and emptied after N days (office setting, default 7). Nothing is ever hard-deleted by a home Mac.
+//   per day and kept: Pluck never deletes on the owner's storage (emptying them is the owner's). Nobody writes into them.
 // - Junk never travels: macOS's (.DS_Store, ._*, .Spotlight-V100, .fseventsd, .Trashes) and Resolve's caches (CacheClip,
 //   .gallery, OptimizedMedia, ProxyMedia, *.lck), any hidden name, and names the office can't take stay in the overlay.
 // - Rights per action, per folder: Editor or Admin in that folder (`\.render`, as Send Files Here). The drive asks
@@ -28,9 +28,6 @@ import Foundation
 
 @MainActor
 enum RemoteDriveWriteHost {
-    /// Days replaced and deleted files stay in a share's hidden versions and trash folders.
-    nonisolated static let keepKey = "editAnywhereKeepDays"
-    nonisolated static var keepDays: Int { max(1, UserDefaults.standard.object(forKey: keepKey) as? Int ?? 7) }
     nonisolated static let versionsName = ".pluck-versions", trashName = ".pluck-trash"
     /// Said in driveInfo (`write`): this office takes writes from the drive. (A variable for the test of an older office.)
     nonisolated(unsafe) static var offered = true
@@ -79,6 +76,7 @@ enum RemoteDriveWriteHost {
             let place = try RemoteEditHost.share(arguments["share"])
             let file = try OfficeActions.require(\.render, device, share: place, path: try OfficeActions.text(arguments["path"]))
             guard RemoteEditHost.relative(file, in: place.root) != "" else { throw OfficeActions.incomplete() }
+            guard !inHidden(RemoteEditHost.relative(file, in: place.root)) else { throw OfficeInbox.Problem.badPath }
             let base = stamp(arguments)
             return ["trashed": try await Task.detached { try remove(file, root: place.root, base: base) }.value]
         }
@@ -86,6 +84,7 @@ enum RemoteDriveWriteHost {
         OfficeActions.register("driveRename") { arguments, device in
             let place = try RemoteEditHost.share(arguments["share"])
             let from = try OfficeActions.require(\.render, device, share: place, path: try OfficeActions.text(arguments["path"]))
+            guard !inHidden(RemoteEditHost.relative(from, in: place.root)) else { throw OfficeInbox.Problem.badPath }
             var moved = arguments
             moved["path"] = arguments["to"]
             let (folder, name) = try target(moved, device)
@@ -101,8 +100,13 @@ enum RemoteDriveWriteHost {
         let parent = (path as NSString).deletingLastPathComponent, name = (path as NSString).lastPathComponent
         let folder = try OfficeActions.require(\.render, device, share: place, path: parent, refusal: OfficeActions.sendRefusal)
         guard RemoteEditHost.isDirectory(folder) else { throw OfficeActions.incomplete() }
-        guard RemoteSendInto.nameOK(name) else { throw OfficeInbox.Problem.badPath }
+        guard RemoteSendInto.nameOK(name), !inHidden(RemoteEditHost.relative(folder, in: place.root)) else { throw OfficeInbox.Problem.badPath }
         return (folder, name)
+    }
+
+    /// Whether a path in a share is in its versions or trash folder (kept as they are: no editor plants files there).
+    nonisolated static func inHidden(_ relative: String) -> Bool {
+        relative.split(separator: "/").first.map { $0 == versionsName || $0 == trashName } ?? false
     }
 
     nonisolated private static func stamp(_ arguments: [String: Any]) -> RemoteDriveOverlay.Stamp? {
@@ -157,7 +161,7 @@ enum RemoteDriveWriteHost {
         }
         let file = folder.appendingPathComponent(placed)
         try? FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: modified)], ofItemAtPath: file.path)
-        cleanup(root, folder: folder)
+        cleanup(folder: folder)
         let now = stamp(of: file) ?? RemoteDriveOverlay.Stamp(size: 0, modified: modified)
         return ["name": placed, "size": now.size, "modified": now.modified, "conflict": conflict]
     }
@@ -172,7 +176,6 @@ enum RemoteDriveWriteHost {
             return false
         }
         try stash(file, root: root, into: trashName, stamped: false)
-        cleanup(root)
         return true
     }
 
@@ -208,26 +211,13 @@ enum RemoteDriveWriteHost {
         guard Darwin.rename(item.path, folder.appendingPathComponent(freeName(name, in: folder)).path) == 0 else { throw OfficeInbox.Problem.badPath }
     }
 
-    /// Days older than `keepDays` leave the share's versions and trash; in `folder`, uploads left unfinished for a day
-    /// (a sender that gave up, or a file that changed while it went) go too.
-    nonisolated static func cleanup(_ root: URL, folder written: URL? = nil, now: Date = .now) {
-        if let written {
-            for name in (try? FileManager.default.contentsOfDirectory(atPath: written.path)) ?? [] where name.hasPrefix(".") && name.hasSuffix(".pluckpart") {
-                let part = written.appendingPathComponent(name)
-                let date = (try? FileManager.default.attributesOfItem(atPath: part.path)[.modificationDate] as? Date) ?? now
-                if now.timeIntervalSince(date) > 86_400 { try? FileManager.default.removeItem(at: part) }
-            }
-        }
-        let day = DateFormatter()
-        day.dateFormat = "yyyy-MM-dd"
-        day.locale = Locale(identifier: "en_US_POSIX")
-        let oldest = now.addingTimeInterval(-Double(keepDays) * 86_400)
-        for hidden in [versionsName, trashName] {
-            let folder = root.appendingPathComponent(hidden)
-            for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] {
-                guard let date = day.date(from: name), date.addingTimeInterval(86_400) < oldest else { continue }
-                try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
-            }
+    /// In `folder`, Pluck's own uploads left unfinished for a day (a sender that gave up, or a file that changed while it
+    /// went) go. The share's versions and trash are never emptied by Pluck (the owner's files: never deleted).
+    nonisolated static func cleanup(folder written: URL, now: Date = .now) {
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: written.path)) ?? [] where name.hasPrefix(".") && name.hasSuffix(".pluckpart") {
+            let part = written.appendingPathComponent(name)
+            let date = (try? FileManager.default.attributesOfItem(atPath: part.path)[.modificationDate] as? Date) ?? now
+            if now.timeIntervalSince(date) > 86_400 { try? FileManager.default.removeItem(at: part) }
         }
     }
 }
@@ -586,6 +576,7 @@ final class RemoteDriveOverlay: @unchecked Sendable {
     func rename(_ from: String, to: String) throws {
         try lock.withLock {
             guard var item = saved.items[from] else { throw RemoteDriveError.noEntry }
+            guard !to.hasPrefix(from + "/") else { throw RemoteDriveError.invalid }
             let replaced = saved.items[to]
             if let replaced {
                 guard replaced.folder == item.folder else { throw item.folder ? RemoteDriveError.notFolder : RemoteDriveError.isFolder }
@@ -718,6 +709,14 @@ final class RemoteDriveOverlay: @unchecked Sendable {
         }
     }
 
+    /// Folders not made at the office yet whose office path is `remote` or holds it, shallowest first.
+    fileprivate func pendingFolders(holding remote: String) -> [(path: String, item: Item)] {
+        guard !remote.isEmpty else { return [] }
+        let found = lock.withLock { saved.items.filter { $0.value.folder && $0.value.state == .pending }.map { ($0.key, $0.value) } }
+        return found.filter { remote == officePath($0.0) || remote.hasPrefix(officePath($0.0) + "/") }
+            .sorted { $0.0.split(separator: "/").count < $1.0.split(separator: "/").count }.map { (path: $0.0, item: $0.1) }
+    }
+
     /// Where an item goes at the office: its own office path, else its folder's and its name.
     fileprivate func officePath(_ path: String) -> String {
         lock.withLock {
@@ -737,7 +736,24 @@ final class RemoteDriveOverlay: @unchecked Sendable {
                 saved.ops.append(.remove(remote: remote, base: base))
                 return
             }
-            item.remote = remote
+            if key != path {
+                // Renamed or moved here while its last piece went: the placed file follows (through renames still queued).
+                var placed = remote
+                for case .rename(let from, let to, _) in saved.ops where placed == from || placed.hasPrefix(from + "/") {
+                    placed = to + placed.dropFirst(from.count)
+                }
+                if item.state == .local {
+                    saved.ops.append(.remove(remote: placed, base: base))
+                    return
+                }
+                let parent = Self.parent(key), name = (key as NSString).lastPathComponent
+                let folder = saved.items[parent]?.remote ?? parent
+                let target = item.remote ?? (folder.isEmpty ? name : folder + "/" + name)
+                if target != placed { saved.ops.append(.rename(from: placed, to: target, base: item.base)) }
+                item.remote = target
+            } else {
+                item.remote = remote
+            }
             item.base = base
             if conflict { item.conflict = (remote as NSString).lastPathComponent }
             // (Only the bytes that went: a save meanwhile (a new spool, perhaps the same version number) still goes, over this one.)
@@ -840,52 +856,57 @@ final class RemoteDriveWrites {
 
     /// At launch: overlays with something waiting are picked up (sent once their office answers).
     func install() {
-        for overlay in RemoteDriveOverlay.all() where overlays[overlay.share] == nil { adopt(overlay) }
+        for overlay in RemoteDriveOverlay.all() where overlays[Self.key(overlay.office, overlay.share)] == nil { adopt(overlay) }
         kick()
     }
 
+    /// Overlays, summaries and what's being sent go by office and share (two offices may have a share of the same id).
+    nonisolated static func key(_ office: String, _ share: String) -> String { office + "|" + share }
+    /// A share of the office this Mac is linked to now (what the window shows).
+    private func current(_ share: String) -> String { Self.key(OfficeRenderClient.shared.office?.device.uuidString ?? "", share) }
+
     /// The overlay of a share of this office (made or loaded).
     func overlay(office: String, share: String) -> RemoteDriveOverlay {
-        if let have = overlays[share], have.office == office { return have }
+        if let have = overlays[Self.key(office, share)] { return have }
         let overlay = RemoteDriveOverlay(office: office, share: share)
         adopt(overlay)
         return overlay
     }
 
     private func adopt(_ overlay: RemoteDriveOverlay) {
-        overlays[overlay.share] = overlay
-        let share = overlay.share
+        let share = overlay.share, key = Self.key(overlay.office, share)
+        overlays[key] = overlay
         overlay.askAccess = { folder in
             (try? await OfficeRenderClient.shared.ask("driveCanWrite", ["share": share, "path": folder], timeout: 20))?["can"] as? Bool
         }
         overlay.fetch = { remote, offset, count in
             try await OfficeRenderClient.shared.fileData(share: share, path: remote, kind: .original, offset: offset, length: count).data
         }
-        overlay.changed = { Task { @MainActor in RemoteDriveWrites.shared.refreshed(share); RemoteDriveWrites.shared.kick() } }
-        refreshed(share)
+        overlay.changed = { Task { @MainActor in RemoteDriveWrites.shared.refreshed(key); RemoteDriveWrites.shared.kick() } }
+        refreshed(key)
     }
 
-    func summary(_ share: String) -> Summary { summaries[share] ?? Summary() }
+    func summary(_ share: String) -> Summary { summaries[current(share)] ?? Summary() }
 
-    func refreshed(_ share: String) {
-        guard let overlay = overlays[share] else { return }
+    private func refreshed(_ key: String) {
+        guard let overlay = overlays[key] else { return }
         let saved = overlay.snapshot
         var summary = Summary()
         let waiting = saved.items.filter { $0.value.state == .pending && !$0.value.folder }
         summary.pending = waiting.count + saved.ops.count
         summary.pendingBytes = waiting.values.reduce(0) { $0 + $1.size }
-        summary.sending = sending[share]
+        summary.sending = sending[key]
         summary.conflicts = saved.items.compactMap { path, item in item.conflict.map { (path, $0) } }.sorted { $0.path < $1.path }
         summary.refused = saved.items.compactMap { path, item in item.state == .refused ? (path, item.note ?? "") : nil }.sorted { $0.path < $1.path }
         summary.problems = saved.problems
         summary.hostWrites = saved.hostWrites
         summary.top = saved.access[""]
-        if summaries[share] != summary { summaries[share] = summary }
+        if summaries[key] != summary { summaries[key] = summary }
     }
 
-    func seen(_ share: String, _ path: String) { overlays[share]?.seen(path) }
-    func retry(_ share: String, _ path: String) { overlays[share]?.retry(path) }
-    func clearProblems(_ share: String) { overlays[share]?.clearProblems() }
+    func seen(_ share: String, _ path: String) { overlays[current(share)]?.seen(path) }
+    func retry(_ share: String, _ path: String) { overlays[current(share)]?.retry(path) }
+    func clearProblems(_ share: String) { overlays[current(share)]?.clearProblems() }
 
     /// Sends what waits (one pass at a time; asked again meanwhile, another pass follows). An office out of reach: again
     /// in 30 s, or sooner when something new is written. (A file still being written is sent when it settles: that asks again.)
@@ -898,7 +919,7 @@ final class RemoteDriveWrites {
                 for overlay in overlays.values where overlay.hasWork {
                     guard OfficeRenderClient.shared.office?.device.uuidString == overlay.office else { continue }
                     if await !Self.pass(overlay) { unreachable = true }
-                    refreshed(overlay.share)
+                    refreshed(Self.key(overlay.office, overlay.share))
                 }
                 if unreachable, !again {
                     let nap = Task<Void, Never> { try? await Task.sleep(for: .seconds(30)) }
@@ -918,12 +939,24 @@ final class RemoteDriveWrites {
     /// One pass over an overlay: the office's deletes and renames first, then folders and files. False: the office
     /// didn't answer (all stays queued).
     static func pass(_ overlay: RemoteDriveOverlay, client: OfficeRenderClient? = nil) async -> Bool {
-        let client = client ?? .shared, share = overlay.share
+        let client = client ?? .shared, share = overlay.share, key = Self.key(overlay.office, share)
         func base(_ stamp: RemoteDriveOverlay.Stamp?) -> [String: Any] {
             stamp.map { ["baseSize": $0.size, "baseModified": $0.modified] } ?? [:]
         }
+        func makeFolder(_ path: String, _ item: RemoteDriveOverlay.Item, at remote: String) async throws {
+            _ = try await client.ask("driveFolder", ["share": share, "path": remote])
+            overlay.sent(spool: nil, path: path, version: item.version, remote: remote, base: nil, conflict: false)
+        }
         while let op = overlay.nextOp() {
             do {
+                // A rename into a folder not made at the office yet ("New Folder with Selection"): that folder first.
+                if case .rename(_, let to, _) = op {
+                    for (path, item) in overlay.pendingFolders(holding: RemoteDriveOverlay.parent(to)) {
+                        do { try await makeFolder(path, item, at: overlay.officePath(path)) } catch OfficeLink.Failure.office(let message) {
+                            overlay.refused(path, message)
+                        }
+                    }
+                }
                 switch op {
                 case .remove(let remote, let stamp):
                     let answer = try await client.ask("driveRemove", ["share": share, "path": remote].merging(base(stamp)) { a, _ in a })
@@ -941,12 +974,11 @@ final class RemoteDriveWrites {
         }
         while let (path, item) = overlay.nextItem() {
             let remote = overlay.officePath(path)
-            RemoteDriveWrites.shared.sending[share] = (path as NSString).lastPathComponent
-            defer { RemoteDriveWrites.shared.sending[share] = nil }
+            RemoteDriveWrites.shared.sending[key] = (path as NSString).lastPathComponent
+            defer { RemoteDriveWrites.shared.sending[key] = nil }
             do {
                 if item.folder {
-                    _ = try await client.ask("driveFolder", ["share": share, "path": remote])
-                    overlay.sent(spool: nil, path: path, version: item.version, remote: remote, base: nil, conflict: false)
+                    try await makeFolder(path, item, at: remote)
                 } else {
                     try await send(overlay, path: path, item: item, remote: remote, client: client, base: base(item.base))
                 }
