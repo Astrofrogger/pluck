@@ -48,115 +48,62 @@ struct PhotoImportSheet: View {
     private var backup: URL? { backupOn && !backupPath.isEmpty ? URL(fileURLWithPath: backupPath, isDirectory: true) : nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            Text("Import Photos").font(Design.Typography.sheetTitle)
-            // From
-            VStack(alignment: .leading, spacing: 6) {
-                Text("From").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    ForEach(cards, id: \.self) { card in
-                        // A card is added or taken off the list, so photos from several cameras come in together.
-                        Button { toggle(card) } label: {
-                            Label(card.lastPathComponent, systemImage: "sdcard").lineLimit(1)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(sources.contains(card) ? .accentColor : nil)
-                    }
-                    Button(sources.isEmpty ? "Choose…" : "Add…", systemImage: "folder.badge.plus") { pick() }
-                        .help("Folders or photos; ⌘-click to choose several")
-                }
-                ForEach(sources.filter { !cards.contains($0) }, id: \.self) { source in
-                    HStack(spacing: 6) {
-                        Image(systemName: source.hasDirectoryPath ? "folder" : "photo").foregroundStyle(.secondary)
-                        Text(verbatim: source.lastPathComponent).lineLimit(1).truncationMode(.middle).help(source.path)
-                        Spacer(minLength: 4)
-                        Button { choose(sources.filter { $0 != source }) } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundStyle(.secondary)
-                            .accessibilityLabel(Text("Remove"))
-                    }
-                    .font(.callout)
-                }
-                if !sources.isEmpty {
-                    Text(items.isEmpty ? AttributedString(localized: "No photos found there.")
-                         : AttributedString(localized: "^[\(items.count) photo](inflect: true), \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"))
-                        .font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Import Photos").font(Design.Studio.pageTitle)
+                Spacer(minLength: 8)
+                if !items.isEmpty {
+                    Text(AttributedString(localized: "^[\(items.count) photo](inflect: true) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"))
+                        .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
                 }
             }
+            fromSide
             if !cameraList.isEmpty { clocks }
-            // How
-            Picker("How", selection: $copy) {
-                Text("Copy to a Folder").tag(true)
-                Text("Use Where They Are").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            if copy {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("To").foregroundStyle(.secondary)
-                        folderButton(folder) { folderPath = $0.path }
-                    }
-                    GridRow {
-                        Toggle("Backup", isOn: $backupOn).toggleStyle(.checkbox)
-                        if backupOn {
-                            folderButton(backup) { backupPath = $0.path }
-                        }
-                    }
-                    GridRow {
-                        Text("Files").foregroundStyle(.secondary)
-                        HStack(spacing: 14) {
-                            Toggle("In a folder per day", isOn: $byDate).toggleStyle(.checkbox)
-                            Toggle("Date in the name", isOn: $rename).toggleStyle(.checkbox)
-                        }
+            StudioSegmented(ground: Design.Studio.backdrop,
+                            options: [(true, "Copy to a Folder"), (false, "Use Where They Are")], selection: $copy, fill: true)
+            if copy { toSide }
+            VStack(spacing: 0) {
+                StudioField(label: "Album") {
+                    if let intoAlbum {
+                        Text(verbatim: intoAlbum).font(Design.Studio.body).lineLimit(1)
+                    } else {
+                        TextField("Album", text: $album, prompt: Text("Album").foregroundStyle(Design.Studio.textFaint))
+                            .textFieldStyle(.plain)
+                            .font(Design.Studio.body)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
+                            .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
                     }
                 }
-                .font(.callout)
-            }
-            HStack {
-                Text("Album").foregroundStyle(.secondary)
-                if let intoAlbum {
-                    Text(verbatim: intoAlbum).lineLimit(1)
-                    Spacer()
-                } else {
-                    TextField("Album", text: $album).textFieldStyle(.roundedBorder)
+                StudioField(label: "Metadata") {
+                    Menu {
+                        Button("None") { templateID = "" }
+                        if !templates.isEmpty { Divider() }
+                        ForEach(templates) { item in Button(item.name) { templateID = item.id.uuidString } }
+                        Divider()
+                        Button("New Template…") { editingTemplate = PhotoMetadataTemplate(name: "") }
+                        if let template { Button("Edit “\(template.name)”…") { editingTemplate = template } }
+                    } label: {
+                        StudioMenuLabel(title: template?.name ?? String(localized: "None"))
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Creator, copyright, keywords and more, given to each photo as it comes in")
                 }
             }
-            .font(.callout)
-            HStack {
-                Text("Metadata").foregroundStyle(.secondary)
-                Menu(template?.name ?? String(localized: "None")) {
-                    Button("None") { templateID = "" }
-                    if !templates.isEmpty { Divider() }
-                    ForEach(templates) { item in Button(item.name) { templateID = item.id.uuidString } }
-                    Divider()
-                    Button("New Template…") { editingTemplate = PhotoMetadataTemplate(name: "") }
-                    if let template { Button("Edit “\(template.name)”…") { editingTemplate = template } }
-                }
-                .fixedSize()
-                .help("Creator, copyright, keywords and more, given to each photo as it comes in")
-                Spacer()
-            }
-            .font(.callout)
-            if copying {
-                ProgressView(value: Double(progress), total: Double(max(items.count, 1)))
-                Text("Copying \(progress) of \(items.count)…").font(.caption).foregroundStyle(.secondary)
-            }
-            if let problem { ProblemLabel(text: problem) }
-            if let report { safety(report) }
-            HStack {
-                Spacer()
-                if report != nil {
-                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-                } else {
-                    Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).disabled(copying)
-                    Button(copy ? "Copy and Import" : "Import") { start() }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(items.isEmpty || copying || (copy && backupOn && backup == nil))
-                }
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .studioBox()
+            footer
         }
         .padding(Design.Spacing.sheet)
         .frame(width: 520)
+        .foregroundStyle(Design.Studio.text)
+        .background(Design.Studio.panel)
+        .preferredColorScheme(.dark)
+        .tint(Design.Brand.pink)
         .sheet(item: $editingTemplate) { item in
             PhotoTemplateSheet(template: item) { saved in
                 var all = PhotoMetadataTemplate.saved
@@ -175,7 +122,9 @@ struct PhotoImportSheet: View {
         .task {
             // (Not in tests: looking at drives can make macOS ask for access.)
             if ScreenshotMode.scene == nil { cards = Self.memoryCards() }
-            if !initial.isEmpty { choose(initial) } else if let card = cards.first { choose([card]) }
+            // Tests: -PluckScreenshotImportEmpty YES shows the sheet before anything is chosen.
+            let empty = ScreenshotMode.scene == "photo" && UserDefaults.standard.bool(forKey: "PluckScreenshotImportEmpty")
+            if empty {} else if !initial.isEmpty { choose(initial) } else if let card = cards.first { choose([card]) }
             // Tests: -PluckScreenshotImportGo YES starts at once.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotImportGo") {
                 try? await Task.sleep(for: .seconds(1))
@@ -184,24 +133,128 @@ struct PhotoImportSheet: View {
         }
     }
 
+    /// A quiet small-caps name over a part of the sheet.
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title).font(Design.Studio.hint.weight(.semibold)).textCase(.uppercase).foregroundStyle(Design.Studio.textQuiet)
+    }
+
+    // MARK: - From
+
+    private var fromSide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Import from")
+            // A card is added or taken off the list, so photos from several cameras come in together.
+            ForEach(cards, id: \.self) { card in
+                ImportSourceRow(symbol: "sdcard", title: OffloadCenter.volumeName(card), detail: sources.contains(card) ? countText(card) : "",
+                                on: sources.contains(card), remove: sources.contains(card) ? { toggle(card) } : nil)
+                    .onTapGesture { if !sources.contains(card) { toggle(card) } }
+                    .help(card.path)
+            }
+            ForEach(sources.filter { !cards.contains($0) }, id: \.self) { source in
+                ImportSourceRow(symbol: source.hasDirectoryPath ? "folder" : "photo", title: source.lastPathComponent, detail: countText(source),
+                                on: true) { choose(sources.filter { $0 != source }) }
+                    .help(source.path)
+            }
+            StudioDashedButton(title: "Add a card or folder…") { pick() }
+                .help("Folders or photos; ⌘-click to choose several")
+            if !sources.isEmpty && items.isEmpty {
+                OffloadNote(symbol: "exclamationmark.triangle", text: Text("No photos found there."), colour: Design.Studio.warn)
+            }
+        }
+    }
+
+    /// How many photos of the list come from this source (a RAW and its JPEG count once, as in the title).
+    private func countText(_ source: URL) -> String {
+        let prefix = source.standardizedFileURL.path + "/"
+        let count = items.filter { $0.primary == source || $0.primary.standardizedFileURL.path.hasPrefix(prefix) }.count
+        return String(AttributedString(localized: "^[\(count) photo](inflect: true)").characters)
+    }
+
+    // MARK: - To
+
+    private var toSide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Copy to")
+            ImportFolderRow(url: folder) { folderPath = $0.path }
+            if let backup {
+                ImportFolderRow(url: backup, badge: "Backup", remove: { backupOn = false }) { backupPath = $0.path }
+            } else {
+                StudioDashedButton(title: "Add a backup…") {
+                    if let picked = Self.chooseFolder() { backupPath = picked.path; backupOn = true }
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                StudioSwitchRow(title: "In a folder per day", isOn: $byDate)
+                StudioSwitchRow(title: "Date in the name", isOn: $rename)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    static func chooseFolder() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    // MARK: - Under way, done
+
+    @ViewBuilder private var footer: some View {
+        if copying {
+            VStack(alignment: .leading, spacing: 6) {
+                StudioProgress(share: Double(progress) / Double(max(items.count, 1)))
+                Text("Copying \(progress) of \(items.count)…").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+        }
+        if let problem, report == nil { OffloadNote(symbol: "exclamationmark.triangle", text: Text(problem), colour: Design.Studio.warn) }
+        if let report { safety(report) }
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                if report != nil {
+                    Button { dismiss() } label: { Text("Done").frame(maxWidth: .infinity) }
+                        .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                        .buttonStyle(StudioFlatButtonStyle(height: 32))
+                        .keyboardShortcut(.cancelAction).disabled(copying)
+                    Button(action: start) {
+                        Label(items.isEmpty ? String(localized: "Import") : String(localized: "Import \(items.count) Photos"),
+                              systemImage: "arrow.down").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(items.isEmpty || copying || (copy && backupOn && backup == nil))
+                }
+            }
+            if copy && report == nil {
+                StudioFootnote(text: "Every copy is read back and checked", symbol: "checkmark.shield")
+            }
+        }
+        .padding(.top, 4)
+    }
+
     // MARK: - Camera clocks
 
     /// Each camera's clock: a photo of it and what time it really was, so photos of several cameras come in
     /// in the order they were taken. Only the copies' dates are shifted.
     private var clocks: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Camera clocks").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Camera clocks")
             ForEach(cameraList) { cam in
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(verbatim: cam.label).lineLimit(1)
+                HStack(spacing: 12) {
+                    ImportThumb(url: samples[cam.key])
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: cam.label).font(Design.Studio.body.weight(.medium)).lineLimit(1)
                         if let sample = samples[cam.key], let date = sampleDates[cam.key] {
                             Text("\(sample.lastPathComponent) · \(date.formatted(date: .omitted, time: .standard))")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
                         }
                     }
-                    Spacer(minLength: 4)
-                    Menu(offsetText(offsets[cam.key] ?? 0)) {
+                    Spacer(minLength: 8)
+                    Menu {
                         Button("Clock is right") { offsets[cam.key] = nil }
                         Button("Set the Real Time…") { settingDate = sampleDates[cam.key].map { $0.addingTimeInterval(offsets[cam.key] ?? 0) } ?? .now; setting = cam.key }
                         ForEach(cameraList.filter { $0.key != cam.key }) { other in
@@ -213,7 +266,12 @@ struct PhotoImportSheet: View {
                         }
                         Divider()
                         Button("Another Photo…") { choosePhoto(of: cam) }
+                    } label: {
+                        clockLabel(offsets[cam.key] ?? 0)
                     }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
                     .fixedSize()
                     .help("Shifts this camera’s dates in the copies so its photos sort with the others’; the originals aren’t changed")
                     .popover(isPresented: Binding(get: { setting == cam.key }, set: { if !$0 { setting = nil } })) {
@@ -235,9 +293,26 @@ struct PhotoImportSheet: View {
                         .padding(Design.Spacing.sheet)
                     }
                 }
-                .font(.callout)
+                .padding(.horizontal, 12)
+                .frame(height: 52)
+                .studioBox()
             }
         }
+    }
+
+    /// "Clock is right" quietly; an offset as a plum chip.
+    private func clockLabel(_ offset: TimeInterval) -> some View {
+        let right = abs(offset) < 1
+        return HStack(spacing: 5) {
+            Text(verbatim: offsetText(offset))
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+        }
+        .font(Design.Studio.hint.weight(right ? .regular : .semibold))
+        .foregroundStyle(right ? Design.Studio.textQuiet : Design.Brand.pink)
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .background(right ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Design.Brand.pink.opacity(0.12)), in: .capsule)
+        .contentShape(.rect)
     }
 
     private func offsetText(_ offset: TimeInterval) -> String {
@@ -265,34 +340,26 @@ struct PhotoImportSheet: View {
 
     /// After a card's copy: safe to format only when every photo is in every copy and read back identical.
     private func safety(_ report: PhotoImporter.Report) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        let colour = report.safe ? Design.Studio.good : Design.Studio.bad
+        return HStack(alignment: .top, spacing: 12) {
             Image(systemName: report.safe ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(report.safe ? Color.green : Color.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(report.safe ? "Safe to format" : "Not safe to format").font(.callout.weight(.semibold))
+                .font(.system(size: 16)).foregroundStyle(colour).frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(report.safe ? "Safe to format" : "Not safe to format").font(Design.Studio.body.weight(.semibold)).foregroundStyle(colour)
                 if report.safe {
                     Text(report.copies == 2 ? AttributedString(localized: "^[\(report.copied) photo](inflect: true) in 2 checked copies")
                          : AttributedString(localized: "^[\(report.copied) photo](inflect: true) in 1 checked copy"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                 } else {
-                    Text(verbatim: report.failed.prefix(3).joined(separator: ", ") + (report.failed.count > 3 ? " …" : ""))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(verbatim: report.failed.prefix(5).joined(separator: "\n") + (report.failed.count > 5 ? "\n…" : ""))
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(6).truncationMode(.middle)
+                    if let problem { Text(problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true) }
                 }
             }
+            Spacer(minLength: 0)
         }
-    }
-
-    private func folderButton(_ url: URL?, set: @escaping (URL) -> Void) -> some View {
-        Button {
-            let panel = NSOpenPanel()
-            panel.canChooseDirectories = true
-            panel.canChooseFiles = false
-            panel.canCreateDirectories = true
-            if panel.runModal() == .OK, let picked = panel.url { set(picked) }
-        } label: {
-            Label(url?.lastPathComponent ?? String(localized: "Choose…"), systemImage: "folder").lineLimit(1)
-        }
-        .help(url?.path ?? "")
+        .padding(14)
+        .background(colour.opacity(0.12), in: .rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
     }
 
     // MARK: - Where from
@@ -394,7 +461,10 @@ struct PhotoImportSheet: View {
             var summary = PhotoImporter.Report(total: list.count, copies: backup == nil ? 1 : 2)
             // In the order they were taken, each camera's clock shifted by its offset.
             let planned = await Task.detached(priority: .userInitiated) { PhotoImporter.plan(list, offsets: offsets) }.value
+            // Tests: -PluckScreenshotImportHold YES stops halfway, to picture the progress.
+            let hold = ScreenshotMode.scene == "photo" && UserDefaults.standard.bool(forKey: "PluckScreenshotImportHold")
             for photo in planned {
+                if hold && progress == planned.count / 2 { try? await Task.sleep(for: .seconds(600)) }
                 let result = await Task.detached(priority: .userInitiated) {
                     PhotoImporter.copy(photo, to: folder, backup: backup, byDate: byDate, rename: rename)
                 }.value
@@ -414,4 +484,101 @@ struct PhotoImportSheet: View {
 
     /// When it was taken (a sidecar's date, the camera's own date, or the file's date).
     nonisolated static func captureDate(_ photo: URL) -> Date { PhotoImporter.captureDate(photo) }
+}
+
+/// A card or folder photos come from, as Offload's From rows: plum symbol when on the list, an x on hover.
+private struct ImportSourceRow: View {
+    let symbol: String
+    let title: String
+    let detail: String
+    let on: Bool
+    var remove: (() -> Void)?
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 14)).frame(width: 18)
+                .foregroundStyle(on ? Design.Brand.pink : Design.Studio.textQuiet)
+            Text(verbatim: title).font(Design.Studio.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
+            Spacer(minLength: 8)
+            if hovering, let remove {
+                Button("Remove", systemImage: "xmark", action: remove)
+                    .labelStyle(.iconOnly).buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            } else {
+                Text(verbatim: detail).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .studioBox(outline: on ? Design.rgb(0x8E4C64) : nil)
+        .contentShape(.rect)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// Where copies go, as Offload's drive rows: the drive's symbol, the folder, its drive and what's free; click to change.
+private struct ImportFolderRow: View {
+    let url: URL
+    var badge: LocalizedStringKey?
+    var remove: (() -> Void)?
+    let change: (URL) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        // (A folder not made yet: its drive is the nearest folder above it that is there.)
+        let there = sequence(first: url) { $0.pathComponents.count > 1 ? $0.deletingLastPathComponent() : nil }
+            .first { FileManager.default.fileExists(atPath: $0.path) } ?? url
+        let drive = OffloadCenter.driveName(there)
+        HStack(spacing: 12) {
+            Image(systemName: url.path.hasPrefix("/Volumes/") ? "externaldrive" : "internaldrive")
+                .font(.system(size: 14)).frame(width: 18).foregroundStyle(Design.Studio.textQuiet)
+            HStack(spacing: 4) {
+                Text(verbatim: url.lastPathComponent).font(Design.Studio.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                if drive != url.lastPathComponent {
+                    Text(verbatim: drive).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 8)
+            if let badge { StudioChip(text: Text(badge)) }
+            if hovering, let remove {
+                Button("Remove", systemImage: "xmark", action: remove)
+                    .labelStyle(.iconOnly).buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            } else if let free = OffloadCenter.freeSpace(there) {
+                Text("\(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free")
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .studioBox()
+        .contentShape(.rect)
+        .onTapGesture { if let picked = PhotoImportSheet.chooseFolder() { change(picked) } }
+        .onHover { hovering = $0 }
+        .help(url.path)
+    }
+}
+
+/// The sample photo of a camera, small (its embedded preview, so cheap even for RAW).
+private struct ImportThumb: View {
+    let url: URL?
+    @State private var image: CGImage?
+
+    var body: some View {
+        Group {
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFill() } else { Design.Studio.raised }
+        }
+        .frame(width: 32, height: 32)
+        .clipShape(.rect(cornerRadius: Design.Radius.small, style: .continuous))
+        .task(id: url) {
+            guard let url else { image = nil; return }
+            image = await Task.detached(priority: .utility) { () -> CGImage? in
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+                return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 96, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
+            }.value
+        }
+    }
 }
