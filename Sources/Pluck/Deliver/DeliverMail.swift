@@ -126,9 +126,10 @@ final class DeliverMail {
     }
 
     /// `muteLink` + `muted` is the one change the host merges into the row's list (so the web page's mutes stay); the whole
-    /// `mute` list is for hosts older than 4.0.7, which replace the list as before.
+    /// `mute` list is for hosts older than 4.0.7, which replace the list as before. No `mode`: this Mac's copy may be older
+    /// than an unsubscribe on the web page (no released host has mail without taking a mute alone).
     nonisolated static func muteOp(_ row: Subscriber, _ link: String, _ on: Bool) -> [String: Any] {
-        ["op": "subscriber-set", "id": row.id, "kind": "team", "email": row.email, "mode": row.mode,
+        ["op": "subscriber-set", "id": row.id, "kind": "team", "email": row.email,
          "mute": muted(row.mute, link, on), "muteLink": link, "muted": on]
     }
 
