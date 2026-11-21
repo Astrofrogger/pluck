@@ -7,7 +7,10 @@ import UniformTypeIdentifiers
 final class CameraSyncModel {
     static let shared = CameraSyncModel()
 
-    var cameras: [SyncCamera] = []
+    var cameras: [SyncCamera] = [] { didSet { if cameras != oldValue { keep() } } }
+    /// Clips added after others were placed (a card added later, a saved sync reopened): Sync places
+    /// only them, against what's placed.
+    var fresh: Set<UUID> = []
     var share = 0.0
     var status: String?
     var problem: String?
@@ -15,6 +18,9 @@ final class CameraSyncModel {
     var selected: UUID?
     /// Sound before timecode, for a shoot whose timecode can't be trusted.
     var audioFirst = false
+    /// Sent to Resolve with a sound recorder's sound as the main sound, the cameras' sound on tracks below, turned off.
+    var recorderFirst = true
+    var hasRecorder: Bool { cameras.contains { $0.isSoundRecorder && $0.clips.contains { $0.start != nil } } }
     /// Timecode shown on camera (a slate, a phone's timecode app, burned-in): looked for through each clip's first and last 10 s.
     var shownTimecode = false {
         didSet {
@@ -43,10 +49,15 @@ final class CameraSyncModel {
     private(set) var future: [[SyncCamera]] = []
     private(set) var task: Task<Void, Never>?
     /// Dropped while clips were still being read: read right after (a second drop used to report ffmpeg missing).
-    @ObservationIgnored private var pending: [URL] = []
+    @ObservationIgnored private var pending: [(urls: [URL], items: [(file: URL, root: URL)]?, cards: [String: String])] = []
     @ObservationIgnored let cache = SyncCache()
     /// The running sync's events (a stopped run's late ones are dropped).
     @ObservationIgnored private var currentBuffer: LiveBuffer?
+    @ObservationIgnored private var saving: Task<Void, Never>?
+    /// Proxies being made for the synced clips (see makeProxies): what's happening, and the offer closed.
+    var proxyLine: String?
+    var proxyOfferClosed = false
+    @ObservationIgnored private var proxyTask: Task<Void, Never>?
 
     var running: Bool { task != nil }
     /// The cameras as drawn: while syncing, with the places found so far.
@@ -66,9 +77,10 @@ final class CameraSyncModel {
     private var ffprobe: String? { AppDelegate.shared?.manager.tool("ffprobe") }
 
     /// Reads what was dropped and groups it into cameras (with what's here already: it's grouped again together).
-    func add(_ urls: [URL]) {
+    /// `items`: the files themselves, each with the folder its camera's folder is in (an offload's checked files); `cards`: a card folder → its camera's name.
+    func add(_ urls: [URL], items: [(file: URL, root: URL)]? = nil, cards: [String: String] = [:]) {
         guard let ffprobe else { problem = Converting.Failure.noFFmpeg.localizedDescription; return }
-        guard task == nil else { pending += urls; return }
+        guard task == nil else { pending.append((urls, items, cards)); return }
         problem = nil
         done = nil
         // (Proxies set aside aren't read again either.)
@@ -76,7 +88,16 @@ final class CameraSyncModel {
         task = Task {
             status = String(localized: "Reading the clips")
             stage = .reading
-            let found = await Task.detached { CameraSync.files(in: urls) }.value
+            let found = await Task.detached { items ?? CameraSync.files(in: urls) }.value
+            // A sync saved beside this media, when nothing's here yet: reopened, the new clips added to it.
+            var known = known
+            if self.cameras.isEmpty, let saved = await Task.detached(operation: { CameraSync.savedSync(dropped: urls, found: found.map(\.file)) }).value {
+                audioFirst = saved.audioFirst ?? false
+                shownTimecode = saved.shownTimecode ?? false
+                self.cameras = saved.cameras
+                known += saved.cameras.flatMap(\.clips)
+                done = String(localized: "Reopened the saved sync")
+            }
             var probes: [CameraSync.Probe] = []
             for (number, item) in found.enumerated() where !known.contains(where: { $0.path == item.file.path }) {
                 if Task.isCancelled { break }
@@ -84,19 +105,29 @@ final class CameraSyncModel {
                 if let probe = await Task.detached(operation: { CameraSync.probe(item.file, root: item.root, ffprobe: ffprobe) }).value { probes.append(probe) }
             }
             guard !Task.isCancelled else { return }
-            let before = self.cameras
+            let before = self.cameras, wasSynced = synced
             probes = leaveOutProxies(probes)
             // New clips join the camera they belong to; the rest make new cameras.
             var cameras = self.cameras
-            for camera in CameraSync.group(probes) {
+            var grouped = CameraSync.group(probes)
+            CameraSync.name(&grouped, cards: cards)
+            for camera in grouped {
                 if let index = cameras.firstIndex(where: { $0.key == camera.key }) { cameras[index].clips += camera.clips } else { cameras.append(camera) }
             }
             // Undo would take the new clips away again (or bring back one just set aside as a proxy).
             if cameras != before { history = []; future = [] }
+            if wasSynced { fresh.formUnion(probes.map(\.clip.id)) }
             self.cameras = cameras
             if found.isEmpty { problem = String(localized: "No clips in what was dropped.") }
             finish()
         }
+    }
+
+    /// An offload's cards (see CameraSync.offloadItems): only its files whose checksum passed.
+    func add(offload job: OffloadJob) {
+        let (items, cards) = CameraSync.offloadItems(job)
+        guard !items.isEmpty else { problem = String(localized: "No checked clips in this offload."); return }
+        add([], items: items, cards: cards)
     }
 
     /// Proxies whose original is here too are left out (kept aside, played instead of the original); a proxy
@@ -135,15 +166,15 @@ final class CameraSyncModel {
 
     /// Syncs everything not locked, or only `only` (everything else stays where it is).
     func sync(only: UUID? = nil) {
-        guard task == nil, let ffmpeg else { if ffmpeg == nil { problem = Converting.Failure.noFFmpeg.localizedDescription }; return }
+        guard task == nil, proxyTask == nil, let ffmpeg else { if ffmpeg == nil { problem = Converting.Failure.noFFmpeg.localizedDescription }; return }
         problem = nil
         done = nil
         live = [:]
         listening = []
         stage = .listening
         var input = cameras
-        // One clip: the others held where they are for this run.
-        let held = Set(clips.filter { only != nil && $0.id != only && $0.start != nil && !$0.locked }.map(\.id))
+        // One clip, or the clips added since: the others held where they are for this run.
+        let held = Self.held(clips, only: only, fresh: fresh)
         for c in input.indices { for i in input[c].clips.indices where held.contains(input[c].clips[i].id) { input[c].clips[i].locked = true } }
         if let only { for c in input.indices { for i in input[c].clips.indices where input[c].clips[i].id == only { input[c].clips[i].locked = false } } }
         let cache = cache, audioFirst = audioFirst, shownTimecode = shownTimecode
@@ -168,6 +199,7 @@ final class CameraSyncModel {
             for c in result.indices { for i in result[c].clips.indices where held.contains(result[c].clips[i].id) { result[c].clips[i].locked = false } }
             guard !Task.isCancelled else { return }
             withAnimation(.smooth(duration: 0.5)) { cameras = result }
+            if only == nil { fresh = [] }
             history = []
             future = []
             let missed = result.flatMap(\.clips).filter { $0.start == nil }.count
@@ -182,6 +214,24 @@ final class CameraSyncModel {
             }
             if !moved.isEmpty { done = moved.joined(separator: "\n") }
             finish()
+        }
+    }
+
+    /// The placed clips a sync leaves where they are: all but `only`, or all but the fresh ones (none: a full sync).
+    static func held(_ clips: [SyncClip], only: UUID?, fresh: Set<UUID>) -> Set<UUID> {
+        let keep: (SyncClip) -> Bool = only != nil ? { $0.id != only } : { !fresh.isEmpty && !fresh.contains($0.id) }
+        return Set(clips.filter { $0.start != nil && !$0.locked && keep($0) }.map(\.id))
+    }
+
+    /// Saved beside the media a moment after a change, once something is placed (see SyncSave).
+    private func keep() {
+        guard synced else { return }
+        saving?.cancel()
+        let save = SyncSave(cameras: cameras, audioFirst: audioFirst, shownTimecode: shownTimecode)
+        saving = Task.detached {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            try? CameraSync.save(save)
         }
     }
 
@@ -202,9 +252,8 @@ final class CameraSyncModel {
         stage = nil
         // What was dropped while busy (reading or syncing) is read now.
         if !pending.isEmpty {
-            let next = pending
-            pending = []
-            add(next)
+            let next = pending.removeFirst()
+            add(next.urls, items: next.items, cards: next.cards)
         }
     }
 
@@ -230,15 +279,17 @@ final class CameraSyncModel {
     }
 
     func clear() {
-        guard task == nil else { return }
+        guard task == nil, proxyTask == nil else { return }
         history = []
         future = []
         angle = nil
         soundFrom = nil
         playhead = 0
         cameras = []
+        fresh = []
         selected = nil
         proxiesLeftOut = []
+        proxyOfferClosed = false
         audioFirst = false
         shownTimecode = false
         done = nil
@@ -331,8 +382,10 @@ final class CameraSyncModel {
         task = Task {
             status = String(localized: "Sending to DaVinci Resolve")
             do {
-                let result = try await CameraSyncExport.sendToResolve(cameras, name: name)
-                done = String(localized: "In DaVinci Resolve: \(result.timeline), \(result.placed) of \(result.asked) placed")
+                let result = try await CameraSyncExport.sendToResolve(cameras, name: name, recorderFirst: recorderFirst)
+                done = String(localized: "In DaVinci Resolve: \(result.timelines.formatted(.list(type: .and))), \(result.placed) of \(result.asked) placed")
+                // The report beside the media (where the sync is saved).
+                if let folder = CameraSync.saveFolder(cameras) { writeReport(cameras, beside: folder.appendingPathComponent(name)) }
             } catch {
                 problem = error.localizedDescription
             }
@@ -349,10 +402,54 @@ final class CameraSyncModel {
         do {
             try CameraSyncExport.fcpxml(cameras, name: name).write(to: url, atomically: true, encoding: .utf8)
             done = String(localized: "Saved \(url.lastPathComponent)")
+            writeReport(cameras, beside: url.deletingPathExtension())
         } catch {
             problem = error.localizedDescription
         }
     }
+
+    /// "<name> – Sync Report.html" next to `base` (an export's path without its extension).
+    private func writeReport(_ cameras: [SyncCamera], beside base: URL) {
+        let url = base.deletingLastPathComponent().appendingPathComponent(base.lastPathComponent + " – " + String(localized: "Sync Report") + ".html")
+        if (try? CameraSyncExport.report(cameras, name: base.lastPathComponent).write(to: url, atomically: true, encoding: .utf8)) != nil {
+            done = [done, String(localized: "Report: \(url.lastPathComponent)")].compactMap { $0 }.joined(separator: "\n")
+        }
+    }
+
+    // MARK: Proxies
+
+    /// Synced picture clips with no proxy here.
+    var needProxies: [SyncClip] { clips.filter { $0.start != nil && $0.hasVideo && !$0.isProxy && $0.proxy == nil } }
+
+    /// Where a clip's proxy goes: a "Proxy" folder beside it, the original's name (where Resolve looks for proxies by itself).
+    static func proxyFile(_ clip: SyncClip) -> URL {
+        clip.file.deletingLastPathComponent().appendingPathComponent("Proxy", isDirectory: true)
+            .appendingPathComponent(clip.file.deletingPathExtension().lastPathComponent + ".mov")
+    }
+
+    /// Proxies for the synced clips with Pluck's proxy maker (one at a time, a proxy already there kept); played instead of the originals once made.
+    func makeProxies(_ format: OfficeProxies.Format) {
+        guard proxyTask == nil, task == nil, let ffmpeg else { return }
+        let wanted = needProxies, ffprobe = ffprobe
+        guard !wanted.isEmpty else { return }
+        problem = nil
+        proxyTask = Task {
+            var made = 0
+            for (n, clip) in wanted.enumerated() where !Task.isCancelled {
+                proxyLine = String(localized: "Making proxies: \(n + 1) of \(wanted.count)")
+                let target = Self.proxyFile(clip)
+                if await OfficeProxies.shared.makeOne(clip.file, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { _ in }) {
+                    made += 1
+                    edit(clip.id) { $0.proxy = target.path }
+                }
+            }
+            proxyLine = nil
+            proxyTask = nil
+            done = String(localized: "Proxies made: \(made) of \(wanted.count)")
+        }
+    }
+
+    func stopProxies() { proxyTask?.cancel() }
 
     func openInEdit() {
         guard task == nil else { return }
@@ -401,6 +498,7 @@ struct CameraSyncView: View {
                 if let problem = model.problem { notice(problem, symbol: "exclamationmark.triangle", colour: Design.Studio.warn) }
                 if let done = model.done { notice(done, symbol: "checkmark", colour: Design.Studio.good) }
                 if !model.proxiesLeftOut.isEmpty { proxiesLine }
+                if model.proxyLine != nil || (model.synced && !model.running && !model.proxyOfferClosed && !model.needProxies.isEmpty) { makeProxiesLine }
                 if model.cameras.contains(where: { $0.clips.contains { $0.hasVideo && $0.start != nil } }) || !model.live.isEmpty {
                     SyncAngleViewer(model: model)
                 }
@@ -452,6 +550,11 @@ struct CameraSyncView: View {
                 Menu {
                     Button("FCPXML File…", systemImage: "doc", action: model.saveFCPXML)
                     Button("Pluck Edit", systemImage: "rectangle.stack", action: model.openInEdit)
+                    if model.hasRecorder {
+                        Divider()
+                        Toggle("Recorder as Main Sound", isOn: $model.recorderFirst)
+                            .help("DaVinci Resolve: the recorder’s sound on top, the cameras’ sound on tracks below, turned off")
+                    }
                 } label: {
                     Label("Send", systemImage: "paperplane").font(Design.Studio.body)
                 }
@@ -459,9 +562,9 @@ struct CameraSyncView: View {
                 .buttonStyle(StudioFlatButtonStyle())
                 .fixedSize()
                 .disabled(!model.synced || model.running)
-                Button(model.synced ? "Sync Again" : "Sync", systemImage: "waveform.badge.magnifyingglass") { model.sync() }
+                Button(!model.fresh.isEmpty ? "Sync New Clips" : model.synced ? "Sync Again" : "Sync", systemImage: "waveform.badge.magnifyingglass") { model.sync() }
                     .buttonStyle(StudioFlatButtonStyle(prominent: !model.synced || !Resolve.isInstalled, height: 32))
-                    .disabled(model.running)
+                    .disabled(model.running || model.proxyLine != nil)
                 // Synced: the timeline to DaVinci Resolve is what comes next.
                 if model.synced && Resolve.isInstalled {
                     Button("Send to DaVinci Resolve", systemImage: "film", action: model.sendToResolve)
@@ -523,6 +626,27 @@ struct CameraSyncView: View {
             Button("Include", action: model.includeProxies)
                 .buttonStyle(.link).font(Design.Studio.hint).disabled(model.running)
                 .help("Sync the proxies as cameras of their own")
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// After a sync: proxies for the synced clips that have none (next to them, the originals' names), or how far that is.
+    private var makeProxiesLine: some View {
+        HStack(spacing: 8) {
+            if let line = model.proxyLine {
+                PlumSpinner()
+                Text(line).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                Button("Stop", action: model.stopProxies).buttonStyle(.link).font(Design.Studio.hint)
+            } else {
+                Image(systemName: "film.stack").foregroundStyle(Design.Studio.textQuiet)
+                Text("Proxies for \(model.needProxies.count) synced clips:").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                ForEach([OfficeProxies.Format.prores, .light]) { format in
+                    Button(format.label) { model.makeProxies(format) }.buttonStyle(.link).font(Design.Studio.hint)
+                }
+                .help("Made in a Proxy folder beside each clip, with its name")
+                Button { model.proxyOfferClosed = true } label: { Image(systemName: "xmark").font(.system(size: 9)) }
+                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textFaint).help("Not now")
+            }
             Spacer(minLength: 0)
         }
     }
