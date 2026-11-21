@@ -45,10 +45,10 @@ services:
       CLOUDFLARE_DNS_API_TOKEN: "{{dns_token}}"
       EMAIL: "{{contact}}"
       HOST: "{{hostname}}"
-    # First run, then a renewal check every day (lego renews 30 days before expiry).
+    # First run (only without a certificate: a run on every start hits the CA's duplicate limit), then a renewal check every day (lego renews 30 days before expiry).
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "lego --accept-tos --path /certs --email \"$$EMAIL\" --dns cloudflare --domains \"$$HOST\" run; while true; do lego --path /certs --email \"$$EMAIL\" --dns cloudflare --domains \"$$HOST\" renew --days 30; sleep 86400; done"
+      - "[ -f \"/certs/certificates/$$HOST.crt\" ] || lego --accept-tos --path /certs --email \"$$EMAIL\" --dns cloudflare --domains \"$$HOST\" run; while true; do lego --path /certs --email \"$$EMAIL\" --dns cloudflare --domains \"$$HOST\" renew --days 30; sleep 86400; done"
     volumes:
       - "certs:/certs"
     mem_limit: "128m"
