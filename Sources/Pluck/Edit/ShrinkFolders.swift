@@ -835,7 +835,7 @@ enum ShrinkFolders {
         // (Its own hidden master dropped: the Mac that has the file now makes its own.)
         // (Only while the original is still at its name: a hidden master standing for an original that moved stays.)
         guard stillOurs() else {
-            if fm.fileExists(atPath: file.path), file.moved.map({ !fm.fileExists(atPath: $0) }) ?? true, file.master != file.path || file.moved == nil { drop() }
+            if fm.fileExists(atPath: file.path), file.moved.map({ !fm.fileExists(atPath: $0) }) ?? true { drop() }
             file.note = String(localized: "Another Mac took this file over")
             return file
         }
