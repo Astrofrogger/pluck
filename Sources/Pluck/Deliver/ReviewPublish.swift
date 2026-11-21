@@ -515,6 +515,9 @@ final class ReviewPublish {
             wire["customStatuses"] = link.customStatuses == true ? true : NSNull()
             // Null tells the host they're off (an older Mac leaves them out, and the host keeps its own).
             for key in ["order", "statusDefs", "fieldDefs"] where wire[key] == nil { wire[key] = NSNull() }
+            // `order` is what the page uses (the folders' order when the link has none); `ownOrder` the link's own, which
+            // another Mac reads back (so a folder's order never freezes into the link). Hosts keep it as they keep any field.
+            wire["ownOrder"] = link.order?.isEmpty == false ? link.order!.map(\.uuidString) : NSNull()
             return wire.merging(Self.stamp(link)) { $1 }
         }
         let folders = content.folders.map { folder -> [String: Any] in

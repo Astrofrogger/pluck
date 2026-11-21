@@ -491,7 +491,9 @@ final class DeliverSync {
             link.notify = .init(email: true, recipientEmail: notify["recipientEmail"] as? String)
         }
         link.madeOn = wire["madeOn"] as? String
-        link.order = (wire["order"] as? [String]).map { $0.compactMap(UUID.init(uuidString:)) }
+        // The link's own order (`order` is what the page uses, the folders' order when the link has none: never read back,
+        // or a folder's arrangement would freeze into the link; only 4.0.7 Macs, which send both, know link orders).
+        link.order = (wire["ownOrder"] as? [String]).map { $0.compactMap(UUID.init(uuidString:)) }
         link.customStatuses = (wire["customStatuses"] as? Bool) == true ? true : nil
         if let mark = wire["watermark"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: mark) {
             link.watermark = try? Deliver.decoder.decode(Deliver.ShareLink.Watermark.self, from: data)

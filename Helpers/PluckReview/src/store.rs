@@ -169,7 +169,8 @@ const LINK_SECRETS: [&str; 6] = ["roomID", "reg", "auth", "sign", "join", "level
 
 /// Link fields a 4.0.6 Mac (or a Mac without the link's mail code) doesn't send: left out keeps the stored value,
 /// null clears it (a 4.0.7 Mac sends null, or `notify: {"email": false}`, when they're off).
-const LINK_KEPT: [&str; 5] = ["notify", "order", "customStatuses", "statusDefs", "fieldDefs"];
+// (`ownOrder`: the link's own order, which a Mac reads back; `order` is what the page uses.)
+const LINK_KEPT: [&str; 6] = ["notify", "order", "ownOrder", "customStatuses", "statusDefs", "fieldDefs"];
 
 fn keep_link_fields(inc: &mut Value, stored: Option<&Value>) {
     if let Some(s) = stored {
@@ -499,7 +500,7 @@ mod tests {
     fn link_merge_keeps_what_older_macs_leave_out() {
         let full = json!({"id": "L", "roomID": "R", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "A",
             "notify": {"email": true, "mailCode": "K.P"}, "uploads": {"folder": null, "into": {"root": "m1", "folder": "In"}},
-            "order": ["B", "A"], "customStatuses": true, "statusDefs": [{"id": "c:lock"}], "fieldDefs": [{"id": "cf:shot"}]});
+            "order": ["B", "A"], "ownOrder": ["B", "A"], "customStatuses": true, "statusDefs": [{"id": "c:lock"}], "fieldDefs": [{"id": "cf:shot"}]});
         let raw = json!({"format": 1, "projects": [], "links": [full]});
         let old = json!({"id": "L", "roomID": "R", "paused": true, "uploads": {"folder": null}, "rev": 2, "at": T1, "by": "B"});
         let (out, _) = merge_publish(&raw, &json!({"links": [old]}), &Value::Null, true);
@@ -507,12 +508,13 @@ mod tests {
         assert_eq!((l["paused"].clone(), l["notify"]["mailCode"].clone(), l["uploads"]["into"]["folder"].clone(), l["order"][0].clone(),
             l["customStatuses"].clone(), l["statusDefs"][0]["id"].clone(), l["fieldDefs"][0]["id"].clone()),
             (json!(true), json!("K.P"), json!("In"), json!("B"), json!(true), json!("c:lock"), json!("cf:shot")), "{l}");
-        let off = json!({"id": "L", "roomID": "R", "notify": {"email": false}, "uploads": {"folder": null, "into": null}, "order": null,
+        assert_eq!(l["ownOrder"], json!(["B", "A"]));
+        let off = json!({"id": "L", "roomID": "R", "notify": {"email": false}, "uploads": {"folder": null, "into": null}, "order": null, "ownOrder": null,
             "customStatuses": null, "statusDefs": null, "fieldDefs": null, "rev": 3, "at": T2, "by": "A"});
         let (out, _) = merge_publish(&out, &json!({"links": [off]}), &Value::Null, true);
         let l = &out["links"][0];
         assert_eq!(l["notify"], json!({"email": false}));
-        assert!(l.get("order").is_none() && l.get("customStatuses").is_none() && l.get("statusDefs").is_none() && l["uploads"].get("into").is_none(), "{l}");
+        assert!(l.get("order").is_none() && l.get("ownOrder").is_none() && l.get("customStatuses").is_none() && l.get("statusDefs").is_none() && l["uploads"].get("into").is_none(), "{l}");
         let main = json!({"id": "L", "roomID": "R", "rev": 4, "at": T2, "by": "A"});
         let (out, _) = merge_publish(&raw, &json!({"links": [main]}), &Value::Null, false);
         assert!(out["links"][0].get("notify").is_none() && out["links"][0].get("order").is_none(), "a backup applies the main's copy");

@@ -320,8 +320,8 @@ final class DeliverServer {
         // Workflow plan 3, 5, 6 (optional; old pages ignore them): the link's own order, custom statuses' and fields' names.
         let content = store.content(link.project)
         if let order = link.order?.isEmpty == false ? link.order : Deliver.folderOrder(content.folders, assets: content.assets) {
-            // (Ids of the link's project only; the page orders what it lists and ignores the rest.)
-            let mine = Set(content.assets.map(\.id))
+            // (Ids the link holds only, as the NAS host's list: the page orders what it lists, and other assets' ids stay here.)
+            let mine = Set(content.assets.filter { inScope($0, link, store: store) }.map(\.id))
             info["order"] = order.filter(mine.contains).map(\.uuidString)
         }
         if link.customStatuses == true, let defs = store.library.statuses, !defs.isEmpty {
@@ -632,7 +632,9 @@ final class DeliverServer {
     // MARK: - Scope
 
     /// The asset, when the link holds it (folder links hold their subfolders).
-    func inScope(_ asset: Deliver.Asset, _ link: Deliver.ShareLink) -> Bool {
+    func inScope(_ asset: Deliver.Asset, _ link: Deliver.ShareLink) -> Bool { Self.inScope(asset, link, store: store) }
+
+    static func inScope(_ asset: Deliver.Asset, _ link: Deliver.ShareLink, store: DeliverStore) -> Bool {
         guard store.find(asset.id)?.project == link.project else { return false }
         switch link.scope {
         case .project: return true
