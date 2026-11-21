@@ -132,6 +132,31 @@ final class OfficeAccess {
         changed()
     }
 
+    /// A share's folder key changed (its NAS found, or mounted another way): its grants copied to the new key, so a No Access
+    /// folder stays shut. Copies keep their date (the newer of two wins); the old ones stay for office Macs still on that key.
+    func rekey(_ old: String, _ new: String) {
+        let merged = Self.rekeyed(grants, old, new)
+        guard merged != grants else { return }
+        grants = merged
+        save()
+        changed()
+    }
+
+    nonisolated static func rekeyed(_ grants: [Grant], _ old: String, _ new: String) -> [Grant] {
+        let old = old.lowercased(), new = new.lowercased()
+        guard old != new else { return grants }
+        var out = grants
+        for grant in grants {
+            guard let folder = grant.folder, folder == old || folder.hasPrefix(old + "/") else { continue }
+            var copy = grant
+            copy.folder = new + folder.dropFirst(old.count)
+            if let have = out.first(where: { $0.id == copy.id }), have.changed >= copy.changed { continue }
+            out.removeAll { $0.id == copy.id }
+            out.append(copy)
+        }
+        return out
+    }
+
     /// The grants of a group sync (newest per key).
     func adopt(_ theirs: [Grant]?) {
         guard let theirs, let merged = Self.merge(grants, theirs), merged != grants else { return }
@@ -197,7 +222,13 @@ extension OfficeAccess {
                            role: role)
             } else {
                 guard let role, Role.assignable.contains(role) else { throw OfficeActions.incomplete() }
-                OfficeRenderServer.shared.setRole(role, for: id)
+                // A Mac of a person with a role: the person's role is the one that counts (as in the host's own menu).
+                let mac = OfficeRenderServer.shared.pairedMacs.first { $0.id == id }
+                if let person = mac?.person, let grant = shared.grants.first(where: { $0.subject == Self.person(person) && $0.folder == nil && $0.live != nil }) {
+                    shared.set(subject: grant.subject, folder: nil, role: role, name: grant.name)
+                } else {
+                    OfficeRenderServer.shared.setRole(role, for: id)
+                }
             }
             return ["set": true]
         }

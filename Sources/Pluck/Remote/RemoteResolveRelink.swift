@@ -408,11 +408,11 @@ final class RemoteResolve {
             let answer = try await client.ask("resolvePreview", ["id": item.id, "offset": data.count])
             guard let piece = answer[OfficeActions.bytesKey] as? Data, let total = (answer["size"] as? NSNumber)?.int64Value else { throw OfficeLink.Failure.garbled }
             size = total
-            if piece.isEmpty { break }
+            if piece.isEmpty { throw OfficeLink.Failure.garbled }  // (cut short: never half a preview)
             data.append(piece)
             progress(Double(data.count) / Double(max(size, 1)))
         }
-        try data.write(to: target)
+        try data.write(to: target, options: .atomic)
         return target
     }
 

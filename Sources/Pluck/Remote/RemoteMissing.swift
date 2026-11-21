@@ -106,7 +106,8 @@ enum RemoteMissing {
         return effects.filter { effect in
             if !effect.id.isEmpty, ids.contains(effect.id.lowercased()) { return false }
             if !effect.name.isEmpty, names.contains(key(effect.name)) { return false }
-            if installed == nil, effect.id.lowercased().hasPrefix("com.blackmagicdesign.") { return false }
+            // (Resolve's list unknown: its own effects, and one known only by name (it may be Resolve's), can't be told missing.)
+            if installed == nil, effect.id.isEmpty || effect.id.lowercased().hasPrefix("com.blackmagicdesign.") { return false }
             // (The id's own parts, not its "com.vendor." start: one vendor's other plugin isn't this one.)
             let id = effect.id.split(separator: ".").map(String.init)
             let parts = ([effect.name] + (id.count >= 3 ? Array(id.dropFirst(2)) : Array(id.suffix(1)))).map(key).filter { $0.count >= 4 && $0 != "resolvefx" }
@@ -135,15 +136,17 @@ enum RemoteMissing {
             var missingEffects: [Effect] = []
             if !effects.isEmpty { missingEffects = missing(effects, installed: await resolveEffects(), root: ofxRoot) }
             var present: [String] = []
+            // Hashing stops before the home Mac's 600 s wait runs out; a file not checked is sent again (as "Name 2", never over it).
+            let deadline = Date.now.addingTimeInterval(400)
             for file in (arguments["files"] as? [[String: Any]] ?? []).prefix(5000) {
-                present.append(await sentBefore(file, device) ?? "")
+                present.append(await sentBefore(file, device, until: deadline) ?? "")
             }
             return ["fonts": fonts.filter { !installed($0) }.map(\.dictionary), "effects": missingEffects.map(\.dictionary), "present": present]
         }
     }
 
     /// A copy sent earlier at the target ("Name", else "Name 2"… up to `copies`) with the same size and SHA-256: its path in the share.
-    private static func sentBefore(_ file: [String: Any], _ device: OfficeRenderServer.Device) async -> String? {
+    private static func sentBefore(_ file: [String: Any], _ device: OfficeRenderServer.Device, until deadline: Date) async -> String? {
         guard let path = file["path"] as? String, path.count < 2000, let sha = (file["sha256"] as? String)?.lowercased(),
               let size = (file["size"] as? NSNumber)?.int64Value, let place = try? RemoteEditHost.share(file["share"]) else { return nil }
         let parent = (path as NSString).deletingLastPathComponent, name = (path as NSString).lastPathComponent
@@ -154,7 +157,8 @@ enum RemoteMissing {
                 let candidate = n == 1 ? name : "\(stem) \(n)" + (ext.isEmpty ? "" : "." + ext)
                 let url = folder.appendingPathComponent(candidate)
                 guard let stamp = RemoteDriveWriteHost.stamp(of: url) else { if n > 1 { break } else { continue } }
-                if stamp.size == size, (try? RemoteSendInto.hash(url)) == sha {
+                // (A NAS reads ~100 MB/s: a hash that would end past the deadline isn't started.)
+                if stamp.size == size, Date.now.addingTimeInterval(Double(size) / 100_000_000) < deadline, (try? RemoteSendInto.hash(url)) == sha {
                     return (parent.isEmpty ? "" : parent + "/") + candidate
                 }
             }

@@ -780,9 +780,10 @@ final class OfficeRenderServer {
     /// Ties a paired Mac to a Deliver team person (nil: to no one).
     func setPerson(_ person: String?, for id: UUID) {
         guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
+        let was = devices[index].person
         devices[index].person = person
         devices[index].changed = .now
-        followRole(index)
+        followRole(index, wasPerson: was != nil && was != person)
         saveDevices()
         OfficeAccess.shared.changed()
     }
@@ -792,15 +793,21 @@ final class OfficeRenderServer {
         let mine = devices.indices.filter { devices[$0].person == person }
         guard !mine.isEmpty else { return }
         for index in mine {
-            followRole(index)
+            followRole(index, wasPerson: true)
             devices[index].changed = .now
         }
         saveDevices()
     }
 
-    /// The flags of a Mac with a role (its person's or its own) are that role's; Full Trust stays. Custom Macs keep theirs.
-    private func followRole(_ index: Int) {
-        guard let role = OfficeAccess.role(for: devices[index], grants: OfficeAccess.shared.grants) else { return }
+    /// The flags of a Mac with a role (its person's or its own) are that role's; Full Trust stays. Custom Macs keep theirs,
+    /// unless they may be a person's (`wasPerson`: untied, or the person's role gone): then Viewer, never the person's rights.
+    private func followRole(_ index: Int, wasPerson: Bool = false) {
+        var role = OfficeAccess.role(for: devices[index], grants: OfficeAccess.shared.grants)
+        if role == nil, wasPerson {
+            role = .viewer
+            devices[index].role = OfficeAccess.Role.viewer.rawValue
+        }
+        guard let role else { return }
         var rights = role.rights
         rights.fullTrust = devices[index].allowed.fullTrust
         devices[index].rights = rights

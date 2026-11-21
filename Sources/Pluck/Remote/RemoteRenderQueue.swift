@@ -160,6 +160,9 @@ final class RemoteRenderQueue {
         if item.state == .rendering { return await follow(id) }
         update(id) { $0.state = .preparing; $0.problems = [] }
         do {
+            // Its Mac as it is now: removed, or no longer allowed to render, and its queued renders don't run.
+            guard let device = OfficeRenderServer.shared.devices.first(where: { $0.id == item.deviceID }),
+                  OfficeAccess.shared.rights(for: device).render else { throw OfficeActions.refused() }
             let drp = RemoteCheckout.shared.file(item.project, version: item.version)
             guard FileManager.default.fileExists(atPath: drp.path) else {
                 throw OfficeLink.Failure.office(String(localized: "That version isn’t on the host Mac any more."))
@@ -176,11 +179,11 @@ final class RemoteRenderQueue {
                 problems.append(String(localized: "The render preset \(item.preset) isn’t on the host Mac."))
             }
             // What Fusion and grades reach must stay in the shares, unless the owner trusts that Mac fully.
-            let trusted = OfficeRenderServer.shared.devices.first { $0.id == item.deviceID }?.allowed.fullTrust == true
+            let trusted = device.allowed.fullTrust
             problems += RemoteResolveProject.uses(inspected, roots: RemoteResolveProject.shareRoots(), builtIn: RemoteResolveProject.builtInRoots,
-                                                  trusted: trusted).prefix(20)
+                                                  trusted: trusted, readable: { RemoteResolveProject.readable($0, by: device) }).prefix(20)
             let clips = (inspected["items"] as? [[String: Any]] ?? []).map(RemoteResolveProject.Clip.init)
-            let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies, files: item.files ?? [], trusted: trusted)
+            let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies, files: item.files ?? [], trusted: trusted, device: device)
             problems += plan.problems
             // Fonts and effects as this Mac has them now (the editor's Mac checked before sending; they may differ).
             if item.anyway != true { problems += RemoteMissing.problems(inspected).prefix(20) }
@@ -195,7 +198,7 @@ final class RemoteRenderQueue {
                                                             // (A copy with its multicam clips flattened, when it has any.)
                                                             "timeline": inspected["render"] as? String ?? item.timeline,
                                                             "preset": item.preset, "target": target.path,
-                                                            "output": Folders.sanitize(item.timeline) + " v\(item.version) " + stamp])
+                                                            "output": Self.freeName(Folders.sanitize(item.timeline) + " v\(item.version) " + stamp, in: target)])
             guard let job = answer["job"] as? String else { throw OfficeLink.Failure.office(String(localized: "DaVinci Resolve couldn’t start rendering.")) }
             if self.item(id)?.state == .cancelled {
                 _ = try? await OfficeResolve.run(["action": "stop", "name": name, "job": job])
@@ -216,10 +219,37 @@ final class RemoteRenderQueue {
         }
     }
 
+    /// A render's name not taken in the folder by any file ("Name", else "Name 2"…): a render never replaces another.
+    nonisolated static func freeName(_ name: String, in folder: URL) -> String {
+        let taken = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).map { ($0 as NSString).deletingPathExtension.lowercased() })
+        var free = name, number = 2
+        while taken.contains(free.lowercased()) { free = name + " \(number)"; number += 1 }
+        return free
+    }
+
+    /// Resolve not answering about a render for this long: it is given up as failed (the queue goes on).
+    static let followLimit: TimeInterval = 600
+
     /// Asks Resolve how the render is going every few seconds until it ends.
     private func follow(_ id: UUID) async {
+        var failingSince: Date?
         while let item = item(id), item.state == .rendering, let project = item.resolveProject, let job = item.resolveJob {
-            if let answer = try? await OfficeResolve.run(["action": "status", "name": project, "jobs": [job]]) {
+            guard let answer = try? await OfficeResolve.run(["action": "status", "name": project, "jobs": [job]]) else {
+                let since = failingSince ?? .now
+                failingSince = since
+                if Date.now.timeIntervalSince(since) > Self.followLimit {
+                    update(id) {
+                        guard $0.state == .rendering else { return }
+                        $0.state = .failed
+                        $0.problems = [String(localized: "DaVinci Resolve on the host Mac stopped answering about this render.")]
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .seconds(3))
+                continue
+            }
+            failingSince = nil
+            do {
                 let status = (answer["status"] as? [String: [String: Any]])?[job]
                 guard self.item(id)?.state == .rendering else { return }
                 guard answer["elsewhere"] == nil, let status, status["exists"] as? Bool == true else {

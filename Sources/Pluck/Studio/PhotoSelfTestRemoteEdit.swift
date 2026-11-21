@@ -168,9 +168,10 @@ extension PhotoSelfTest {
             let lockedPlan = await RemoteResolveProject.conform(
                 [.init(id: "1", name: "locked", file: "/local/inner.mov"), .init(id: "2", name: "direct", file: shareReal + "/B Folder/inner.txt"),
                  .init(id: "3", name: "open", file: shareReal + "/big.bin")],
-                proxies: [.init(file: "/local/inner.mov", share: id, path: "B Folder/inner.txt")])
+                proxies: [.init(file: "/local/inner.mov", share: id, path: "B Folder/inner.txt")], device: device)
             let lockedUses = RemoteResolveProject.uses(["refs": [["path": shareReal + "/B Folder/inner.txt", "regid": "Loader", "item": "Comp"]]],
-                                                       roots: RemoteResolveProject.shareRoots(), builtIn: [])
+                                                       roots: RemoteResolveProject.shareRoots(), builtIn: [],
+                                                       readable: { RemoteResolveProject.readable($0, by: device) })
             OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
             check("access: a render can't read a No Access folder (proxy, clip or Fusion)", lockedPlan.swaps["1"] == nil && lockedPlan.problems.count == 2
                   && lockedPlan.problems.allSatisfy { $0.hasPrefix("locked:") || $0.hasPrefix("direct:") } && lockedUses.count == 1,
