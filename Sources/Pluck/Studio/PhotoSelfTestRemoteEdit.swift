@@ -162,6 +162,37 @@ extension PhotoSelfTest {
                   (try? OfficeActions.require(\.browse, device, share: (root, id), path: "../Outside")) == nil
                   && (try? OfficeActions.require(\.browse, device, share: (root, id), path: "escape")) == nil
                   && (try? OfficeActions.require(\.browse, device, share: (root, id), path: "B Folder")) != nil)
+            // A render reads only what the Mac may see: a proxy's original or a clip in a No Access folder isn't used.
+            OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: OfficeAccess.Role.none)
+            let shareReal = RemoteEditHost.realPath(root.path) ?? root.path
+            let lockedPlan = await RemoteResolveProject.conform(
+                [.init(id: "1", name: "locked", file: "/local/inner.mov"), .init(id: "2", name: "direct", file: shareReal + "/B Folder/inner.txt"),
+                 .init(id: "3", name: "open", file: shareReal + "/big.bin")],
+                proxies: [.init(file: "/local/inner.mov", share: id, path: "B Folder/inner.txt")])
+            let lockedUses = RemoteResolveProject.uses(["refs": [["path": shareReal + "/B Folder/inner.txt", "regid": "Loader", "item": "Comp"]]],
+                                                       roots: RemoteResolveProject.shareRoots(), builtIn: [])
+            OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
+            check("access: a render can't read a No Access folder (proxy, clip or Fusion)", lockedPlan.swaps["1"] == nil && lockedPlan.problems.count == 2
+                  && lockedPlan.problems.allSatisfy { $0.hasPrefix("locked:") || $0.hasPrefix("direct:") } && lockedUses.count == 1,
+                  "\(lockedPlan) \(lockedUses)")
+            // Untied from its person, a Custom Mac doesn't keep the person's rights (it drops to Viewer).
+            server.setRights(.init(), for: device.id)
+            let untie = OfficeAccess.person("p-untie")
+            server.setPerson("p-untie", for: device.id)
+            OfficeAccess.shared.set(subject: untie, folder: nil, role: .admin)
+            server.setPerson(nil, for: device.id)
+            let untied = server.devices.first { $0.id == device.id }
+            server.setRights(.init(), for: device.id)
+            server.setPerson("p-untie", for: device.id)
+            OfficeAccess.shared.set(subject: untie, folder: nil, role: .admin)
+            OfficeAccess.shared.set(subject: untie, folder: nil, role: nil)
+            let personGone = server.devices.first { $0.id == device.id }
+            check("access: untying a Mac (or the person's role going) leaves no person's rights behind",
+                  untied.map { OfficeAccess.shared.rights(for: $0) } == OfficeAccess.Role.viewer.rights
+                  && personGone.map { OfficeAccess.shared.rights(for: $0) } == OfficeAccess.Role.viewer.rights,
+                  "\(String(describing: untied?.allowed)) \(String(describing: personGone?.allowed))")
+            server.setPerson(nil, for: device.id)
+            server.setRole(.editor, for: device.id)
 
             // Send Files Here: into a folder of the share as an Editor; never over a file; resumed; never out of the share.
             let outgoing = base.appendingPathComponent("Out", isDirectory: true)
@@ -232,6 +263,17 @@ extension PhotoSelfTest {
             _ = try await client.ask("accessSet", ["mac": device.id.uuidString, "share": id, "path": "B Folder"])
             let cleared = try await client.ask("accessList", ["share": id, "path": "B Folder"])
             check("access: and takes it away again", (cleared["here"] as? [String: String])?.isEmpty == true)
+            // A Mac tied to a person: its role set from a home Mac is the person's (the one that counts), never a silent no-op.
+            let tiedPerson = OfficeAccess.person("p-tied")
+            server.setPerson("p-tied", for: device.id)
+            OfficeAccess.shared.set(subject: tiedPerson, folder: nil, role: .admin)
+            let tiedSet = try? await client.ask("accessSet", ["mac": device.id.uuidString, "role": "downloader"])
+            let tiedRole = server.devices.first { $0.id == device.id }.flatMap { OfficeAccess.role(for: $0, grants: OfficeAccess.shared.grants) }
+            OfficeAccess.shared.set(subject: tiedPerson, folder: nil, role: nil)
+            server.setPerson(nil, for: device.id)
+            server.setRole(.admin, for: device.id)
+            check("access: a role set from home on a person's Mac counts", tiedSet?["set"] as? Bool == true && tiedRole == .downloader,
+                  "\(String(describing: tiedSet)) \(String(describing: tiedRole))")
 
             server.setRights(.init(browse: false, proxies: true, originals: false, render: true), for: device.id)
             check("remote: browsing refused without the right", await refused({ _ = try await client.browse(share: id, path: "") }))

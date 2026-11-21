@@ -176,6 +176,21 @@ extension PhotoSelfTest {
             access.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
             let shownAgain = try await client.ask("shareManifest", ["share": id, "path": "", "format": "light"])
             check("shares: taking the folder role away shows it again", (shownAgain["entries"] as? [Any])?.count == 2)
+            // The share's NAS key changes (found once the NAS answers, or mounted another way): its folder roles follow, never fall open.
+            access.set(subject: device.id.uuidString, folder: lockedKey, role: OfficeAccess.Role.none)
+            OfficeGroup.testVolumes = [(prefix: root.standardizedFileURL.path, remount: "smb://nas-selftest/footage")]
+            await shares.sync()
+            let afterNAS = OfficeActions.allowed(\.browse, device, share: (root, id), relative: "Day 1/A")
+            OfficeGroup.testVolumes = [(prefix: root.standardizedFileURL.path, remount: "smb://10.0.0.9/footage")]
+            await shares.sync()
+            let afterIP = OfficeActions.allowed(\.browse, device, share: (root, id), relative: "Day 1/A/clip1.mov")
+            let openNext = OfficeActions.allowed(\.browse, device, share: (root, id), relative: "Day 1")
+            OfficeGroup.testVolumes = []
+            for grant in access.grants where grant.subject == device.id.uuidString && grant.live != nil {
+                access.set(subject: grant.subject, folder: grant.folder, role: nil)
+            }
+            check("shares: a No Access folder stays shut when the share's NAS key changes", !afterNAS && !afterIP && openNext,
+                  "\(afterNAS) \(afterIP) \(openNext) \(access.grants.map(\.id))")
             check("shares: a manifest of a path out of the share is refused",
                   await refused({ _ = try await client.ask("shareManifest", ["share": id, "path": "../Gone", "format": "light"]) }))
 
