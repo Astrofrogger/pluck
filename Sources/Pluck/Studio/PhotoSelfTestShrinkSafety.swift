@@ -660,5 +660,7 @@ extension PhotoSelfTest {
             .compactMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) }.first ?? ""
         check("shrink safety: the report says check_passed and checked_at, never a lasting safe_to_delete",
               report.contains("check_passed") && report.contains("checked_at") && !report.contains("safe_to_delete"), String(report.prefix(300)))
+
+        await shrinkSafety4Test()
     }
 }
