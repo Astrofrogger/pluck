@@ -184,10 +184,11 @@ if [[ -x "$CARGO" && "${PLUCK_NO_REVIEW:-}" != 1 ]]; then
   codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-review"
   # The compose file Pluck fills in for its automatic TrueNAS install (TrueNASClient reads it from Resources).
   cp Helpers/PluckReview/docker/truenas-compose.yml "$APP/Contents/Resources/truenas-compose.yml"
-  cp Helpers/PluckRelay/docker/truenas-compose.yml "$APP/Contents/Resources/relay-compose.yml"
 else
   echo "Building without Pluck Review's helper" >&2
 fi
+# The relay's TrueNAS compose file (a Docker image: no Rust needed, so outside the helper build).
+cp Helpers/PluckRelay/docker/truenas-compose.yml "$APP/Contents/Resources/relay-compose.yml"
 fi
 # Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
 xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null

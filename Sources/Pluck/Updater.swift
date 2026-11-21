@@ -100,7 +100,8 @@ final class Updater {
     /// Pluck's own yt-dlp is over 30 days old (its version is its release date) and the last check didn't find it
     /// current: offered as "Update yt-dlp" when a YouTube download fails.
     var isStale: Bool {
-        guard UserDefaults.standard.bool(forKey: Prefs.autoUpdate), status != .upToDate, !isBusy,
+        // (Offered with automatic updates off too: clicking it is asking for it.)
+        guard status != .upToDate, !isBusy,
               let date = installedVersion.flatMap(Self.releaseDate) else { return false }
         return Date.now.timeIntervalSince(date) > 30 * 86400
     }

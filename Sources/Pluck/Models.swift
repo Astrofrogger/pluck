@@ -179,6 +179,8 @@ struct DownloadOptions: Equatable, Codable {
 @MainActor
 @Observable
 final class DownloadItem: Identifiable {
+    /// The YouTube search running for a Spotify song (a newer start's search wins).
+    var matchToken: UUID?
     enum State: Equatable {
         case queued, starting, downloading, processing, paused, finished, failed, cancelled
     }

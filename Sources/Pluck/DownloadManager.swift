@@ -244,6 +244,34 @@ final class DownloadManager {
         }.value
     }
 
+    /// Like `capture`, with the last "ERROR:" line kept, and stopped after `timeout` seconds.
+    private func captureReporting(_ arguments: [String], timeout: Double) async -> (data: Data?, error: String?) {
+        guard let exe = executableURL else { return (nil, nil) }
+        let env = environment
+        return await Task.detached {
+            let p = Process()
+            p.executableURL = exe
+            p.arguments = arguments
+            p.environment = env
+            let out = Pipe(), err = Pipe()
+            p.standardOutput = out
+            p.standardError = err
+            guard (try? p.run()) != nil else { return (nil, nil) }
+            let stop = DispatchWorkItem { if p.isRunning { p.terminate() } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: stop)
+            var errText = Data()
+            let reader = Thread { errText = err.fileHandleForReading.readDataToEndOfFile() }
+            reader.start()
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            stop.cancel()
+            while !reader.isFinished { usleep(1000) }
+            let error = String(decoding: errText, as: UTF8.self).split(separator: "\n").last { $0.hasPrefix("ERROR:") }.map(String.init)
+                ?? (p.terminationReason == .uncaughtSignal ? "ERROR: timed out" : nil)
+            return (p.terminationStatus == 0 ? data : nil, error)
+        }.value
+    }
+
     /// A flat listing of a channel, playlist or feed: the newest `limit` entries, nothing downloaded.
     func listing(_ url: String, limit: Int) async -> Data? {
         await capture(["--flat-playlist", "--dump-single-json", "--no-warnings", "--yes-playlist",
@@ -767,7 +795,9 @@ final class DownloadManager {
                         ? String(localized: "Spotify shows only the first \(collection.tracks.count) songs of this album.")
                         : String(localized: "Spotify shows only the first \(collection.tracks.count) songs of this playlist.")
                 }
-                pick.entries = collection.tracks.map { track in
+                // (A song twice in a playlist is listed once: same id, same file.)
+                var seen = Set<String>()
+                pick.entries = collection.tracks.filter { seen.insert($0.id).inserted }.map { track in
                     PlaylistEntry(id: track.id, url: track.url, title: track.title,
                                   subtitle: track.artists.joined(separator: ", "),
                                   duration: track.duration, thumbnail: track.cover, spotify: track)
@@ -953,6 +983,8 @@ final class DownloadManager {
             item.pageStream = nil
             item.resolvedURL = nil
         }
+        // A Spotify song is looked for again: the video found last time may be the reason it failed.
+        if item.spotify != nil { item.resolvedURL = nil }
         pump()
     }
 
@@ -1126,12 +1158,26 @@ final class DownloadManager {
 
         if let track = item.spotify, item.resolvedURL == nil {
             item.phase = String(localized: "Finding on YouTube Music…")
+            // (One search per start: a cancelled and restarted item's older search is ignored.)
+            let token = UUID()
+            item.matchToken = token
+            let folder = item.folder
             Task {
-                let match = await findMatch(for: track)
-                guard item.state == .starting else { return }
+                let (match, error) = await findMatch(for: track)
+                guard item.state == .starting, item.matchToken == token else { return }
                 if let match {
                     item.resolvedURL = match
                     launch(item)
+                } else if let error {
+                    // yt-dlp couldn't search (a bot check, an old yt-dlp, no connection): said as for a download.
+                    let said = Self.explain(error, folder: folder, drive: Self.driveName(of: folder))
+                    fail(item, said.message)
+                    item.needsLogin = said.login
+                    switch said.repair {
+                    case .ytdlp: AppDelegate.shared?.updater.repair()
+                    case .helper: Task { await AppDelegate.shared?.toolsUpdater.check() }
+                    case nil: break
+                    }
                 } else {
                     fail(item, String(localized: "Couldn’t find this song on YouTube Music."))
                 }
@@ -1143,27 +1189,32 @@ final class DownloadManager {
 
     /// Finds the best YouTube source for a Spotify track: the top YouTube Music song result when its
     /// title matches, otherwise the YouTube video whose title matches and length is closest.
-    private func findMatch(for track: SpotifyTrack) async -> String? {
-        let flat = ["--flat-playlist", "--dump-single-json", "--no-warnings"]
+    /// (No match: yt-dlp's error, when the search itself failed.)
+    private func findMatch(for track: SpotifyTrack) async -> (url: String?, error: String?) {
+        // With the cookies a download uses: YouTube's bot check hits searches too.
+        let flat = ["--flat-playlist", "--dump-single-json", "--no-warnings"] + cookieArguments()
 
-        if let data = await capture(flat + ["--playlist-items", "1:5", Spotify.musicSearchURL(for: track)]),
-           let entries = Self.entries(data),
+        let music = await captureReporting(flat + ["--playlist-items", "1:5", "--", Spotify.musicSearchURL(for: track)], timeout: 60)
+        if let data = music.data, let entries = Self.entries(data),
            let hit = entries.first(where: { Spotify.titlesMatch($0["title"] as? String ?? "", track) }),
            let url = hit["url"] as? String {
-            return url
+            return (url, nil)
         }
 
-        guard let data = await capture(flat + [Spotify.videoSearchQuery(for: track)]),
-              let entries = Self.entries(data), !entries.isEmpty else { return nil }
+        let videos = await captureReporting(flat + ["--", Spotify.videoSearchQuery(for: track)], timeout: 60)
+        guard let data = videos.data, let entries = Self.entries(data), !entries.isEmpty else { return (nil, videos.error ?? music.error) }
         let target = track.duration ?? 0
         let scored = entries.compactMap { e -> (url: String, score: Double)? in
             guard let url = e["url"] as? String else { return nil }
-            var score = 0.0
-            if Spotify.titlesMatch(e["title"] as? String ?? "", track) { score += 100 }
-            if let d = e["duration"] as? Double, target > 0 { score -= min(abs(d - target), 60) }
+            let titled = Spotify.titlesMatch(e["title"] as? String ?? "", track)
+            let gap = (e["duration"] as? Double).map { abs($0 - target) }
+            // A video whose title doesn't match is only taken when its length is (a wrong song, tagged as this one, is worse than none).
+            guard titled || (target > 0 && (gap ?? .infinity) <= 10) else { return nil }
+            var score = titled ? 100.0 : 0
+            if let gap, target > 0 { score -= min(gap, 60) }
             return (url, score)
         }
-        return scored.max { $0.score < $1.score }?.url
+        return (scored.max { $0.score < $1.score }?.url, nil)
     }
 
     /// The name of the drive a folder is on (its last path part when that can't be told).
@@ -1205,54 +1256,7 @@ final class DownloadManager {
 
         let errors = Task.detached {
             for await line in PipeLines.stream(err.fileHandleForReading) where line.hasPrefix("ERROR:") {
-                // "ERROR: [youtube] abc123: Video unavailable" → "Video unavailable"
-                var message = line
-                    .replacingOccurrences(of: "ERROR: ", with: "")
-                    .replacingOccurrences(of: #"^\[[^\]]+\] [^:]+: "#, with: "", options: .regularExpression)
-                if message.localizedCaseInsensitiveContains("cookies database")
-                    || message.localizedCaseInsensitiveContains("decrypt") {
-                    message = String(localized: "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced.")
-                }
-                let lower = message.lowercased()
-                var login = false
-                if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
-                    || (lower.contains("--cookies") && !lower.contains("cookies database")) {
-                    message = String(localized: "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from.")
-                    login = true
-                } else if lower.contains("drm protected") {
-                    message = String(localized: "This video is DRM-protected and can’t be downloaded.")
-                }
-                // YouTube's checks: a person (cookies), or yt-dlp behind on how YouTube serves
-                // videos now (the newest one is fetched at once).
-                var repair: YouTubeRepair?
-                if lower.contains("not a bot") || lower.contains("confirm you") {
-                    message = String(localized: "YouTube wants to be sure you’re a person. Log in to YouTube in your browser, then choose that browser under Settings → Advanced → Use cookies from.")
-                    login = true
-                } else if lower.contains("javascript runtime") || lower.contains("js runtime") || lower.contains("deno") {
-                    message = String(localized: "YouTube needs a small JavaScript helper that isn’t installed yet. Pluck is getting it now: try again in a minute.")
-                    repair = .helper
-                } else if lower.contains("po token") || lower.contains("po_token") || lower.contains("nsig") || lower.contains("signature")
-                            || lower.contains("n challenge") || lower.contains("sabr")
-                            || (lower.contains("requested format is not available") && line.contains("[youtube]")) {
-                    message = String(localized: "YouTube changed how it serves videos. Pluck is getting the newest yt-dlp: try again in a minute. If it keeps failing, choose your browser under Settings → Advanced → Use cookies from.")
-                    repair = .ytdlp
-                }
-                // Problems on this Mac or with the connection: in plain words, and no point looking
-                // for a video on the page instead.
-                var local = true
-                if lower.contains("errno 28") || lower.contains("no space left") {
-                    message = String(localized: "There’s no room left on “\(drive)”. Make some room and try again: the download carries on where it stopped.")
-                } else if lower.contains("errno 30") || lower.contains("read-only file system") {
-                    message = String(localized: "“\(drive)” can only be read, not written to. Choose another download folder in Settings.")
-                } else if (lower.contains("errno 13") || lower.contains("permission denied"))
-                            && (line.contains(folder) || lower.contains("for writing") || lower.contains("create directory") || lower.contains(".part")) {
-                    message = String(localized: "Pluck isn’t allowed to save in “\((folder as NSString).lastPathComponent)”. Choose another download folder in Settings.")
-                } else if ["connection refused", "connection reset", "timed out", "network is unreachable", "name resolution",
-                           "nodename nor servname", "incompleteread", "remote end closed", "connection aborted"].contains(where: lower.contains) {
-                    message = String(localized: "The site couldn’t be reached, or the connection dropped. Try again: the download carries on where it stopped.")
-                } else {
-                    local = false
-                }
+                let (message, login, repair, local) = Self.explain(line, folder: folder, drive: drive)
                 let final = message, skip = local, fix = repair, wantsLogin = login
                 await MainActor.run {
                     item.errorMessage = final
@@ -1275,6 +1279,60 @@ final class DownloadManager {
             await errors.value
             await self.finish(item, status: process.terminationStatus)
         }
+    }
+
+    /// A yt-dlp "ERROR:" line in plain words: whether it needs a login, which repair helps, and whether it's a
+    /// problem on this Mac or the connection (no point looking on the page instead).
+    nonisolated static func explain(_ line: String, folder: String, drive: String) -> (message: String, login: Bool, repair: YouTubeRepair?, local: Bool) {
+        // "ERROR: [youtube] abc123: Video unavailable" → "Video unavailable"
+        var message = line
+            .replacingOccurrences(of: "ERROR: ", with: "")
+            .replacingOccurrences(of: #"^\[[^\]]+\] [^:]+: "#, with: "", options: .regularExpression)
+        if message.localizedCaseInsensitiveContains("cookies database")
+            || message.localizedCaseInsensitiveContains("decrypt") {
+            message = String(localized: "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced.")
+        }
+        let lower = message.lowercased()
+        var login = false
+        if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
+            || (lower.contains("--cookies") && !lower.contains("cookies database")) {
+            message = String(localized: "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from.")
+            login = true
+        } else if lower.contains("drm protected") {
+            message = String(localized: "This video is DRM-protected and can’t be downloaded.")
+        }
+        // YouTube's checks: a person (cookies), or yt-dlp behind on how YouTube serves
+        // videos now (the newest one is fetched at once).
+        var repair: YouTubeRepair?
+        if lower.contains("not a bot") || lower.contains("confirm you") {
+            message = String(localized: "YouTube wants to be sure you’re a person. Log in to YouTube in your browser, then choose that browser under Settings → Advanced → Use cookies from.")
+            login = true
+        } else if lower.contains("javascript runtime") || lower.contains("js runtime") || lower.contains("deno") {
+            message = String(localized: "YouTube needs a small JavaScript helper that isn’t installed yet. Pluck is getting it now: try again in a minute.")
+            repair = .helper
+        } else if lower.contains("po token") || lower.contains("po_token") || lower.contains("nsig") || lower.contains("signature")
+                    || lower.contains("n challenge") || lower.contains("sabr")
+                    || (lower.contains("requested format is not available") && line.contains("[youtube]")) {
+            message = String(localized: "YouTube changed how it serves videos. Pluck is getting the newest yt-dlp: try again in a minute. If it keeps failing, choose your browser under Settings → Advanced → Use cookies from.")
+            repair = .ytdlp
+        }
+        // Problems on this Mac or with the connection: in plain words, and no point looking
+        // for a video on the page instead.
+        var local = true
+        if lower.contains("errno 28") || lower.contains("no space left") {
+            message = String(localized: "There’s no room left on “\(drive)”. Make some room and try again: the download carries on where it stopped.")
+        } else if lower.contains("errno 30") || lower.contains("read-only file system") {
+            message = String(localized: "“\(drive)” can only be read, not written to. Choose another download folder in Settings.")
+        } else if (lower.contains("errno 13") || lower.contains("permission denied"))
+                    && (line.contains(folder) || lower.contains("for writing") || lower.contains("create directory") || lower.contains(".part")) {
+            message = String(localized: "Pluck isn’t allowed to save in “\((folder as NSString).lastPathComponent)”. Choose another download folder in Settings.")
+        } else if ["connection refused", "connection reset", "timed out", "network is unreachable", "name resolution",
+                   "nodename nor servname", "incompleteread", "remote end closed", "connection aborted"].contains(where: lower.contains) {
+            message = String(localized: "The site couldn’t be reached, or the connection dropped. Try again: the download carries on where it stopped.")
+        } else {
+            local = false
+        }
+        return (message, login, repair, local)
     }
 
     private func handle(_ line: String, for item: DownloadItem) {
