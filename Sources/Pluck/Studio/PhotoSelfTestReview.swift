@@ -1151,6 +1151,7 @@ extension PhotoSelfTest {
         let heardMail = DeliverMail()
         heardMail.heard(["lastError": ["code": "rejected", "detail": "550 no such user", "at": "2026-11-20T10:00:00Z"]])
         let keptSent = UserDefaults.standard.stringArray(forKey: DeliverResolveMarkers.sentKey)
+        UserDefaults.standard.removeObject(forKey: DeliverResolveMarkers.sentKey) // (older plain entries count for every timeline)
         DeliverResolveMarkers.remember(["pluck:a", "pluck:b"], timeline: "T1")
         DeliverResolveMarkers.remember(["pluck:b"], timeline: "T2")
         DeliverResolveMarkers.remember(["pluck:a"], timeline: "T1", forget: ["pluck:a", "pluck:b"])
