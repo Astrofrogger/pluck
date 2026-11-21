@@ -416,10 +416,17 @@ final class ArchiveModel {
                 return (ShrinkFolders.real(holding).path, String(path.dropFirst(holding.path.count + 1)))
             }
             // (Looked at now: a master deleted, moved or replaced since its check makes its original not safe.)
-            var safe: [String: Set<String>] = [:], notSafe: [String: [String: String]] = [:], safeFolders: [String: [String]] = [:]
+            var safe: [String: Set<String>] = [:], notSafe: [String: [String: String]] = [:], safeFolders: [String: [String]] = [:], originals: [String: Set<String>] = [:]
+            func size(_ path: String) -> Int64? { (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int64 }
+            for file in runs.flatMap(\.files) { if let original = file.moved, let (root, below) = key(original) { originals[root, default: []].insert(below) } }
             for file in moved {
                 guard let original = file.moved else { continue }
-                let why = file.notSafe(), good = file.safeNow()
+                let folder0 = (original as NSString).deletingLastPathComponent
+                // (Safe also needs the original whole where it waits.)
+                let whole = ([original] + file.parts.map { (folder0 as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }).map(size)
+                let intact = !whole.contains { $0 == nil } && whole.reduce(Int64(0)) { $0 + ($1 ?? 0) } == file.size
+                var why = file.notSafe(), good = file.safeNow()
+                if good, !intact { good = false; why = String(localized: "The original changed") }
                 guard good || why != nil else { continue }
                 let folder = (original as NSString).deletingLastPathComponent
                 for path in [original] + (file.parts + (file.sidecars ?? [])).map({ (folder as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }) {
@@ -443,8 +450,9 @@ final class ArchiveModel {
                     let size = (walk.fileAttributes?[.size] as? NSNumber)?.int64Value ?? 0
                     place.bytes += size
                     // (Pluck's own lists at its top: neither.)
-                    if !below.contains("/"), below == "Inventory.csv" || below.hasPrefix("Pluck Inventory ") || below.hasPrefix("Shrink ") || below.hasPrefix("Relink ") { continue }
-                    if safe[root]?.contains(below) == true || safeFolders[root]?.contains(where: { below.hasPrefix($0) }) == true {
+                    // (Pluck's own lists at its top: neither; never an original that's some run's.)
+                    if !below.contains("/"), below == "Inventory.csv" || ShrinkFolders.report(below), originals[root]?.contains(below) != true { continue }
+                    if notSafe[root]?[below] == nil, safe[root]?.contains(below) == true || safeFolders[root]?.contains(where: { below.hasPrefix($0) }) == true {
                         place.safe += size
                         if place.safeFiles.count < 500 { place.safeFiles.append(folder.appendingPathComponent(below)) }
                     } else {
@@ -464,6 +472,12 @@ final class ArchiveModel {
             return (waiting, freed)
         }.value
         (waiting, freedSoFar) = result
+    }
+
+    /// The files of a folder to delete that are safe right now (looked at again first), for Show in Finder.
+    func safeToReveal(_ place: Waiting) async -> [URL] {
+        await refreshSpace()
+        return waiting.first { $0.id == place.id }?.safeFiles ?? []
     }
 
     /// Check Before Deleting's results for a run, by project.

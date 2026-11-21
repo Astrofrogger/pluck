@@ -196,8 +196,10 @@ enum ShrinkFolders {
         /// Each share it touches (by its path here) as a NAS place ("remount\npath", empty on a disk of this Mac's own),
         /// so a share mounted elsewhere next time is found there.
         var shares: [String: String]?
-        /// Proxy folders left where they are, and why.
+        /// Proxy folders left where they are, and why (and a share that couldn't be marked).
         var proxyNotes: [String: String]?
+        /// Each share's identity when the run began (its .pluck-share-id, or the drive's volume UUID).
+        var shareIDs: [String: String]?
         /// When Relink in Resolve pointed projects at its masters (Put Back then offers the way back).
         var relinked: Date?
     }
@@ -313,9 +315,13 @@ enum ShrinkFolders {
     /// Folders): its inventories, relink lists or master notes say so. Never looked in.
     static func pluckOutput(_ names: [String]) -> Bool {
         names.contains { name in
-            ["Relink.csv", "Inventory.csv"].contains(name) || name.hasPrefix(".master-of-") || name.hasPrefix("Pluck Inventory ")
-                || ((name.hasPrefix("Shrink ") || name.hasPrefix("Relink ")) && name.hasSuffix(".csv") && name.dropFirst(7).first?.isNumber == true)
+            ["Relink.csv", "Inventory.csv"].contains(name) || name.hasPrefix(".master-of-") || report(name)
         }
+    }
+
+    /// One of Pluck's own lists: "Shrink|Relink|Pluck Inventory <date>….csv|json".
+    static func report(_ name: String) -> Bool {
+        name.range(of: #"^(Shrink|Relink|Pluck Inventory) \d[^/]*\.(csv|json)$"#, options: .regularExpression) != nil
     }
 
     /// Small files that describe a clip, by extension.
@@ -509,8 +515,13 @@ enum ShrinkFolders {
     /// Renamed on the same drive, never over anything that's there and never as a copy and a delete. nil: done; else why.
     static func rename(_ from: String, _ to: String) -> String? {
         try? FileManager.default.createDirectory(atPath: (to as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        var before = stat()
+        let known = lstat(from, &before) == 0
         if exclusiveRename(from, to) == 0 { return nil }
         var code = errno
+        // (A server can say a rename failed that it did: both ends looked at before anything is undone.)
+        var gone = stat(), there = stat()
+        if known, code != EEXIST, lstat(from, &gone) != 0, lstat(to, &there) == 0, there.st_ino == before.st_ino { return nil }
         if code == ENOTSUP || code == EINVAL {
             // (A drive without an exclusive rename, as some SMB servers: the name taken first with an exclusive
             // create, which only one Mac can win, then renamed over; only that placeholder is ever removed.)
@@ -522,6 +533,8 @@ enum ShrinkFolders {
                 made = handle >= 0
                 if made { close(handle) }
             }
+            // (Marked as Pluck's own placeholder, so one left by a quit is known and removed.)
+            if made { setxattr(to, placeholderMark, "1", 1, 0, 0) }
             if !made { code = errno } else {
                 var mine = stat()
                 _ = lstat(to, &mine)
@@ -532,6 +545,13 @@ enum ShrinkFolders {
             }
         }
         return "\((from as NSString).lastPathComponent): " + NSError(domain: NSPOSIXErrorDomain, code: Int(code)).localizedDescription
+    }
+
+    static let placeholderMark = "com.pluck.placeholder"
+
+    /// An empty placeholder Pluck made for a rename (and never got to rename over).
+    static func placeholder(_ path: String) -> Bool {
+        ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int64) == 0 && getxattr(path, placeholderMark, nil, 0, 0, XATTR_NOFOLLOW) >= 0
     }
 
     /// The exclusive rename (self-tests stand in a drive without one).
@@ -576,7 +596,13 @@ enum ShrinkFolders {
         guard length > 0 else { return true }
         guard let map = mmap(nil, length, PROT_READ, MAP_SHARED, handle, 0), map != MAP_FAILED else { return false }
         defer { munmap(map, length) }
-        return msync(map, length, MS_INVALIDATE) == 0
+        guard msync(map, length, MS_INVALIDATE) == 0 else { return false }
+        // On a network share: none of its pages may still be held here.
+        guard (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal == false else { return true }
+        let page = Int(getpagesize())
+        var resident = [CChar](repeating: 0, count: (length + page - 1) / page)
+        guard mincore(map, length, &resident) == 0 else { return true }
+        return !resident.contains { $0 & CChar(MINCORE_INCORE) != 0 }
     }
 
     /// xxHash64 of a file (`cached` false: read around this Mac's cache, no read-ahead).
@@ -597,14 +623,21 @@ enum ShrinkFolders {
         return String(format: "%016llx", xxh.digest())
     }
 
+    /// Dropping a file's cache (self-tests stand in one that can't).
+    nonisolated(unsafe) static var dropping: (String) -> Bool = { dropCache($0) }
+
     /// The two reads of a master's checksum (self-tests stand in readers that disagree).
     nonisolated(unsafe) static var readers: [(String) -> String?] = [{ xxhash($0, cached: true) }, { xxhash($0, cached: false) }]
 
     /// A file's checksum from the bytes on the drive: the cache dropped, then read twice (through the cache
     /// and around it), and only when both agree. A decode alone can't see a flipped byte; this can.
     static func readBack(_ path: String, readers: [(String) -> String?] = readers) -> (hash: String?, problem: String?) {
-        dropCache(path)
-        let hashes = readers.map { $0(path) }
+        var hashes: [String?] = []
+        for reader in readers {
+            // (Dropped before each read: what's read is what's on the drive.)
+            guard dropping(path) else { return (nil, String(localized: "Couldn’t read the master back from the drive")) }
+            hashes.append(reader(path))
+        }
         guard let first = hashes.first ?? nil, hashes.allSatisfy({ $0 == first }) else {
             return (nil, String(localized: "The master reads back differently each time"))
         }
@@ -800,7 +833,12 @@ enum ShrinkFolders {
         /// Made again from the start (the hidden master isn't there whole).
         func again() -> File { drop(); file.state = .pending; file.master = nil; file.masterSize = nil; file.moved = nil; file.note = nil; return file }
         // (Its own hidden master dropped: the Mac that has the file now makes its own.)
-        guard stillOurs() else { drop(); file.note = String(localized: "Another Mac took this file over"); return file }
+        // (Only while the original is still at its name: a hidden master standing for an original that moved stays.)
+        guard stillOurs() else {
+            if fm.fileExists(atPath: file.path), file.moved.map({ !fm.fileExists(atPath: $0) }) ?? true, file.master != file.path || file.moved == nil { drop() }
+            file.note = String(localized: "Another Mac took this file over")
+            return file
+        }
         guard let moved = file.moved else {
             // In a destination: the master renamed into its place; the original isn't touched.
             if !ready(master) {
@@ -825,6 +863,15 @@ enum ShrinkFolders {
             file.problem = nil
             return fail(why + " · " + String(localized: "The original is back in its place"))
         }
+        // The original counts as moved only when all of it is there; an empty placeholder of Pluck's own left by a quit goes.
+        let movedBytes = ([moved] + parts.map(\.1)).compactMap(size).reduce(0, +)
+        if fm.fileExists(atPath: moved), movedBytes != file.size, fm.fileExists(atPath: file.path) {
+            guard placeholder(moved) else {
+                file.note = String(localized: "Something else is where the original goes in the folder to delete")
+                return file
+            }
+            unlink(moved)
+        }
         if !fm.fileExists(atPath: moved) {
             guard fm.fileExists(atPath: file.path) else {
                 // Neither here nor in the folder to delete: its share isn't mounted (nothing's failed or forgotten).
@@ -841,6 +888,8 @@ enum ShrinkFolders {
                 }
                 try step("master in", file)
                 if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) {
+                    // (The master only goes once the original is back at its name.)
+                    guard fm.fileExists(atPath: file.path) else { file.note = why; file.problem = why; return file }
                     if rename(master, temp) == nil { drop() }
                     return fail(why)
                 }
@@ -1067,7 +1116,7 @@ extension ShrinkFolders {
         guard !folders.isEmpty else { return }
         let stamp = run.date.formatted(.iso8601.year().month().day().timeSeparator(.omitted).time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "")
         let iso = ISO8601DateFormatter()
-        var csv = "original,moved_to,master,original_bytes,master_bytes,settings,kind,state,note,master_xxhash64,original_head_sha256,frames,seconds,checked,safe_to_delete,check_problems\n"
+        var csv = "original,moved_to,master,original_bytes,master_bytes,settings,kind,state,note,master_xxhash64,original_head_sha256,frames,seconds,checked_at,check_passed,check_problems\n"
         for file in run.files where file.state != .pending {
             csv += [cell(file.path), cell(file.moved ?? ""), cell(file.master ?? ""), "\(file.size)", "\(file.masterSize ?? 0)", cell(run.settings.label),
                     file.kind.rawValue, file.state.rawValue, cell(file.note ?? ""), file.masterHash ?? "", file.originalHead ?? "", file.frames.map { "\($0)" } ?? "",
@@ -1076,7 +1125,7 @@ extension ShrinkFolders {
         }
         // The same as JSON, for anyone checking by hand or by script.
         let records: [[String: Any]] = run.files.filter { $0.state != .pending }.map { file in
-            var record: [String: Any] = ["original": file.path, "original_bytes": file.size, "state": file.state.rawValue, "safe_to_delete": file.safeToDelete]
+            var record: [String: Any] = ["original": file.path, "original_bytes": file.size, "state": file.state.rawValue, "check_passed": file.safeToDelete]
             record["moved_to"] = file.moved
             record["master"] = file.master
             record["master_bytes"] = file.masterSize
@@ -1084,7 +1133,7 @@ extension ShrinkFolders {
             record["original_head_sha256"] = file.originalHead
             record["frames"] = file.frames
             record["seconds"] = file.duration
-            record["checked"] = file.checked.map(iso.string)
+            record["checked_at"] = file.checked.map(iso.string)
             record["check_problems"] = file.checkProblems
             return record
         }
@@ -1131,10 +1180,17 @@ final class ShrinkCenter {
     let store: URL
     /// This Mac's name in claims.
     let mac: String
+    /// This Mac's hardware id (IOPlatformUUID).
+    static let hardwareID: String = {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        defer { IOObjectRelease(service) }
+        return (IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? ""
+    }()
+
     /// This install of Pluck (kept beside runs.json): two Macs with the same computer name are never mistaken for one.
     let install: String
     /// Who this is in claims: the computer name (shown) and this install.
-    var claimName: String { mac + "#" + install }
+    var claimName: String { mac + "#" + install + "-" + ShrinkCenter.hardwareID }
     /// Seconds a file must have been left alone (tests: 0).
     var quiet = ShrinkFolders.quiet
     /// Free space where a master goes (tests replace it).
@@ -1234,6 +1290,10 @@ final class ShrinkCenter {
         // (A destination's folders are made as masters go in: its share is the nearest folder there now.)
         let touched = Set((run.roots + [run.destination].compactMap { $0 }).map { ShrinkFolders.shareRoot(of: existing(URL(fileURLWithPath: $0))) })
         run.shares = Dictionary(uniqueKeysWithValues: touched.map { ($0, ShrinkRemote.place($0) ?? "") })
+        run.shareIDs = Dictionary(uniqueKeysWithValues: (run.shares ?? [:]).compactMap { share, place in ShrinkFolders.shareID(share, place: place, create: true).map { (share, $0) } })
+        for (share, place) in run.shares ?? [:] where !place.isEmpty && run.shareIDs?[share]?.hasPrefix("place:") == true {
+            run.proxyNotes = (run.proxyNotes ?? [:]).merging([share: String(localized: "\((share as NSString).lastPathComponent) couldn’t be marked (read-only): another drive with its name can’t be told apart")]) { $1 }
+        }
         runs.insert(run, at: 0)
         save()
         return id
@@ -1265,12 +1325,23 @@ final class ShrinkCenter {
     /// (every path of the run moved to it); one not mounted pauses the run saying so (nothing fails or is forgotten).
     func mounted(_ id: UUID) -> Bool {
         guard let r = runs.firstIndex(where: { $0.id == id }) else { return false }
+        func same(_ path: String, _ share: String, _ place: String) -> Bool {
+            guard let kept = runs[r].shareIDs?[share] else { return true }
+            return ShrinkFolders.shareID(path, place: place, create: false) == kept
+        }
         for (share, place) in runs[r].shares ?? [:] {
             let here = FileManager.default.fileExists(atPath: share) && (place.isEmpty || ShrinkRemote.place(share) == place)
-            if here { continue }
+            if here {
+                guard same(share, share, place) else {
+                    runs[r].paused = String(localized: "This isn’t the drive the run started on (\((share as NSString).lastPathComponent)): nothing was moved")
+                    save()
+                    return false
+                }
+                continue
+            }
             let parts = place.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             if parts.count == 2, let now = OfficeGroup.localURL(OfficeGroup.Place(remount: parts[0], path: parts[1], changed: .now))?.path,
-               now != share, FileManager.default.fileExists(atPath: now) {
+               now != share, FileManager.default.fileExists(atPath: now), same(now, share, place) {
                 runs[r] = ShrinkFolders.relocated(runs[r], from: share, to: now)
                 continue
             }
@@ -1317,6 +1388,12 @@ final class ShrinkCenter {
                 return (nil, holder.mac)
             }.value
             if let other = claimed.1 {
+                // (A file halfway through stays this Mac's: the run waits rather than hand it over.)
+                if file.state == .working {
+                    runs[r].paused = String(localized: "Another Mac holds the claim of a file this Mac is halfway through: waiting")
+                    save()
+                    break
+                }
                 // The other Mac of this run has it.
                 file.state = .elsewhere
                 file.note = other.components(separatedBy: "#").first ?? other
@@ -1457,8 +1534,17 @@ final class ShrinkCenter {
             let clips = runs[r].files.filter { $0.project == project }
             for folder in runs[r].proxyFolders[project] ?? [] where runs[r].movedFolders[folder] == nil && FileManager.default.fileExists(atPath: folder) {
                 guard let file = clips.first else { continue }
-                let proxies = (FileManager.default.enumerator(atPath: folder)?.allObjects as? [String] ?? []).filter { kinds.contains(($0 as NSString).pathExtension.lowercased()) }
-                let unkept = proxies.first { proxy in
+                let inside = (FileManager.default.enumerator(atPath: folder)?.allObjects as? [String] ?? []).filter { name in
+                        var isFolder: ObjCBool = false
+                        let last = (name as NSString).lastPathComponent
+                        return FileManager.default.fileExists(atPath: (folder as NSString).appendingPathComponent(name), isDirectory: &isFolder) && !isFolder.boolValue
+                            && last != ".DS_Store" && !last.hasPrefix("._")
+                    }
+                // Every file: a proxy of a checked master, or a cache Resolve makes again (CacheClip, .gallery, OptimizedMedia).
+                let unkept = inside.first { proxy in
+                    let places = ((folder as NSString).lastPathComponent + "/" + proxy).lowercased().split(separator: "/")
+                    if places.contains(where: { ["cacheclip", ".gallery", "optimizedmedia", "optimized media"].contains($0) }) { return false }
+                    guard kinds.contains((proxy as NSString).pathExtension.lowercased()) else { return true }
                     let stem = (((proxy as NSString).lastPathComponent as NSString).deletingPathExtension).lowercased()
                     let of = clips.filter { clip in
                         let name = (((clip.path as NSString).lastPathComponent as NSString).deletingPathExtension).lowercased()
@@ -1467,7 +1553,7 @@ final class ShrinkCenter {
                     return of.isEmpty || !of.allSatisfy { $0.safeNow() }
                 }
                 if let unkept {
-                    runs[r].proxyNotes = (runs[r].proxyNotes ?? [:]).merging([folder: String(localized: "Left: \((unkept as NSString).lastPathComponent) isn’t a proxy of a checked master")]) { $1 }
+                    runs[r].proxyNotes = (runs[r].proxyNotes ?? [:]).merging([folder: String(localized: "Left: \((unkept as NSString).lastPathComponent) isn’t a proxy of a checked master or a cache")]) { $1 }
                     continue
                 }
                 var holder = ShrinkFolders.File(path: folder, folder: file.folder, size: 0, modified: .now)
@@ -1608,6 +1694,30 @@ final class ShrinkCenter {
 }
 
 extension ShrinkFolders {
+    /// A share's identity: a NAS share's own .pluck-share-id at its top (made once, never written over; a
+    /// read-only share: its server and share name), a disk's volume UUID. nil: can't be told.
+    static func shareID(_ share: String, place: String, create: Bool) -> String? {
+        if !place.isEmpty {
+            let marker = (share as NSString).appendingPathComponent(".pluck-share-id")
+            func read() -> String? {
+                guard let text = (try? String(contentsOfFile: marker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+                return "marker:" + text
+            }
+            if let known = read() { return known }
+            if create {
+                let handle = Darwin.open(marker, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+                if handle >= 0 {
+                    let id = Array(UUID().uuidString.utf8)
+                    _ = id.withUnsafeBytes { write(handle, $0.baseAddress, $0.count) }
+                    close(handle)
+                }
+                if let known = read() { return known }
+            }
+            return FileManager.default.fileExists(atPath: marker) ? nil : "place:" + place
+        }
+        return (try? URL(fileURLWithPath: share).resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString.map { "volume:" + $0 }
+    }
+
     /// A run with every path on one share moved to where that share is mounted now.
     static func relocated(_ run: Run, from old: String, to new: String) -> Run {
         func map(_ path: String) -> String { path == old || path.hasPrefix(old + "/") ? new + path.dropFirst(old.count) : path }
@@ -1622,6 +1732,7 @@ extension ShrinkFolders {
         run.proxyFolders = Dictionary(run.proxyFolders.map { (map($0.key), $0.value.map(map)) }) { $1 }
         run.movedFolders = Dictionary(run.movedFolders.map { (map($0.key), map($0.value)) }) { $1 }
         run.shares = run.shares.map { Dictionary($0.map { (map($0.key), $0.value) }) { $1 } }
+        run.shareIDs = run.shareIDs.map { Dictionary($0.map { (map($0.key), $0.value) }) { $1 } }
         return run
     }
 }
@@ -1691,6 +1802,7 @@ extension ShrinkFolders.Run {
         relinked = v(.relinked)
         shares = v(.shares)
         proxyNotes = v(.proxyNotes)
+        shareIDs = v(.shareIDs)
     }
 }
 

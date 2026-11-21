@@ -234,8 +234,8 @@ extension PhotoSelfTest {
             .flatMap { $0 }.filter { ($0["original"] as? String)?.hasPrefix(checkFolder.path) == true }
         check("shrink safety: every run ends with Check Before Deleting: each master safe, its checksum, frames and check in the inventory",
               checkedFiles.count == 3 && checkedFiles.allSatisfy { $0.safeToDelete && $0.masterHash != nil && $0.frames == 25 && $0.originalHead != nil }
-              && inventoryJSON.count == 3 && inventoryJSON.allSatisfy { $0["safe_to_delete"] as? Bool == true && ($0["master_xxhash64"] as? String)?.isEmpty == false
-                  && $0["frames"] as? Int == 25 && $0["checked"] != nil },
+              && inventoryJSON.count == 3 && inventoryJSON.allSatisfy { $0["check_passed"] as? Bool == true && $0["safe_to_delete"] == nil && ($0["master_xxhash64"] as? String)?.isEmpty == false
+                  && $0["frames"] as? Int == 25 && $0["checked_at"] != nil },
               "\(checkedFiles.map { "\($0.state) \($0.note ?? "") \($0.checkProblems ?? ["unchecked"])" }) \(inventoryJSON.count)")
         if checkedFiles.count == 3, let m2 = checkedFiles.first(where: { $0.path == c2.path })?.master, let o3 = checkedFiles.first(where: { $0.path == c3.path })?.moved {
             if let handle = FileHandle(forUpdatingAtPath: m2) {
@@ -523,5 +523,142 @@ extension PhotoSelfTest {
         try? fm.createDirectory(at: lonely, withIntermediateDirectories: true)
         let said = await checkCenter.check(holding: lonely, ffmpeg: ffmpeg, ffprobe: ffprobe)
         check("shrink safety: Check on a share with no runs says so", said?.contains(lonely.path) == true, said ?? "nil")
+
+        // Third review.
+        // M1 A clone of the share (same name, another drive): the run waits, nothing moves.
+        let clone = roam.deletingLastPathComponent().appendingPathComponent("Clone")
+        OfficeGroup.testVolumes += [(clone.path, "smb://test/clone"), (clone.path.replacingOccurrences(of: "/private/var/", with: "/var/"), "smb://test/clone")]
+        let cloneFolder = clone.appendingPathComponent("Job/Rushes"), cloneClip = cloneFolder.appendingPathComponent("A080C001.mov")
+        make(cloneClip)
+        let cloneCenter = center("clone")
+        let cloneID = cloneCenter.add(scan(cloneFolder), settings: hd, roots: [cloneFolder.path])
+        // (Another drive with the same share name: its own marker.)
+        try? "another-drive".write(to: clone.appendingPathComponent(".pluck-share-id"), atomically: true, encoding: .utf8)
+        await cloneCenter.resume(cloneID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        check("shrink safety: another drive with the same share name: the run waits, nothing moves",
+              cloneCenter.run(cloneID)?.files.first?.state == .pending && cloneCenter.run(cloneID)?.paused != nil
+              && ProjectArchive.streams(cloneClip.path, ffprobe: ffprobe).codec == "prores", cloneCenter.run(cloneID)?.paused ?? "not paused")
+
+        // M2 A cache that can't be dropped: no checksum, not safe.
+        let dropBefore = S.dropping
+        S.dropping = { _ in false }
+        let undropped = S.readBack(probe.path)
+        S.dropping = dropBefore
+        check("shrink safety: the cache can't be dropped: the master isn't read back (not safe)", undropped.hash == nil && undropped.problem != nil, "\(undropped)")
+
+        // M3 Show in Finder looks again first: a master deleted since the last look leaves its original out.
+        let revealModel = ArchiveModel(center: checkCenter)
+        await revealModel.refreshSpace()
+        if let place = revealModel.waiting.first(where: { S.real($0.folder).path == S.real(holding).path }),
+           let m1 = checkCenter.run(checkID)?.files.first(where: { $0.path == c1.path })?.master {
+            let keep = base.appendingPathComponent("m1-reveal.mov")
+            try? fm.moveItem(atPath: m1, toPath: keep.path)
+            let shown = await revealModel.safeToReveal(place)
+            check("shrink safety: Show in Finder looks again first: a master deleted meanwhile leaves its original out",
+                  !shown.contains { $0.lastPathComponent == "A008C001.mov" }, "\(shown.map(\.lastPathComponent))")
+            try? fm.moveItem(atPath: keep.path, toPath: m1)
+        }
+
+        // L1 + L5 An original named like Pluck's reports is still counted; two records for one file: not safe wins.
+        let lookalike = holding.appendingPathComponent("Shrink x.mov")
+        try? Data(repeating: 4, count: 500).write(to: lookalike)
+        if var twin = checkCenter.run(checkID)?.files.first(where: { $0.path == c1.path }) {
+            let other = checkCenter.add([twin], settings: hd, roots: [checkFolder.path])
+            twin.state = .done
+            twin.checked = .now
+            twin.checkProblems = ["different"]
+            checkCenter.set(twin, in: other)
+            let model = ArchiveModel(center: checkCenter)
+            await model.refreshSpace()
+            let place = model.waiting.first { S.real($0.folder).path == S.real(holding).path }
+            check("shrink safety: a file named like a Pluck report is counted (not checked); two records for one original: not safe wins",
+                  place?.unsafeFiles.contains("Shrink x.mov") == true && place?.safeFiles.contains { $0.lastPathComponent == "A008C001.mov" } == false,
+                  "\(place?.unsafeFiles ?? []) \(place?.safeFiles.map(\.lastPathComponent) ?? [])")
+            checkCenter.remove(other)
+        }
+        try? fm.removeItem(at: lookalike)
+
+        // L2 Refused after the original went out: the master stays (the original isn't back at its name); a rename the server did but reported failed.
+        let refuse = projects.appendingPathComponent("Refuse/Rushes"), refuseClip = refuse.appendingPathComponent("A090C001.mov")
+        make(refuseClip)
+        if let file = scan(refuse).first {
+            let refuseCenter = center("refuse")
+            let refuseID = refuseCenter.add([file], settings: hd, roots: [refuse.path])
+            S.kill = { name, killed in name == "original out" && killed.path == refuseClip.path }
+            await refuseCenter.resume(refuseID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            S.kill = nil
+            if let working = refuseCenter.run(refuseID)?.files.first, working.state == .working {
+                let after = S.finish(working, settings: hd, stillOurs: { false })
+                check("shrink safety: a claim lost with the original in the folder to delete: the master isn't dropped",
+                      fm.fileExists(atPath: working.temp ?? "/nonexistent") && after.state == .working, "\(after.state) \(after.note ?? "")")
+            } else { check("shrink safety: refused clip killed", false) }
+        }
+        let liar = S.exclusiveRename
+        S.exclusiveRename = { from, to in _ = renamex_np(from, to, UInt32(RENAME_EXCL)); errno = EIO; return -1 }
+        let la = base.appendingPathComponent("la.bin"), lb = base.appendingPathComponent("lb.bin")
+        try? Data("x".utf8).write(to: la)
+        let lied = S.rename(la.path, lb.path)
+        S.exclusiveRename = liar
+        check("shrink safety: a rename the server did but said failed is taken as done (both ends looked at)",
+              lied == nil && fm.fileExists(atPath: lb.path) && !fm.fileExists(atPath: la.path), lied ?? "nil")
+
+        // L3 A placeholder left at the original's place in the folder to delete: removed, the original moved, and only then done.
+        let holder = projects.appendingPathComponent("Holder/Rushes"), holderClip = holder.appendingPathComponent("C0091.MP4")
+        make(holderClip)
+        if let file = scan(holder).first {
+            let prepared = S.prepare(file, settings: hd, holding: holding, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
+            if let moved = prepared.moved {
+                try? fm.createDirectory(atPath: (moved as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+                fm.createFile(atPath: moved, contents: nil)
+                setxattr(moved, "com.pluck.placeholder", "1", 1, 0, 0)
+                let after = S.finish(prepared, settings: hd)
+                let size = (try? fm.attributesOfItem(atPath: moved))?[.size] as? Int64 ?? 0
+                check("shrink safety: a placeholder left where the original goes: the original is really moved before it's done",
+                      after.state != .done || (size == file.size && !fm.fileExists(atPath: holderClip.path)), "\(after.state) \(size) \(after.note ?? "")")
+            }
+        }
+
+        // L6 Claims carry this Mac's hardware id too.
+        check("shrink safety: a claim names this install and this Mac's hardware", installA.claimName.contains(ShrinkCenter.hardwareID) && !ShrinkCenter.hardwareID.isEmpty,
+              installA.claimName)
+
+        // L7 A file halfway through is never handed to another Mac: the run waits.
+        let half = projects.appendingPathComponent("Half/Rushes"), halfClip = half.appendingPathComponent("A092C001.mov")
+        make(halfClip)
+        if let file = scan(half).first {
+            let halfCenter = center("half")
+            let halfID = halfCenter.add([file], settings: hd, roots: [half.path])
+            S.kill = { name, killed in name == "verified" && killed.path == halfClip.path }
+            S.kill = nil
+            var working = S.prepare(file, settings: hd, holding: holding, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
+            working.temp = working.temp ?? S.temporary(halfClip.path)
+            halfCenter.set(working, in: halfID)
+            let other = OfficeGroup.claim(halfClip, mac: "Other Mac#x")
+            await halfCenter.resume(halfID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            check("shrink safety: a file halfway through stays this Mac's to finish while another holds its claim: the run waits",
+                  halfCenter.run(halfID)?.files.first?.state == .working && halfCenter.run(halfID)?.paused != nil,
+                  "\(String(describing: halfCenter.run(halfID)?.files.first?.state))")
+            if let other { OfficeGroup.release(other) }
+            try? fm.removeItem(atPath: working.temp ?? "/nonexistent")
+        }
+
+        // L8 A proxy folder with a file that's neither a proxy of a checked master nor a known cache stays.
+        let mixed = projects.appendingPathComponent("Mixed"), mixedRushes = mixed.appendingPathComponent("Rushes"), mixedClip = mixedRushes.appendingPathComponent("A093C001.mov")
+        make(mixedClip)
+        let mixedProxy = mixedRushes.appendingPathComponent("Proxy")
+        try? fm.createDirectory(at: mixedProxy, withIntermediateDirectories: true)
+        try? Data(repeating: 2, count: 100).write(to: mixedProxy.appendingPathComponent("A093C001.mov"))
+        try? "keep me".write(to: mixedProxy.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let mixedFiles = scan(mixedRushes).filter { !$0.path.contains("/Proxy/") }
+        let mixedCenter = center("mixed")
+        let mixedID = mixedCenter.add(mixedFiles, settings: hd, roots: [mixed.path], proxies: [mixedFiles.first?.project ?? mixed.path: [mixedProxy.path]])
+        await mixedCenter.resume(mixedID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        check("shrink safety: a proxy folder with a file that isn't a proxy or a cache stays, saying why",
+              fm.fileExists(atPath: mixedProxy.appendingPathComponent("notes.txt").path) && mixedCenter.run(mixedID)?.files.first?.state == .done
+              && mixedCenter.run(mixedID)?.proxyNotes?.isEmpty == false, "\(mixedCenter.run(mixedID)?.proxyNotes ?? [:])")
+        let report = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).filter { $0.hasPrefix("Shrink ") && $0.hasSuffix(".csv") }
+            .compactMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) }.first ?? ""
+        check("shrink safety: the report says check_passed and checked_at, never a lasting safe_to_delete",
+              report.contains("check_passed") && report.contains("checked_at") && !report.contains("safe_to_delete"), String(report.prefix(300)))
     }
 }

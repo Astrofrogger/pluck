@@ -44,6 +44,15 @@ struct ArchiveView: View {
         }
         .studioPanel()
         .task { await model.appeared() }
+        // "Safe" kept current: every 30 s while the page is showing, and when a drive comes or goes.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                if !Task.isCancelled { await model.refreshSpace() }
+            }
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in Task { await model.refreshSpace() } }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in Task { await model.refreshSpace() } }
         .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Rename") { if let renaming { model.rename(renaming, to: newName) } }
@@ -172,7 +181,7 @@ struct ArchiveView: View {
                         Button("Check") { model.check(place) }.buttonStyle(.link).font(Design.Studio.hint)
                             .disabled(center.checking != nil || center.running).help("Reads every master again before you delete its original")
                         if !place.safeFiles.isEmpty {
-                            Button { NSWorkspace.shared.activateFileViewerSelecting(place.safeFiles) } label: { Image(systemName: "folder") }
+                            Button { Task { NSWorkspace.shared.activateFileViewerSelecting(await model.safeToReveal(place)) } } label: { Image(systemName: "folder") }
                                 .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show what’s safe to delete in Finder")
                         }
                     }

@@ -365354,6 +365354,354 @@
           }
         }
       }
+    },
+    "Another Mac holds the claim of a file this Mac is halfway through: waiting" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein anderer Mac hält die Reservierung einer Datei, die dieser Mac halb fertig hat: es wird gewartet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otro Mac tiene la reserva de un archivo que este Mac lleva a medias: esperando"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un autre Mac détient la réservation d’un fichier que ce Mac a commencé : en attente"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un altro Mac ha la prenotazione di un file che questo Mac ha a metà: in attesa"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac が途中まで処理したファイルの予約を別の Mac が持っています：待機中"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac이 절반쯤 처리한 파일의 예약을 다른 Mac이 갖고 있습니다: 대기 중"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Een andere Mac heeft de claim van een bestand dat deze Mac half af heeft: wachten"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outro Mac tem a reserva de um arquivo que este Mac deixou pela metade: aguardando"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "另一台 Mac 持有这台 Mac 处理到一半的文件的占用：正在等待"
+          }
+        }
+      }
+    },
+    "Couldn’t read the master back from the drive" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Master konnte nicht vom Laufwerk zurückgelesen werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo volver a leer el máster del disco"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de relire le master depuis le disque"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile rileggere il master dal disco"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ドライブからマスターを読み戻せませんでした"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "드라이브에서 마스터를 다시 읽지 못했습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De master kon niet van de schijf worden teruggelezen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível ler o master de volta do disco"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法从磁盘回读母版"
+          }
+        }
+      }
+    },
+    "Left: %@ isn’t a proxy of a checked master or a cache" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gelassen: %@ ist weder Proxy eines geprüften Masters noch ein Cache"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se queda: %@ no es un proxy de un máster revisado ni una caché"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laissé : %@ n’est ni le proxy d’un master vérifié ni un cache"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lasciato: %@ non è un proxy di un master controllato né una cache"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのまま：%@ はチェック済みマスターのプロキシでもキャッシュでもありません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "남겨 둠: %@은(는) 점검된 마스터의 프록시도 캐시도 아닙니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blijft staan: %@ is geen proxy van een gecontroleerde master en geen cache"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deixado: %@ não é proxy de um master verificado nem cache"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留：%@ 既不是已检查母版的代理也不是缓存"
+          }
+        }
+      }
+    },
+    "Something else is where the original goes in the folder to delete" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Am Platz des Originals im Lösch-Ordner liegt etwas anderes"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hay otra cosa donde va el original en la carpeta para borrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autre chose occupe la place de l’original dans le dossier à supprimer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "C’è altro dove va l’originale nella cartella da eliminare"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除用フォルダのオリジナルの場所に別のものがあります"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "삭제할 폴더에서 원본이 갈 자리에 다른 것이 있습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Er staat iets anders waar het origineel in de te verwijderen map komt"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Há outra coisa onde o original vai na pasta para apagar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待删除文件夹中原始文件的位置上有其他东西"
+          }
+        }
+      }
+    },
+    "This isn’t the drive the run started on (%@): nothing was moved" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das ist nicht das Laufwerk, auf dem der Lauf begann (%@): nichts wurde verschoben"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este no es el disco en el que empezó la tanda (%@): no se movió nada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce n’est pas le disque où la passe a commencé (%@) : rien n’a été déplacé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non è il disco su cui è iniziata la sessione (%@): nulla è stato spostato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実行を始めたドライブではありません（%@）：何も移動していません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "실행을 시작한 드라이브가 아닙니다(%@): 아무것도 옮기지 않았습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dit is niet de schijf waarop de run begon (%@): er is niets verplaatst"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este não é o disco em que a execução começou (%@): nada foi movido"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这不是运行开始时的磁盘（%@）：没有移动任何东西"
+          }
+        }
+      }
+    },
+    "%@ couldn’t be marked (read-only): another drive with its name can’t be told apart" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ konnte nicht markiert werden (schreibgeschützt): ein anderes Laufwerk mit demselben Namen ist nicht zu unterscheiden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo marcar %@ (solo lectura): otro disco con su nombre no se puede distinguir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ n’a pas pu être marqué (lecture seule) : un autre disque du même nom ne peut pas être distingué"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile contrassegnare %@ (sola lettura): un altro disco con lo stesso nome non si distingue"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ に印を付けられませんでした（読み出し専用）：同じ名前の別のドライブと区別できません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@에 표시하지 못했습니다(읽기 전용): 같은 이름의 다른 드라이브와 구별할 수 없습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ kon niet worden gemarkeerd (alleen-lezen): een andere schijf met dezelfde naam is niet te onderscheiden"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível marcar %@ (somente leitura): outro disco com o mesmo nome não pode ser distinguido"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法标记 %@（只读）：无法区分同名的另一个磁盘"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
