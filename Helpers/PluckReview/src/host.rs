@@ -990,10 +990,25 @@ impl Host {
     }
 
     /// The owner's "Prefer fastest even if lighter" (a main's own setting, kept in serving.json; on by default).
+    /// And the download cap (4.0.7, `downloadMbps`, Mbit/s; missing or 0 = off).
     fn load_serving(&self) {
-        let on = std::fs::read(self.data.join("serving.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .is_none_or(|v| v["preferFastest"] != false); // the fastest NAS serves unless the owner turned it off
+        let v = self.serving();
+        let on = v["preferFastest"] != false; // the fastest NAS serves unless the owner turned it off
         crate::signal::FASTEST.store(on, std::sync::atomic::Ordering::Relaxed);
+        crate::media::CAP_BPS.store(v["downloadMbps"].as_u64().unwrap_or(0).min(100_000) * 125_000, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn serving(&self) -> Value {
+        std::fs::read(self.data.join("serving.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}))
+    }
+
+    /// One serving.json setting changed, the others kept.
+    fn set_serving(&mut self, key: &str, value: Value) -> Result<(), String> {
+        let mut v = self.serving();
+        v[key] = value;
+        std::fs::write(self.data.join("serving.json"), v.to_string()).map_err(|e| format!("can't write serving.json: {e}"))?;
+        self.load_serving();
+        Ok(())
     }
 
     /// A peer gone (closed, or ended by check_links): its fetches end (temp files go, a backup's
@@ -1456,6 +1471,7 @@ impl Host {
                 crate::update::status_fields(&mut s, &self.data);
                 s["uplinkMbps"] = json!(crate::uplink::mbps());
                 s["preferFastest"] = json!(crate::signal::FASTEST.load(std::sync::atomic::Ordering::Relaxed));
+                s["downloadMbps"] = json!(crate::media::CAP_BPS.load(std::sync::atomic::Ordering::Relaxed) / 125_000);
                 if let Some(r) = &self.replica {
                     s["replica"] = r.summary();
                 }
@@ -1463,9 +1479,17 @@ impl Host {
             }
             "prefer-fastest" if !self.ident.backup => {
                 let on = op["on"] == true;
-                match std::fs::write(self.data.join("serving.json"), json!({"preferFastest": on}).to_string()) {
-                    Ok(()) => { self.load_serving(); json!({"ok": true, "preferFastest": on}) }
-                    Err(e) => json!({"error": format!("can't write serving.json: {e}")}),
+                match self.set_serving("preferFastest", json!(on)) {
+                    Ok(()) => json!({"ok": true, "preferFastest": on}),
+                    Err(e) => json!({"error": e}),
+                }
+            }
+            // 4.0.7: cap the total speed of full-file downloads (masters, proxies), so playback for others keeps going.
+            "download-cap" if !self.ident.backup => {
+                let mbps = op["mbps"].as_u64().unwrap_or(0).min(100_000);
+                match self.set_serving("downloadMbps", json!(mbps)) {
+                    Ok(()) => json!({"ok": true, "downloadMbps": mbps}),
+                    Err(e) => json!({"error": e}),
                 }
             }
             // 4.1: the team's custom statuses, fields and saved views (Pluck's library.json), kept for the team's Macs as
@@ -1630,6 +1654,10 @@ impl Host {
             }
             _ if !self.peers[peer].ready => return self.err(peer, &id, "auth"),
             _ => {}
+        }
+        // A client page lists links (in `ready`); nothing else is asked of it.
+        if link["portal"].is_object() && t != "identify" && t != "name" {
+            return self.err(peer, &id, "scope");
         }
         if self.account_op(peer, &id, t, m).is_some() {
             return;
@@ -1819,9 +1847,39 @@ impl Host {
         if self.manifest["branding"].is_object() {
             v["branding"] = self.manifest["branding"].clone();
         }
+        if link["portal"].is_object() {
+            v["portal"] = self.portal(link);
+        }
         self.send(peer, v);
         self.presence(&room);
         self.activity(peer, "opened", Value::Null, Value::Null, Value::Null);
+    }
+
+    /// A client page (4.0.7): the client's live links on this host, each with its title, last update and approvals, and the
+    /// owner's sealed box of their addresses (only a holder of the page's own key opens it; this host never can). Only
+    /// links the box names, in the page's projects, live, for clients (not team, personal or other client pages). As
+    /// Swift's DeliverClientPage.wire.
+    fn portal(&self, page: &Value) -> Value {
+        let projects: Vec<&Value> = Self::arr(&page["portal"], "projects").collect();
+        let named: Vec<&Value> = Self::arr(&page["portal"], "links").collect();
+        let mut rows: Vec<Value> = self.links().filter(|l| {
+            named.contains(&&l["id"]) && projects.contains(&&l["project"]) && servable(l) && self.live(l).is_ok() && !team(l)
+                && l["recipient"].as_str().is_none_or(|r| r.is_empty()) && !l["portal"].is_object()
+        }).map(|l| {
+            let (mut n, mut ok, mut changes, mut updated) = (0, 0, 0, l["created"].as_str().unwrap_or("").to_owned());
+            for a in self.project(l).map(|p| Self::arr(p, "assets").collect::<Vec<_>>()).unwrap_or_default() {
+                if a["id"].as_str().and_then(|id| self.asset_in_scope(l, id)).is_none() { continue }
+                n += 1;
+                match self.status_of(a).as_str() { Some("approved") => ok += 1, Some("needsChanges") => changes += 1, _ => {} }
+                for v in Self::arr(a, "versions") {
+                    if let Some(at) = v["added"].as_str().filter(|at| *at > updated.as_str()) { updated = at.to_owned(); }
+                }
+            }
+            json!({"id": l["id"], "title": l["title"], "updated": updated, "assets": n, "approved": ok, "changes": changes})
+        }).collect();
+        let key = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_owned();
+        rows.sort_by(|a, b| key(b, "updated").cmp(&key(a, "updated")).then(key(a, "title").cmp(&key(b, "title"))).then(key(a, "id").cmp(&key(b, "id"))));
+        json!({"links": rows, "box": page["portal"]["box"]})
     }
 
     fn presence(&self, room: &str) {
@@ -1975,13 +2033,15 @@ impl Host {
                     r.fetch_start(v);
                     self.peers.get_mut(peer).unwrap().fetches.entry(fetch).or_default().version = Some(v.to_owned());
                 }
-                if what == "original" || what == "proxy" {
+                // Masters and proxy downloads share the owner's download cap; playback (copies' segments) never waits for it.
+                let capped = what == "original" || what == "proxy";
+                if capped {
                     let f = self.peers.get_mut(peer).unwrap().fetches.entry(fetch).or_default();
                     f.download = Some((asset, version, what));
                 }
                 self.send(peer, r);
                 let parts: Vec<Value> = parts.into_iter().map(|(path, offset, length)| json!({"path": path, "offset": offset, "length": length})).collect();
-                self.cmd(json!({"serve": {"peer": peer, "fetch": fetch, "pieces": parts}}));
+                self.cmd(json!({"serve": {"peer": peer, "fetch": fetch, "pieces": parts, "capped": capped}}));
             }
             Ok(Resolved::Still { input, t }) => {
                 if !rate(&mut self.peers.get_mut(peer).unwrap().stills, Duration::from_secs(60), 60) {
@@ -3239,6 +3299,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_client_page_lists_only_that_clients_live_links_and_answers_nothing_else() {
+        let (mut h, mut rx) = test_host();
+        let mut m = sample(json!([]));
+        m["projects"][0]["assets"][0]["versions"][0]["added"] = json!("2026-11-20T10:00:00Z");
+        m["projects"][0]["assets"][0]["status"] = json!("approved");
+        m["projects"].as_array_mut().unwrap().push(json!({"id": "Q", "name": "Other client", "folders": [], "assets": []}));
+        let mut whole = link("L1", "R1", json!({"kind": "project", "id": "P"}));
+        whole["title"] = json!("Cuts <b>");
+        whole["created"] = json!("2026-11-01T09:00:00Z");
+        let mut one = link("L2", "R2", json!({"kind": "asset", "id": "B"}));
+        one["created"] = json!("2026-11-21T08:00:00Z");
+        let mut teamish = link("L3", "R3", json!({"kind": "project", "id": "P"}));
+        teamish["audience"] = json!("team");
+        let mut personal = link("L4", "R4", json!({"kind": "project", "id": "P"}));
+        personal["recipient"] = json!("Sam");
+        let mut gone = link("L5", "R5", json!({"kind": "project", "id": "P"}));
+        gone["expires"] = json!("2020-01-01T00:00:00Z");
+        let mut elsewhere = link("L6", "R6", json!({"kind": "project", "id": "Q"}));
+        elsewhere["project"] = json!("Q");
+        let mut page = link("C1", "RC", json!({"kind": "assets", "id": "C1", "assets": []}));
+        page["portal"] = json!({"projects": ["P"], "links": ["L1", "L2", "L3", "L4", "L5", "L6", "C1"], "box": "sealed"});
+        m["links"] = json!([whole, one, teamish, personal, gone, elsewhere, page.clone()]);
+        assert_eq!(h.publish(&m, &json!({}))["ok"], true);
+        ready_peer(&mut h, "p1", "RC");
+        cmds(&mut rx);
+        h.ready("p1", &json!(1), &page);
+        let ready = answer(&mut rx, "p1", 1);
+        assert_eq!(ready["portal"]["box"], "sealed", "the box goes as the owner sealed it");
+        let rows = ready["portal"]["links"].as_array().unwrap();
+        assert_eq!(rows.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), ["L2", "L1"], "newest first; never team, personal, expired, another client's or itself");
+        assert_eq!(rows[1], json!({"id": "L1", "title": "Cuts <b>", "updated": "2026-11-20T10:00:00Z", "assets": 2, "approved": 1, "changes": 0}));
+        assert_eq!(rows[0]["updated"], "2026-11-21T08:00:00Z", "no version date: when the link was made");
+        for (i, t) in ["list", "asset", "fetch", "comments", "comment-add", "mentionable", "subscribe"].iter().enumerate() {
+            h.request("p1", &json!({"id": 10 + i, "t": t, "asset": "A"}));
+            assert_eq!(answer(&mut rx, "p1", 10 + i as u64)["error"]["code"], "scope", "{t}");
+        }
+        h.request("p1", &json!({"id": 30, "t": "identify", "name": "Kim"}));
+        assert_eq!(answer(&mut rx, "p1", 30)["ok"], true);
+    }
+
+    #[tokio::test]
     async fn paused_links_answer_paused_and_keep_their_room() {
         let (mut h, mut rx) = test_host();
         h.publish(&sample(json!([link("L1", "R1", json!({"kind": "project", "id": "P"}))])), &json!({}));
@@ -3656,7 +3757,11 @@ mod tests {
         // A finished proxy download is logged.
         ready_peer(&mut h, "p1", "R1");
         h.request("p1", &json!({"id": 7, "t": "fetch", "asset": "A", "version": "V", "what": "proxy"}));
-        assert_eq!(answer(&mut rx, "p1", 7)["size"], 3100);
+        let c = cmds(&mut rx);
+        assert_eq!(c.iter().find(|c| c["send"]["msg"]["re"] == 7).unwrap()["send"]["msg"]["size"], 3100);
+        assert_eq!(c.iter().find(|c| c.get("serve").is_some()).unwrap()["serve"]["capped"], true, "a download shares the cap");
+        h.request("p1", &json!({"id": 8, "t": "fetch", "asset": "A", "version": "V", "what": "segment", "rendition": "1080", "n": 0}));
+        assert_eq!(cmds(&mut rx).iter().find(|c| c.get("serve").is_some()).unwrap()["serve"]["capped"], false, "playback never waits for it");
         h.report(&json!({"served": {"peer": "p1", "fetch": 7, "bytes": 3100, "result": "done"}}));
         assert!(h.entries.iter().any(|e| e["activity"]["kind"] == "downloaded" && e["activity"]["detail"]["what"] == "proxy"));
     }
@@ -3847,6 +3952,13 @@ mod tests {
         assert_eq!(f, json!({"preferFastest": true}));
         assert!(h.sync(&json!({"op": "status"})).get("uplinkMbps").is_some());
         h.sync(&json!({"op": "prefer-fastest", "on": false}));
+        assert_eq!(h.sync(&json!({"op": "download-cap", "mbps": 200})), json!({"ok": true, "downloadMbps": 200}));
+        let f: Value = serde_json::from_slice(&std::fs::read(h.data.join("serving.json")).unwrap()).unwrap();
+        assert_eq!(f, json!({"preferFastest": false, "downloadMbps": 200}), "one setting doesn't drop the other");
+        assert_eq!(h.sync(&json!({"op": "status"}))["downloadMbps"], 200);
+        assert_eq!(crate::media::CAP_BPS.load(std::sync::atomic::Ordering::Relaxed), 25_000_000);
+        h.sync(&json!({"op": "download-cap", "mbps": 0}));
+        assert_eq!(crate::media::CAP_BPS.load(std::sync::atomic::Ordering::Relaxed), 0, "off");
         h.ident.backup = true;
         assert_eq!(h.sync(&json!({"op": "prefer-fastest", "on": true}))["error"], "unknown op", "not on a backup");
     }

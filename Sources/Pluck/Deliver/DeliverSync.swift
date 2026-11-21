@@ -497,6 +497,9 @@ final class DeliverSync {
         // or a folder's arrangement would freeze into the link; only 4.0.7 Macs, which send both, know link orders).
         link.order = (wire["ownOrder"] as? [String]).map { $0.compactMap(UUID.init(uuidString:)) }
         link.customStatuses = (wire["customStatuses"] as? Bool) == true ? true : nil
+        if let portal = wire["portal"] as? [String: Any] {   // a client page (4.0.7): its projects (the box is the maker's)
+            link.portal = .init(projects: (portal["projects"] as? [String] ?? []).compactMap(UUID.init(uuidString:)))
+        }
         if let mark = wire["watermark"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: mark) {
             link.watermark = try? Deliver.decoder.decode(Deliver.ShareLink.Watermark.self, from: data)
         }

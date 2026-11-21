@@ -146,6 +146,10 @@ struct DeliverPage: View {
                     .padding(Design.Spacing.sheet).background(Design.Studio.panel))
                 nav.deliver = .inbox
             case "people": DeliverPeople.snapshot(); nav.deliver = .people
+            case "clientpage": // People › New Client Page… (4.0.7)
+                DeliverPeople.snapshot()
+                panelInPage = AnyView(DeliverClientPageSheet(page: store.links.first(where: \.isPortal)))
+                nav.deliver = .people
             case "peopletransfer", "peopleinvite":
                 // Roles: Transfer Admin… and Invite… over the stand-in team (loaded first).
                 DeliverPeople.snapshot()
@@ -214,6 +218,14 @@ struct DeliverPage: View {
                     }
                 }
                 panelInPage = view == "pairagain" ? AnyView(DeliverPairAgainSheet(host: sample)) : AnyView(ReviewTrueNASSetupSheet(editing: sample))
+                nav.deliver = .inbox
+            case "hostcap": // A NAS's sheet with the download speed limit (4.0.7), over the stand-in main.
+                DeliverPeople.snapshot()
+                let people = ReviewHostClient.fake
+                ReviewHostClient.fake = { request, body in
+                    request["op"] as? String == "status" ? ["downloadMbps": 100, "preferFastest": true, "uplinkMbps": 480] : people?(request, body)
+                }
+                if let main = DeliverPeople.main() { panelInPage = AnyView(DeliverHostSheet(host: main)) }
                 nav.deliver = .inbox
             case "backup", "hostsheet":
                 let sample = Deliver.Host(name: "Office NAS", kind: .nas, address: "192.0.2.10:8790", version: "0.3.0", protocol: 3)
@@ -382,7 +394,7 @@ struct DeliverProjectCover: View {
 struct DeliverSidebar: View {
     /// The links the sidebar lists under a project: none unless that project is open (no global list of links).
     static func links(of project: UUID, store: DeliverStore, selection: Deliver.Selection) -> [Deliver.ShareLink] {
-        selection.project == project ? store.links.filter { $0.isLive && $0.project == project } : []
+        selection.project == project ? store.links.filter { $0.isLive && $0.project == project && !$0.isPortal } : []
     }
 
     @Bindable var nav: StudioNavigator
@@ -1110,7 +1122,7 @@ struct DeliverLinkRow: View {
 
     /// The table's rows: a project's links, live ones first, newest first.
     static func rows(_ links: [Deliver.ShareLink], project: UUID) -> [Deliver.ShareLink] {
-        links.filter { $0.project == project }.enumerated()
+        links.filter { $0.project == project && !$0.isPortal }.enumerated()
             .sorted { ($0.element.isLive ? 0 : 1, -$0.offset) < ($1.element.isLive ? 0 : 1, -$1.offset) }.map(\.element)
     }
 

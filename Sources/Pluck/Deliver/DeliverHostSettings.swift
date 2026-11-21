@@ -1,4 +1,6 @@
+import Network
 import SwiftUI
+import UserNotifications
 
 /// Settings › Review: where the review data lives (§13.1), and per NAS host its version and updates (§13.15),
 /// its paired devices and backup (§13.2, §13.3), its quiet time and its host key.
@@ -40,6 +42,7 @@ struct DeliverHostSheet: View {
     @State private var mainReachable = true
     @State private var uplink: Int?          // this host's measured upload, Mbit/s (nil: not measured)
     @State private var preferFastest = true // the owner's "Prefer fastest even if lighter" (kept on the host)
+    @State private var downloadCap: Int?    // Mbit/s for whole-file downloads, 0 = off; nil: a host before 4.0.7
     @State private var backup = false
     @State private var problem: String?
     @State private var quiet = "04:00"
@@ -82,6 +85,7 @@ struct DeliverHostSheet: View {
                     }
                 })).studioBox()
             }
+            if let cap = downloadCap, host.role != "backup" { downloadLimit(cap) }
             if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
             HStack {
                 Button("Backup Host…") { backup = true }.buttonStyle(StudioFlatButtonStyle())
@@ -98,6 +102,29 @@ struct DeliverHostSheet: View {
         .task { quiet = DeliverHostUpdate.quietTime(host.id); await load() }
         .sheet(isPresented: $backup) { DeliverBackupSheet(main: host) }
         .deliverHostAction($action) { _ in dismiss() }
+    }
+
+    /// The download speed cap (4.0.7): whole-file downloads (masters, proxies) share it; playback never waits for it.
+    private func downloadLimit(_ cap: Int) -> some View {
+        SettingRow(text: Text("Download speed limit"), detail: Text("Only whole-file downloads. Playback isn’t slowed.")) {
+            Picker(selection: Binding(get: { cap }, set: { mbps in
+                downloadCap = mbps
+                Task {
+                    if let kept = (try? await ReviewHostClient.ask(host, ["op": "download-cap", "mbps": mbps]))?["downloadMbps"] as? Int {
+                        downloadCap = kept
+                        problem = nil
+                    } else {
+                        downloadCap = cap
+                        problem = String(localized: "\(host.name) couldn’t change this. Update it, then try again.")
+                    }
+                }
+            })) {
+                Text("Off").tag(0)
+                ForEach([50, 100, 250, 500], id: \.self) { Text("\($0) Mbit/s").tag($0) }
+                if ![0, 50, 100, 250, 500].contains(cap) { Text("\(cap) Mbit/s").tag(cap) }
+            } label: { EmptyView() }.fixedSize().disabled(!DeliverPeople.isAdmin(host))
+        }
+        .studioBox()
     }
 
     private var versionText: Text { Text(verbatim: "\(host.version ?? "–") · protocol \(host.protocol.map(String.init) ?? "–")") }
@@ -224,6 +251,7 @@ struct DeliverHostSheet: View {
             backups = status?["backups"] as? [[String: Any]] ?? []
             uplink = status?["uplinkMbps"] as? Int
             preferFastest = status?["preferFastest"] as? Bool ?? true
+            downloadCap = status?["downloadMbps"] as? Int
             if host.selfUpdate == 1 { await updates.tell(host) }
             mainReachable = true
         } catch {
@@ -631,5 +659,86 @@ struct DeliverInviteSheet: View {
     private func remove(_ id: String) async {
         do { _ = try await ReviewHostClient.ask(host, ["op": "device-remove", "id": id]) } catch { problem = ReviewHostClient.problem(error) }
         await load()
+    }
+}
+
+// MARK: - A NAS that stops answering (4.0.7)
+
+/// Every minute this Mac asks each paired NAS for its status. One that hasn't answered for 10 minutes (while this Mac
+/// itself is online) warns the team once: a notification here and a post to the projects' webhooks (an admin Mac's
+/// only, so a team of Macs doesn't post it several times over); its first answer after that says it's back.
+@MainActor
+final class DeliverHostWatch {
+    static let shared = DeliverHostWatch()
+    static let after: TimeInterval = 600
+
+    private(set) var since: [UUID: Date] = [:]
+    private(set) var warned: Set<UUID> = []
+    /// Tests stand in for these: the host's answer, this Mac's own network, what the team is told.
+    var probe: (Deliver.Host) async -> Bool = { (try? await ReviewHostClient.ask($0, ["op": "status"])) != nil }
+    var online: () -> Bool = { DeliverHostWatch.path.currentPath.status == .satisfied }
+    var tell: (Deliver.Host, _ back: Bool, _ since: Date) -> Void = { DeliverHostWatch.warn($0, back: $1, since: $2) }
+    private static let path: NWPathMonitor = { let m = NWPathMonitor(); m.start(queue: .global(qos: .utility)); return m }()
+    private var loop: Task<Void, Never>?
+
+    func start() {
+        guard loop == nil else { return }
+        loop = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                await self?.check(ReviewPublish.shared.hosts)
+            }
+        }
+    }
+
+    func check(_ hosts: [Deliver.Host], now: Date = .now) async {
+        // This Mac offline: nothing can be said of the NAS (and the clock starts again once it's back).
+        guard online() else { since = [:]; return }
+        for host in hosts where host.kind == .nas {
+            if await probe(host) {
+                since[host.id] = nil
+                await keepHooks(host, now: now)
+                if warned.remove(host.id) != nil { tell(host, true, now) }
+            } else {
+                let first = since[host.id] ?? now
+                since[host.id] = first
+                if now.timeIntervalSince(first) >= Self.after, warned.insert(host.id).inserted { tell(host, false, first) }
+            }
+        }
+    }
+
+    /// The projects' webhook addresses, kept while the NAS answers (an admin Mac's, every 30 min): it can't be asked
+    /// for them once it's down.
+    private var hooksAsked: [UUID: Date] = [:]
+    private func keepHooks(_ host: Deliver.Host, now: Date) async {
+        guard ScreenshotMode.scene == nil, host.mail == 1, host.role != "backup", DeliverPeople.isAdmin(host),
+              hooksAsked[host.id].map({ now.timeIntervalSince($0) > 1800 }) ?? true else { return }
+        hooksAsked[host.id] = now
+        guard let hooks = (try? await ReviewHostClient.ask(host, ["op": "mail-state"]))?["hooks"] as? [String: [String: Any]] else { return }
+        UserDefaults.standard.set(Array(Set(hooks.values.compactMap { $0["url"] as? String })).sorted(), forKey: Self.hooksKey + host.id.uuidString)
+    }
+    static let hooksKey = "reviewHostHooks."
+
+    static func warn(_ host: Deliver.Host, back: Bool, since: Date) {
+        guard ScreenshotMode.scene == nil else { return }
+        let title = back ? String(localized: "\(host.name) is back") : String(localized: "\(host.name) isn’t answering")
+        let body = back ? String(localized: "Clients can open their links again.")
+            : String(localized: "Since \(since.formatted(date: .omitted, time: .shortened)). Clients see “Temporarily offline” until it’s back.")
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-host-" + host.id.uuidString, content: content, trigger: nil))
+        guard DeliverPeople.isAdmin(host) else { return }
+        // `text` first, as the host's own webhook posts (a Slack incoming webhook shows it). No signature: the secret stays on the NAS.
+        let event: [String: Any] = ["text": "\(title). \(body)", "event": back ? "host-online" : "host-offline", "host": host.name,
+                                    "since": DeliverServer.date(since)]
+        let kept = UserDefaults.standard.stringArray(forKey: hooksKey + host.id.uuidString) ?? []
+        for url in Set(kept + DeliverMail.shared.hooks.values).compactMap(URL.init(string:)) where url.scheme == "https" {
+            var request = URLRequest(url: url, timeoutInterval: 20)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: event)
+            URLSession.shared.dataTask(with: request).resume()
+        }
     }
 }

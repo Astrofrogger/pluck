@@ -68,6 +68,8 @@ extension Deliver {
         var mail: Int? = nil
         /// What its hello said of updating itself (`"selfUpdate": 1`, 4.0.7): Pluck tells it the version to follow, no API key.
         var selfUpdate: Int? = nil
+        /// What its hello said of client pages (`"portal": 1`, 4.0.7): People can offer one per client.
+        var portal: Int? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }
@@ -518,6 +520,7 @@ final class ReviewPublish {
             // `order` is what the page uses (the folders' order when the link has none); `ownOrder` the link's own, which
             // another Mac reads back (so a folder's order never freezes into the link). Hosts keep it as they keep any field.
             wire["ownOrder"] = link.order?.isEmpty == false ? link.order!.map(\.uuidString) : NSNull()
+            if let portal = DeliverClientPage.manifest(link, store: store) { wire["portal"] = portal }   // a client page (4.0.7)
             return wire.merging(Self.stamp(link)) { $1 }
         }
         let folders = content.folders.map { folder -> [String: Any] in

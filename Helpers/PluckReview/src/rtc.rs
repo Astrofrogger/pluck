@@ -49,7 +49,7 @@ pub struct Peer {
     fp_remote: String,
     pub serves: Vec<media::Serve>,
     /// Serves past PER_PEER/TOTAL: the browser was already told the size, so they wait for a slot (media::admit).
-    pub waiting: VecDeque<(u32, Vec<media::Part>)>,
+    pub waiting: VecDeque<(u32, Vec<media::Part>, bool)>, // (fetch, pieces, capped: a full-file download)
     /// Fetch ids cancelled before their serve came (ctl and media race): such a serve is dropped.
     cancelled: VecDeque<u32>,
     ctl_out: VecDeque<String>,
@@ -456,7 +456,7 @@ impl Peer {
         for s in self.serves.drain(..) {
             served(&self.id, s.fetch, s.sent, "cancelled");
         }
-        for (fetch, _) in self.waiting.drain(..) {
+        for (fetch, _, _) in self.waiting.drain(..) {
             served(&self.id, fetch, 0, "cancelled");
         }
         for u in self.uploads.drain(..) {

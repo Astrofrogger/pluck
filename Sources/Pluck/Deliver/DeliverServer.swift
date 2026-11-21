@@ -93,6 +93,7 @@ final class DeliverServer {
         let live = Set(store.links.map(\.roomID)) // only rooms of links still here
         heldRooms.formIntersection(live.union([room]))
         UserDefaults.standard.set(Array(heldRooms), forKey: Self.heldKey)
+        if self === Self.shared { DeliverClientPage.soon() }   // a link now shown: client pages can list it
     }
     @ObservationIgnored private var wrongByLink: [UUID: [Date]] = [:]
     @ObservationIgnored private var lockedUntil: [UUID: Date] = [:]
@@ -355,6 +356,7 @@ final class DeliverServer {
         if mailLink(link) { message["mail"] = true }
         toldDeadline[peer.id] = DeliverDeadlines.effective(link, store: store)
         if let branding = store.branding(for: link.project) { message["branding"] = branding.wire }
+        if link.isPortal { message["portal"] = DeliverClientPage.wire(link, store: store, url: shareURL) }
         if let id { message["re"] = id }
         send(peer, message)
     }
@@ -363,6 +365,8 @@ final class DeliverServer {
                                       "upload-begin"]
 
     private func request(_ peer: Peer, _ id: Int, _ type: String, _ message: [String: Any], _ link: Deliver.ShareLink) throws {
+        // A client page lists links (in `ready`); nothing else is asked of it.
+        if link.isPortal, type != "identify", type != "name" { throw Deliver.Failure("scope") }
         // A link that asks for a name: nothing but the name until it's given.
         if link.requireName == true, peer.name.isEmpty, type != "identify", type != "name" { throw Deliver.Failure("auth") }
         if Self.writes.contains(type) {

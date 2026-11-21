@@ -276,7 +276,12 @@ enum Deliver {
         // Workflow plan 3, 5.
         var order: [UUID]?               // "As arranged": asset ids; missing ones sort last by name
         var customStatuses: Bool?        // send the custom statuses' names and colours
+        /// 4.0.7: a client page (title = the client), listing their live links instead of files (DeliverClientPage).
+        var portal: Portal?
         var rev: Int?, at: Date?, by: String?
+        /// Its projects, and what the owner's sealed box of addresses last held (a change re-sends the page).
+        struct Portal: Codable, Hashable { var projects: [UUID]; var links: [UUID]?; var seal: String? }
+        var isPortal: Bool { portal != nil }
         enum Mode: String, Codable, CaseIterable { case review, presentation }
         var isLive: Bool { revoked == nil && (expires ?? .distantFuture) > Date() }
         var isTeam: Bool { audience == "team" }
