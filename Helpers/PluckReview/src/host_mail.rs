@@ -13,6 +13,14 @@ const MAX_MENTIONS: usize = 10;
 const MAX_MENTIONABLE: usize = 200;
 const MAX_ROWS_PER_LINK: usize = 200;
 const OLD_SECS: i64 = 86_400; // a comment older than this arriving by sync is history, not news
+const CONFIRM_GAP: i64 = 600; // a typed address can't change again this soon after a confirmation mail
+const CONFIRMS_PER_DAY: usize = 3; // confirmation mails one row may cause in a day
+
+/// May this row be sent another confirmation mail now (a browser changing its address over and over can't spam)?
+fn may_confirm(r: &Value, now: i64) -> bool {
+    let recent: Vec<i64> = r["confirmAt"].as_array().into_iter().flatten().filter_map(Value::as_i64).filter(|t| now - t < 86_400).collect();
+    recent.len() < CONFIRMS_PER_DAY && recent.iter().all(|t| now - t >= CONFIRM_GAP)
+}
 
 impl Host {
     /// Mail is set up here and this host sends (a main).
@@ -130,32 +138,36 @@ impl Host {
         }
     }
 
-    /// The row a peer's subscribe works on (created when `email` is given).
-    fn peer_row(&mut self, peer: &str, l: &Value, email: Option<String>) -> Option<usize> {
+    /// The row a peer's subscribe works on (created when `email` is given). Err: "invalid", or "later" (an address
+    /// change too soon after the last confirmation mail).
+    fn peer_row(&mut self, peer: &str, l: &Value, email: Option<String>) -> Result<usize, &'static str> {
         let p = &self.peers[peer];
         let person = p.acct.person.clone().filter(|id| matches!(self.accounts.role(id), Some("owner" | "editor")));
         if let Some(id) = person {
             self.sync_rows();
-            return self.mail.subs.iter().position(|r| r["kind"] == "team" && r["person"] == id.as_str());
+            return self.mail.subs.iter().position(|r| r["kind"] == "team" && r["person"] == id.as_str()).ok_or("invalid");
         }
-        let tok = p.acct.token.clone().or(p.token.clone())?;
+        let tok = p.acct.token.clone().or(p.token.clone()).ok_or("invalid")?;
         let name = p.name.clone();
         if let Some(i) = self.mail.subs.iter().position(|r| r["kind"] == "client" && r["link"] == l["id"] && r["author"] == tok.as_str()) {
             if let Some(e) = email.filter(|e| self.mail.subs[i]["email"] != e.as_str()) {
+                if !may_confirm(&self.mail.subs[i], now_secs()) {
+                    return Err("later");
+                }
                 self.mail.subs[i]["email"] = json!(e);
                 self.ask_confirm(i, l);
             }
-            return Some(i);
+            return Ok(i);
         }
         // A cap per link: new browsers can't keep adding rows (each one an address this host would write to).
         if self.mail.subs.iter().filter(|r| r["link"] == l["id"]).count() >= MAX_ROWS_PER_LINK {
-            return None;
+            return Err("invalid");
         }
         let mut r = Mail::new_row("client");
-        (r["link"], r["author"], r["email"], r["name"]) = (l["id"].clone(), json!(tok), json!(email?), json!(name));
+        (r["link"], r["author"], r["email"], r["name"]) = (l["id"].clone(), json!(tok), json!(email.ok_or("invalid")?), json!(name));
         self.mail.subs.push(r);
         self.ask_confirm(self.mail.subs.len() - 1, l);
-        Some(self.mail.subs.len() - 1)
+        Ok(self.mail.subs.len() - 1)
     }
 
     /// Double opt-in for an address a browser typed: the row waits (`pending`) until the link in a confirmation mail
@@ -168,6 +180,10 @@ impl Host {
             return;
         }
         let token = crate::keys::b64(&rand::random::<[u8; 32]>());
+        let now = now_secs();
+        let mut at: Vec<Value> = r["confirmAt"].as_array().into_iter().flatten().filter(|t| t.as_i64().is_some_and(|t| now - t < 86_400)).cloned().collect();
+        at.push(json!(now));
+        r["confirmAt"] = json!(at);
         let q = json!({"id": format!("c:{}:{}", r["id"].as_str().unwrap_or(""), &token[..12]), "to": r["id"], "event": "confirm", "link": l["id"], "at": now_secs()});
         (r["pending"], r["confirm"]) = (json!(true), json!(token));
         self.mail.push(vec![q]);
@@ -187,7 +203,7 @@ impl Host {
             return Err("off");
         }
         if t == "subscription" {
-            let i = self.peer_row(peer, l, None);
+            let i = self.peer_row(peer, l, None).ok();
             return Ok(match i.map(|i| &self.mail.subs[i]) {
                 // A team person's row (4.1.0): its muted links and the live links it could mute (team pages only).
                 // `delta`: this host merges one link's `muteLink`/`muted` (a page's toggle then can't undo a Mac's mute).
@@ -206,7 +222,7 @@ impl Host {
                 .and_then(|p| p["email"].as_str()).filter(|e| valid_email(e)).map(|e| e.trim().to_owned()),
             None => return Err("invalid"),
         };
-        let i = self.peer_row(peer, l, email).ok_or("invalid")?;
+        let i = self.peer_row(peer, l, email)?;
         let r = &mut self.mail.subs[i];
         r["mode"] = json!(mode);
         if let (true, Some(l)) = (r["kind"] == "team", m["muteLink"].as_str().filter(|l| !l.is_empty() && l.len() < 100)) {
@@ -536,7 +552,17 @@ impl Host {
             "mail-set" => self.mail.set(&op["settings"], op["password"].as_str()),
             "mail-state" => {
                 self.sync_rows();
-                self.mail.state()
+                let mut st = self.mail.state();
+                // An editor Mac needs the settings (its share sheet's Email updates), not who subscribed or the webhooks.
+                if !admin {
+                    for r in st["subscribers"].as_array_mut().into_iter().flatten() {
+                        r.as_object_mut().map(|o| { o.remove("email"); o.remove("name") });
+                    }
+                    for h in st["hooks"].as_object_mut().into_iter().flat_map(|h| h.values_mut()) {
+                        h["url"] = Value::Null;
+                    }
+                }
+                st
             }
             "unsubscribe" => self.unsubscribe(op["token"].as_str().unwrap_or("")),
             "subscribe-confirm" => self.confirm_sub(op["token"].as_str().unwrap_or("")),
@@ -550,7 +576,7 @@ impl Host {
                 if !admin && op["kind"] != "client" {
                     return Some(json!({"error": "admin"}));
                 }
-                self.subscriber_set(op)
+                self.subscriber_set(op, admin)
             }
             _ => {
                 let Some(p) = op["project"].as_str().filter(|p| !p.is_empty()) else { return Some(json!({"error": {"code": "invalid"}})) };
@@ -590,11 +616,13 @@ impl Host {
         json!({"ok": true, "queued": true})
     }
 
-    fn subscriber_set(&mut self, op: &Value) -> Value {
+    fn subscriber_set(&mut self, op: &Value, admin: bool) -> Value {
         let kind = op["kind"].as_str().filter(|k| *k == "team" || *k == "client");
         let mode = op["mode"].as_str().filter(|m| mail::MODES.contains(m));
         let email = op["email"].as_str().filter(|e| valid_email(e)).map(|e| e.trim().to_owned());
-        let (Some(kind), Some(mode)) = (kind, mode) else { return json!({"error": {"code": "invalid"}}) };
+        // A mute toggle (`muteLink`) leaves the mode alone: a Mac's stale copy must not undo an unsubscribe.
+        let mute_only = op["muteLink"].is_string() && op["mode"].is_null();
+        let Some(kind) = kind.filter(|_| mode.is_some() || mute_only) else { return json!({"error": {"code": "invalid"}}) };
         let mute: Option<Vec<Value>> = op["mute"].as_array().map(|m| m.iter().filter(|x| x.is_string()).take(500).cloned().collect());
         let author = op["author"].as_str().filter(|a| !a.is_empty() && a.len() <= 64);
         let found = match op["id"].as_str() {
@@ -602,6 +630,10 @@ impl Host {
             None => self.mail.subs.iter().position(|r| r["kind"] == kind && if let Some(a) = author { r["link"] == op["link"] && r["author"] == a }
                 else if op["person"].is_string() { r["person"] == op["person"] } else { r["link"] == op["link"] && email.as_deref().is_some_and(|e| r["email"] == e) }),
         };
+        // An editor Mac changes client rows only (an `id` could name a team row).
+        if !admin && found.is_some_and(|i| self.mail.subs[i]["kind"] != "client") {
+            return json!({"error": "admin"});
+        }
         let i = match found {
             Some(i) => i,
             None if op["id"].is_string() => return json!({"error": {"code": "notFound"}}),
@@ -618,8 +650,11 @@ impl Host {
         };
         // A browser's own subscribe forwarded by a Mac (it has `author`): a new or changed address is confirmed first.
         let typed = author.is_some() && kind == "client" && email.as_deref().is_some_and(|e| self.mail.subs[i]["email"] != e || found.is_none());
+        if typed && found.is_some() && !may_confirm(&self.mail.subs[i], now_secs()) {
+            return json!({"error": {"code": "later"}});
+        }
         let r = &mut self.mail.subs[i];
-        r["mode"] = json!(mode);
+        if let Some(m) = mode { r["mode"] = json!(m) }
         if let Some(e) = email { r["email"] = json!(e) }
         if let Some(n) = op["name"].as_str() { r["name"] = json!(clean(n, 80)) }
         // `muteLink` + `muted`: one link's change merged into the list (a Mac's toggle must not undo the web page's mutes);

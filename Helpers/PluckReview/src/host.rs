@@ -4136,6 +4136,50 @@ mod tests {
         assert_eq!((r["delta"].clone(), r["mode"].clone(), r["mute"].clone()), (json!(true), json!("daily"), json!(["LM"])), "{r}");
     }
 
+    /// A Mac's mute toggle keeps the row's mode (an unsubscribe stays); an editor Mac can't edit a team row by its id;
+    /// a browser changing its address over and over gets one confirmation per 10 minutes, 3 a day.
+    #[test]
+    fn mail_rows_mute_scope_and_confirm_limits() {
+        let (mut h, mut rx) = test_host();
+        let mut c = link("LC", "RC", json!({"kind": "project", "id": "P"}));
+        c["notify"] = json!({"email": true, "recipientEmail": null, "mailCode": "KEYCODE.PUB"});
+        h.publish(&sample(json!([c])), &json!({}));
+        h.mail.set(&json!({"enabled": true, "server": "smtp.example.com", "port": 587, "security": "starttls", "user": "u",
+            "from": "studio@example.com", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"));
+        assert_eq!(h.sync(&json!({"op": "subscriber-set", "kind": "team", "email": "owner@example.com", "mode": "off"}))["ok"], true);
+        let owner = h.mail.subs[0]["id"].clone();
+        let r = h.sync(&json!({"op": "subscriber-set", "id": owner, "kind": "team", "email": "owner@example.com", "muteLink": "LM", "muted": true}));
+        assert_eq!((r["ok"].clone(), h.mail.subs[0]["mode"].clone(), h.mail.subs[0]["mute"].clone()), (json!(true), json!("off"), json!(["LM"])), "mode kept");
+        assert_eq!(h.sync(&json!({"op": "subscriber-set", "id": owner, "kind": "team"}))["error"]["code"], "invalid", "no mode, no muteLink");
+        let ed = h.sync(&json!({"op": "subscriber-set", "id": owner, "kind": "client", "mode": "instant", "email": "x@example.com", "_mac": {"admin": false}}));
+        assert_eq!((ed["error"].clone(), h.mail.subs[0]["email"].clone()), (json!("admin"), json!("owner@example.com")), "an editor Mac, a team row's id");
+        named_peer(&mut h, "c1", "RC", "t1", "Client one");
+        sent(&mut rx);
+        let sub = |h: &mut Host, rx: &mut mpsc::UnboundedReceiver<Ev>, id: u64, e: &str| {
+            h.request("c1", &json!({"id": id, "t": "subscribe", "email": e, "mode": "instant"}));
+            answer(rx, "c1", id)
+        };
+        assert_eq!(sub(&mut h, &mut rx, 1, "one@example.com")["ok"], true);
+        assert_eq!(sub(&mut h, &mut rx, 2, "two@example.com")["error"]["code"], "later", "a new address too soon");
+        assert_eq!(sub(&mut h, &mut rx, 3, "one@example.com")["ok"], true, "the same address: no new mail, fine");
+        let row = h.mail.subs.iter().position(|r| r["author"] == "t1").unwrap();
+        let now = now_secs();
+        h.mail.subs[row]["confirmAt"] = json!([now - 700]);
+        assert_eq!(sub(&mut h, &mut rx, 4, "two@example.com")["ok"], true, "10 minutes later");
+        h.mail.subs[row]["confirmAt"] = json!([now - 3000, now - 2000, now - 1000]);
+        assert_eq!(sub(&mut h, &mut rx, 5, "three@example.com")["error"]["code"], "later", "3 a day");
+        h.mail.subs[row]["confirmAt"] = json!([now - 90_000, now - 2000, now - 1000]);
+        assert_eq!(sub(&mut h, &mut rx, 6, "three@example.com")["ok"], true, "a day later");
+        // A Mac forwarding its browser's change: the same limit.
+        let fwd = |h: &mut Host, e: &str| h.sync(&json!({"op": "subscriber-set", "kind": "client", "email": e, "link": "LC", "author": "tok9", "mode": "daily"}));
+        assert_eq!(fwd(&mut h, "a@example.com")["ok"], true);
+        assert_eq!(fwd(&mut h, "b@example.com")["error"]["code"], "later");
+        assert_eq!(h.sync(&json!({"op": "hook-set", "project": "P", "url": "https://hooks.example.com/x"}))["ok"], true);
+        let st = h.sync(&json!({"op": "mail-state", "_mac": {"admin": false}})).to_string();
+        assert!(!st.contains("owner@example.com") && !st.contains("three@example.com") && !st.contains("hooks.example.com") && st.contains("\"enabled\":true"), "an editor's mail-state: {st}");
+        assert!(h.sync(&json!({"op": "mail-state"})).to_string().contains("hooks.example.com"), "an admin's has it all");
+    }
+
     /// A refused address (5xx on RCPT/DATA) drops that batch only; connect/tls/auth back everything off.
     #[test]
     fn mail_rejected_drops_its_batch_only() {

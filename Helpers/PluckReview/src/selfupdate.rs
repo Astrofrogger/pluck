@@ -228,6 +228,35 @@ pub fn prune(data: &Path, running: &str) {
             let _ = std::fs::remove_dir_all(bins(data).join(&v));
         }
     }
+    // A download cut off by a restart leaves bin/.<v>.part (stage() runs in this same task, so none is in flight).
+    for e in std::fs::read_dir(bins(data)).into_iter().flatten().flatten() {
+        if e.file_name().to_str().is_some_and(|n| n.starts_with('.') && n.ends_with(".part")) {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
+// ---- crashes after the first minute ----
+
+fn crashes_path(data: &Path) -> PathBuf {
+    home(data).join("crashes.json")
+}
+
+/// Stopped by a person or the service manager (SIGTERM/SIGINT), not a fault of the version.
+fn stopped(code: i32) -> bool {
+    code == 128 + libc::SIGTERM || code == 128 + libc::SIGINT
+}
+
+/// Notes a crash of kept version `v` at `now`; true at the CRASHES-th within an hour (then it's marked bad).
+fn crashed(data: &Path, v: &str, now: i64) -> bool {
+    const CRASHES: usize = 3;
+    let mut c = read_json(&crashes_path(data));
+    let mut times: Vec<i64> = c[plain(v)].as_array().into_iter().flatten().filter_map(Value::as_i64).filter(|t| now - t < 3600).collect();
+    times.push(now);
+    let out = times.len() >= CRASHES;
+    c = json!({plain(v): if out { json!([]) } else { json!(times) }}); // only the running version's count matters
+    write_json(&crashes_path(data), &c);
+    out
 }
 
 // ---- the supervisor ----
@@ -265,9 +294,10 @@ pub async fn supervise(data: PathBuf, builtin: PathBuf, builtin_v: String, args:
             }
         };
         let st = tokio::select! {
-            st = child.wait() => st,
+            biased; // a stop for the whole service (systemd signals every process) is a stop, not a crash
             _ = term.recv() => return forward(&mut child, libc::SIGTERM).await,
             _ = int.recv() => return forward(&mut child, libc::SIGINT).await,
+            st = child.wait() => st,
         };
         let code = st.map_or(1, code_of);
         if code == SWITCH {
@@ -275,8 +305,14 @@ pub async fn supervise(data: PathBuf, builtin: PathBuf, builtin_v: String, args:
             tokio::time::sleep(Duration::from_millis(200)).await;
             continue;
         }
-        if kept.is_some() && start.elapsed() < early {
+        if kept.is_some() && !stopped(code) && start.elapsed() < early {
             mark_bad(&data, &v, &format!("exited ({code}) {} s after starting", start.elapsed().as_secs()));
+            log(format!("supervisor: rolled back from {v}"));
+            continue;
+        }
+        // A kept version that keeps crashing later on: after 3 within an hour, back to the one before.
+        if kept.is_some() && code != 0 && !stopped(code) && crashed(&data, &v, host::now_secs()) {
+            mark_bad(&data, &v, &format!("crashed 3 times within an hour (last: {code})"));
             log(format!("supervisor: rolled back from {v}"));
             continue;
         }
@@ -313,8 +349,8 @@ fn dechunk(mut b: &[u8], max: usize) -> Result<Vec<u8>> {
         if size == 0 {
             return Ok(out);
         }
-        ensure!(out.len() + size <= max, "too big");
-        ensure!(b.len() >= size + 2, "cut short");
+        ensure!(size <= max - out.len(), "too big"); // (out.len() <= max: checked each round; no overflow)
+        ensure!(size.checked_add(2).is_some_and(|n| b.len() >= n), "cut short");
         out.extend_from_slice(&b[..size]);
         b = &b[size + 2..];
     }
@@ -402,14 +438,22 @@ fn write_exec(p: &Path, b: &[u8]) -> std::io::Result<()> {
 /// Download, verify and keep release `v` in bin/<v> (written in bin/.<v>.part, renamed when all checks pass).
 pub async fn stage(data: &Path, trust: &Trust, v: &str) -> Result<()> {
     ensure!(valid_version(v), "bad version");
+    let part = bins(data).join(format!(".{}.part", plain(v)));
+    let r = stage_in(data, trust, v, &part).await;
+    if r.is_err() {
+        let _ = std::fs::remove_dir_all(&part); // a failed try leaves nothing behind
+    }
+    r
+}
+
+async fn stage_in(data: &Path, trust: &Trust, v: &str, part: &Path) -> Result<()> {
     let url = |f: &str| format!("{}/v{}/{f}", trust.base, plain(v));
     let json = get(&url("host-release.json"), trust, MAX_JSON).await.context("host-release.json")?;
     let sig = get(&url("host-release.json.sig"), trust, 1024).await.context("host-release.json.sig")?;
     let rel = verify(&json, &sig, &trust.key).context("the release signature doesn't check out")?;
     ensure!(plain(rel["version"].as_str().unwrap_or("")) == plain(v), "the signed release is for another version");
-    let part = bins(data).join(format!(".{}.part", plain(v)));
-    let _ = std::fs::remove_dir_all(&part);
-    std::fs::create_dir_all(&part)?;
+    let _ = std::fs::remove_dir_all(part);
+    std::fs::create_dir_all(part)?;
     for (file, asset) in FILES.iter().zip(assets()) {
         let want = rel["assets"][&asset].as_str().with_context(|| format!("{asset} isn't in the release"))?.to_owned();
         let body = get(&url(&asset), trust, MAX_BIN).await.with_context(|| asset.clone())?;
@@ -420,12 +464,11 @@ pub async fn stage(data: &Path, trust: &Trust, v: &str) -> Result<()> {
     std::fs::write(part.join("host-release.json.sig"), &sig)?;
     let (bin, ver) = (part.join("pluck-review"), v.to_owned());
     if !tokio::task::spawn_blocking(move || runs(&bin, &ver)).await? {
-        let _ = std::fs::remove_dir_all(&part);
         bail!("the new program doesn't run here (is the data folder mounted noexec?)");
     }
     let dir = bins(data).join(plain(v));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::rename(&part, &dir)?;
+    std::fs::rename(part, &dir)?;
     log(format!("self-update: {v} downloaded and verified"));
     Ok(())
 }
@@ -678,8 +721,10 @@ mod tests {
             keep(&d, v, "exit 0");
         }
         mark_bad(&d, "4.0.9", "test");
+        std::fs::create_dir_all(bins(&d).join(".4.1.0.part")).unwrap();
         prune(&d, "4.0.7");
         assert_eq!(kept(&d), vec!["4.0.8", "4.0.7", "4.0.6"], "running, the one before, the one waiting");
+        assert!(!bins(&d).join(".4.1.0.part").exists(), "a stale download goes too");
         let _ = std::fs::remove_dir_all(d);
     }
 
@@ -701,8 +746,30 @@ mod tests {
         assert!(is_bad(&d, "4.0.8") && choose(&d, "4.0.7", &key).is_none());
         // a good new one that runs past `early` and then exits: its code, not a rollback
         keep(&d, "4.0.9", "sleep 1; exit 4");
-        assert_eq!(supervise(d.clone(), builtin, "4.0.7".into(), vec![], key, Duration::from_millis(300)).await, 4);
+        assert_eq!(supervise(d.clone(), builtin, "4.0.7".into(), vec![], key.clone(), Duration::from_millis(300)).await, 4);
         assert!(!is_bad(&d, "4.0.9"));
+        // stopped by SIGTERM (systemd stopping the service) within `early`: not marked bad
+        keep(&d, "4.0.10", "kill -TERM $$");
+        assert_eq!(supervise(d.clone(), d.join("builtin"), "4.0.7".into(), vec![], key.clone(), Duration::from_secs(5)).await, 143);
+        assert!(!is_bad(&d, "4.0.10"));
+        // crashing later on: the 3rd crash within an hour rolls back
+        let _ = std::fs::remove_dir_all(bins(&d).join("4.0.10"));
+        keep(&d, "4.0.11", "sleep 0.4; kill -ABRT $$");
+        let sup = || supervise(d.clone(), d.join("builtin"), "4.0.7".into(), vec![], key.clone(), Duration::from_millis(300));
+        assert_eq!((sup().await, sup().await), (134, 134), "a panic=abort crash: its code, first and second time");
+        assert!(!is_bad(&d, "4.0.11"));
+        assert_eq!(sup().await, 4, "third time: marked bad, the one before (4.0.9) runs");
+        assert!(is_bad(&d, "4.0.11"));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn crash_count_is_per_hour() {
+        let d = tmp("crash");
+        assert!(!crashed(&d, "4.0.8", 1000) && !crashed(&d, "4.0.8", 2000));
+        assert!(!crashed(&d, "4.0.8", 5000), "the first one is over an hour ago");
+        assert!(crashed(&d, "4.0.8", 5100));
+        assert!(!stopped(134) && stopped(143) && stopped(130));
         let _ = std::fs::remove_dir_all(d);
     }
 
@@ -838,6 +905,8 @@ mod tests {
         assert!(get(&trust.base.replace("https", "http"), &trust, 10).await.is_err(), "https only");
         assert!(format!("{:#}", get(&format!("{}/v4.0.8/{}", trust.base, a[0]), &trust, 10).await.unwrap_err()).contains("too big"));
         assert_eq!(kept(&d), vec!["4.0.8"], "nothing half-written kept");
+        assert!(!bins(&d).join(".4.1.0.part").exists(), "a failed stage removes its .part");
+        assert!(dechunk(b"ffffffffffffffff\r\nab", 10).is_err() && dechunk(b"fffffffffffffffe\r\nab", usize::MAX).is_err(), "huge sizes: an error, not a panic");
         let _ = std::fs::remove_dir_all(d);
     }
 }

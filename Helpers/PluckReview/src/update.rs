@@ -29,18 +29,34 @@ const fn trim_v(v: &str) -> &str {
 pub struct Busy {
     pub preparing: AtomicBool,
     pub root_uploads: AtomicUsize,
+    /// Sync `put`/`get` byte transfers in flight (a Mac's push, a backup's pull): a switch waits for them too.
+    pub transfers: AtomicUsize,
 }
 
 impl Busy {
     pub fn preparing(&self) -> bool {
         self.preparing.load(Ordering::Relaxed)
     }
+
+    /// Counts one transfer until the guard drops (also on an error or a cut connection).
+    pub fn transfer(&self) -> Transfer<'_> {
+        self.transfers.fetch_add(1, Ordering::Relaxed);
+        Transfer(self)
+    }
+}
+
+pub struct Transfer<'a>(&'a Busy);
+
+impl Drop for Transfer<'_> {
+    fn drop(&mut self) {
+        self.0.transfers.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// The answer to `prepare-update`: from now on no new uploads or copy jobs start.
 pub fn prepare(busy: &Busy, client_uploads: usize, copies: usize) -> Value {
     busy.preparing.store(true, Ordering::Relaxed);
-    let uploads = client_uploads + busy.root_uploads.load(Ordering::Relaxed);
+    let uploads = client_uploads + busy.root_uploads.load(Ordering::Relaxed) + busy.transfers.load(Ordering::Relaxed);
     let mut why = vec![];
     if uploads > 0 {
         why.push("upload");
@@ -163,6 +179,11 @@ mod tests {
         assert_eq!((r["busy"].clone(), r["why"].clone(), r["eta"].clone()), (json!(true), json!(["upload", "copies"]), json!(660)));
         b.root_uploads.store(1, Ordering::Relaxed);
         assert_eq!(prepare(&b, 0, 0)["why"], json!(["upload"]), "uploads-root uploads count too");
+        b.root_uploads.store(0, Ordering::Relaxed);
+        let t = b.transfer();
+        assert_eq!(prepare(&b, 0, 0)["why"], json!(["upload"]), "a sync put/get in flight counts");
+        drop(t);
+        assert_eq!(prepare(&b, 0, 0), json!({"busy": false}));
     }
 
     #[test]

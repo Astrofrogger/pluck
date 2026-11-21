@@ -1178,6 +1178,8 @@ extension PhotoSelfTest {
             let mentionedID = (mentioned["comment"] as? [String: Any])?["id"] as? String ?? ""
             let mentionedReply = ask("p_noah", ["t": "reply-add", "comment": mentionedID, "text": "again", "mentions": [miaID]])
             let plain = ask("p_noah", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 9, "text": "No one", "mentions": ["bogus"]])
+            let mixed = ask("p_noah", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 10, "text": "Mixed", "mentions": [5, miaID] as [Any]])
+            check("mail: a non-string mention drops only itself (as the NAS host)", (mixed["comment"] as? [String: Any])?["mentions"] as? [String] == [miaID], "\(mixed)")
             check("mail: mentions are filtered and stored", (mentioned["comment"] as? [String: Any])?["mentions"] as? [String] == [miaID]
                   && (((mentionedReply["comment"] as? [String: Any])?["replies"] as? [[String: Any]])?.first?["mentions"] as? [String]) == [miaID]
                   && (plain["comment"] as? [String: Any])?["mentions"] == nil, "\(mentioned)")

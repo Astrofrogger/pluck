@@ -92,7 +92,7 @@ async fn reply<S: AsyncRead + Unpin>(s: &mut BufReader<S>) -> Result<(u16, Strin
         }
         all.push_str(&line);
         if line.as_bytes().get(3) != Some(&b'-') {
-            let code = line[..3].parse().map_err(|_| err("connect", "not an SMTP server"))?;
+            let code = line.get(..3).and_then(|c| c.parse().ok()).ok_or_else(|| err("connect", "not an SMTP server"))?; // (get: a multibyte reply must not panic)
             return Ok((code, all));
         }
     }
@@ -598,6 +598,13 @@ pub fn compose(lang: &str, title: &str, lines: &[Line], url: Option<&str>, stop:
 pub mod tests {
     use super::*;
     use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn a_multibyte_reply_is_an_error_not_a_panic() {
+        let mut r = BufReader::new("12é hi\r\n".as_bytes());
+        assert_eq!(reply(&mut r).await.unwrap_err().code, "connect");
+        assert_eq!(reply(&mut BufReader::new("250 ok\r\n".as_bytes())).await.unwrap().0, 250);
+    }
 
     #[test]
     fn mention_id_vector_and_addresses() {

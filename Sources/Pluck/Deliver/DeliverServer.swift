@@ -352,7 +352,7 @@ final class DeliverServer {
         }
         var message: [String: Any] = ["t": "ready", "link": Self.linkInfo(link, store: store), "root": root, "me": ["peer": peer.id, "name": peer.name],
                                       "now": Self.date(clock()), "mentions": true]
-        if mailActive(), link.notify?.email == true { message["mail"] = true }
+        if mailLink(link) { message["mail"] = true }
         toldDeadline[peer.id] = DeliverDeadlines.effective(link, store: store)
         if let branding = store.branding(for: link.project) { message["branding"] = branding.wire }
         if let id { message["re"] = id }
@@ -587,16 +587,23 @@ final class DeliverServer {
 
     /// `mentions` of a write: strings only, ids the link's `mentionable` has, at most 10.
     private func mentions(_ message: [String: Any], _ link: Deliver.ShareLink) -> [String]? {
-        guard let asked = message["mentions"] as? [String], !asked.isEmpty else { return nil }
+        // (Strings only, the rest dropped, as the NAS host does: one bad item doesn't lose the others.)
+        guard let asked = (message["mentions"] as? [Any])?.compactMap({ $0 as? String }), !asked.isEmpty else { return nil }
         let known = Set(mentionable(link).map(\.id))
         return Array(NSOrderedSet(array: asked.filter(known.contains)).array.prefix(10)) as? [String]
+    }
+
+    /// A browser may ask for mail on this link: mail is on, the link has Email updates and its mail code is here (without
+    /// the code the host has no link for its mails; the NAS host checks the same).
+    private func mailLink(_ link: Deliver.ShareLink) -> Bool {
+        mailActive() && link.notify?.email == true && store.code(link.id) != nil
     }
 
     /// Forwarded to the main host as `subscriber-set`. No outbox for this: it needs the host's answer, so it goes at once
     /// and answers `off` when the host isn't reachable.
     private func subscribe(_ peer: Peer, _ id: Int, _ message: [String: Any], _ link: Deliver.ShareLink) throws {
         guard let token = peer.token else { throw Deliver.Failure("auth") }
-        guard mailActive(), link.notify?.email == true else { throw Deliver.Failure("off") }
+        guard mailLink(link) else { throw Deliver.Failure("off") }
         let email = (message["email"] as? String ?? "").trimmingCharacters(in: .whitespaces)
         guard DeliverMail.validEmail(email), let mode = message["mode"] as? String, ["instant", "daily", "off"].contains(mode) else { throw Deliver.Failure("invalid") }
         var op: [String: Any] = ["op": "subscriber-set", "kind": "client", "email": email, "link": link.id.uuidString, "author": token, "mode": mode]
