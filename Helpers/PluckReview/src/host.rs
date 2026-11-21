@@ -131,6 +131,7 @@ pub struct Host {
     acct_begins: VecDeque<Instant>,           // account-begin on this host, a minute
     pub upload_root: Option<Arc<crate::upload_root::UploadRoot>>, // a main's uploads root: team uploads go there (§4.4)
     root_ups: HashMap<(String, u64), accounts_ops::RootUp>,       // (peer, upload id) → a team upload into it
+    placing: HashMap<String, (String, Value, Value, HUp)>,      // upload id → (peer, request id, entry, upload) while it's copied into its folder
     pub devices: Option<Arc<crate::devices::Devices>>, // the paired Macs: admins count for the last-admin guard (roles)
     pub mail: crate::mail::Mail, // email settings, subscribers and the queue (host_mail.rs)
     pub drops: HashMap<String, PathBuf>, // media root id → where clients' uploads may be written into it (--drop)
@@ -399,7 +400,7 @@ impl Host {
             fields: HashMap::new(), activity: HashMap::new(), attachments: HashMap::new(), uploads: HashMap::new(), up_hour: HashMap::new(),
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
-            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), devices: None,
+            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), placing: HashMap::new(), devices: None,
             mail: crate::mail::Mail::load(data),
             drops: HashMap::new(),
         };
@@ -601,6 +602,11 @@ impl Host {
             }
         }
         let mut raw = if self.raw["format"] == 1 { self.raw.clone() } else { json!({"format": 1, "projects": [], "links": []}) };
+        for k in ["projects", "links"] {
+            if !raw[k].is_array() {
+                raw[k] = json!([]);
+            }
+        }
         // Files added on the admin page to a project Pluck publishes stay: Pluck's project replaces
         // only Pluck's assets (it never knew of the admin's, so it can't send them back).
         for p in m["projects"].as_array_mut().into_iter().flatten() {
@@ -794,6 +800,9 @@ impl Host {
         let mut skipped = vec![];
         {
             let p = raw["projects"].as_array_mut().unwrap().iter_mut().find(|p| p["id"] == pid.as_str()).unwrap();
+            if !p["assets"].is_array() {
+                p["assets"] = json!([]); // stored as a plain publish sent it
+            }
             for f in op["files"].as_array().into_iter().flatten().filter_map(Value::as_str).take(500) {
                 let (Some(real), Some(kind)) = (self.roots.resolve(f, false), kind_of(f)) else { skipped.push(f.to_owned()); continue };
                 if Self::arr(p, "assets").any(|a| Self::arr(a, "versions").any(|v| v["source"] == f)) {
@@ -894,6 +903,10 @@ impl Host {
     pub fn copy_progress(&mut self, version: String, state: Value) {
         if let Some(k) = version.strip_prefix("acct:") {
             return self.acct_back(k, state); // a team upload's hash or a footage thumbnail, done in the background
+        }
+        if let Some(fid) = version.strip_prefix("place:") {
+            let Some((peer, id, entry, u)) = self.placing.remove(fid) else { return };
+            return self.record_upload(&peer, &id, Self::with_placed(entry, state.as_str().map(str::to_owned)), u);
         }
         if let Some(k) = version.strip_prefix("mail:") {
             return self.mail_back(k, state);
@@ -1825,7 +1838,15 @@ impl Host {
     /// The asset's fields this link shows (`link.fields`, default status only), the manifest's
     /// merged with those set from links. Status has its own key.
     fn fields_of(&self, l: &Value, a: &Value) -> Option<Value> {
-        let shown: Vec<&str> = Self::arr(l, "fields").filter_map(Value::as_str).filter(|f| *f != "status").collect();
+        // A team link shows every field, custom ones too (as the Mac's own server); a client link only its `fields`.
+        let set = a["id"].as_str().and_then(|id| self.fields.get(id));
+        let shown: Vec<&str> = if team(l) {
+            let custom = a["fields"].as_object().into_iter().flat_map(|o| o.keys()).chain(set.into_iter().flat_map(|m| m.keys()));
+            let custom: std::collections::BTreeSet<&str> = custom.map(String::as_str).filter(|k| k.starts_with("cf:")).collect();
+            ["rating", "keywords", "assignee", "due", "notes"].into_iter().chain(custom).collect()
+        } else {
+            Self::arr(l, "fields").filter_map(Value::as_str).filter(|f| *f != "status").collect()
+        };
         let mut o = serde_json::Map::new();
         for f in shown {
             let set = a["id"].as_str().and_then(|id| self.fields.get(id)).and_then(|m| m.get(f));
@@ -1908,6 +1929,10 @@ impl Host {
             }
             if v["pages"].is_u64() {
                 w["pages"] = v["pages"].clone();
+            }
+            if Self::burned(l) {
+                // Its own copies are the H.264 ladder only: no 4K to pick.
+                w["renditions"] = json!(Self::arr(v, "renditions").filter(|r| !r.as_str().is_some_and(|r| r.starts_with("2160"))).collect::<Vec<_>>());
             }
             w["ready"] = v["ready"].clone();
             w["canDownload"] = json!(can);
@@ -2664,17 +2689,53 @@ impl Host {
             "for": if u.attachment { "attachment" } else { "asset" }, "by": by, "at": now_iso()});
         if !u.into.is_null() {
             entry["into"] = u.into.clone();
-            if let Some(p) = self.place_into(&u, &dest, &fid) {
-                entry["placed"] = json!(p); // moved out of the quarantine: `path` is gone, Pluck adds `placed` by reference
+            if let Some((dir, name)) = self.place_target(&u, &fid) {
+                let (root, folder) = (u.into["root"].as_str().unwrap_or("").to_owned(), u.into["folder"].as_str().unwrap_or("").to_owned());
+                let place = move || crate::upload_root::place(&dest, &dir, &name)
+                    .map_err(|e| log(format!("host: upload {fid} stays in the quarantine: {e}"))).ok()
+                    .map(|p| if folder.is_empty() { format!("{root}/{p}") } else { format!("{root}/{folder}/{p}") });
+                let Some(back) = self.back.clone() else { return self.record_upload(peer, &id, Self::with_placed(entry, place()), u) };
+                // Another dataset means a whole copy (up to 256 GB): off the host task, which keeps answering meanwhile;
+                // the entry is logged and the browser answered when it's done (a switch waits for it).
+                let busy = self.busy.clone();
+                busy.transfers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let fid = entry["id"].as_str().unwrap_or("").to_owned();
+                self.placing.insert(fid.clone(), (peer.to_owned(), id, entry, u));
+                tokio::task::spawn_blocking(move || {
+                    let _ = back.send((format!("place:{fid}"), place().map_or(Value::Null, Value::String)));
+                    busy.transfers.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                });
+                return;
             }
         }
+        self.record_upload(peer, &id, entry, u);
+    }
+
+    /// Where an upload went: `placed` "<root>/<folder>/<name>" (moved out of the quarantine). `root` + `path` say it the way a
+    /// 4.0.6 Mac reads (it adds such an entry by reference instead of fetching a quarantine file that's gone).
+    fn with_placed(mut entry: Value, placed: Option<String>) -> Value {
+        if let Some(p) = placed {
+            entry["placed"] = json!(p);
+            entry["root"] = json!(true);
+            entry["path"] = json!(p);
+        }
+        entry
+    }
+
+    /// A finished upload's entry logged, the browser answered.
+    fn record_upload(&mut self, peer: &str, id: &Value, entry: Value, u: HUp) {
+        let (fid, rel, by) = (entry["id"].clone(), entry["path"].clone(), entry["by"].clone());
         if !self.append(json!({"upload": entry.clone()})) {
-            return self.err(peer, &id, "internal");
+            if entry["placed"].is_string() {
+                log(format!("host: upload {fid} is in its folder but not logged")); // a retry would only make "Name 2"
+            } else {
+                return self.err(peer, id, "internal");
+            }
         }
         if let Some(o) = self.outage.as_ref().filter(|_| self.ident.backup) {
             // Waits here for the main (outage.rs pushes it when it's back), under the same id.
             o.add(json!({"id": fid, "kind": if u.attachment { "attachment" } else { "asset" }, "file": rel, "name": u.name, "size": u.size,
-                "sha256": theirs, "type": u.kind, "link": u.link, "by": by, "at": entry["at"]}));
+                "sha256": entry["sha256"], "type": u.kind, "link": u.link, "by": by, "at": entry["at"]}));
         }
         self.activity(peer, "uploaded", Value::Null, Value::Null, json!({"name": u.name, "size": u.size}));
         let item = json!({"id": fid, "name": u.name, "size": u.size, "type": u.kind});
@@ -2699,17 +2760,14 @@ impl Host {
         crate::upload_root::subdir(base, folder)
     }
 
-    /// A finished asset upload (in the quarantine at `from`) moved into its droppable `into` folder, checked again now:
-    /// "<root>/<folder>/<name>". None leaves it in the quarantine (not droppable, gone, full…): never lost.
-    fn place_into(&self, u: &HUp, from: &Path, fid: &str) -> Option<String> {
-        if u.attachment || self.ident.backup {
+    /// Where a finished asset upload goes from the quarantine: its droppable `into` folder, checked again now, and the name.
+    /// None leaves it in the quarantine (not droppable, gone…): never lost.
+    fn place_target(&self, u: &HUp, fid: &str) -> Option<(PathBuf, String)> {
+        if u.attachment || self.ident.backup || !u.into["root"].is_string() {
             return None;
         }
         let dir = self.into_dir(&u.into, true)?;
-        let name = if crate::upload_root::name_ok(&u.name) { u.name.clone() } else { format!("{fid}.{}", u.ext) };
-        let placed = crate::upload_root::place(from, &dir, &name).map_err(|e| log(format!("host: upload {fid} stays in the quarantine: {e}"))).ok()?;
-        let (root, folder) = (u.into["root"].as_str()?, u.into["folder"].as_str().unwrap_or(""));
-        Some(if folder.is_empty() { format!("{root}/{placed}") } else { format!("{root}/{folder}/{placed}") })
+        Some((dir, if crate::upload_root::name_ok(&u.name) { u.name.clone() } else { format!("{fid}.{}", u.ext) }))
     }
 }
 
@@ -3443,6 +3501,7 @@ mod tests {
         h.request("pt", &json!({"id": 1, "t": "list", "folder": null}));
         let a = answer(&mut rx, "pt", 1)["assets"][0].clone();
         assert_eq!((a["status"].clone(), a["fields"]["cf:shot"].clone()), (json!("c:lock"), json!("Wide")), "an unknown status id passes through");
+        assert_eq!(a["fields"]["notes"], "n", "a team link shows every field, as the Mac's own server");
         h.request("pt", &json!({"id": 2, "t": "field-set", "asset": "A", "field": "cf:shot", "value": "Close"}));
         assert_eq!(answer(&mut rx, "pt", 2)["asset"]["fields"]["cf:shot"], "Close");
         h.request("pt", &json!({"id": 3, "t": "field-set", "asset": "A", "field": "cf:other", "value": "x"}));
@@ -3548,7 +3607,7 @@ mod tests {
         (b["allowDownload"], b["watermark"]) = (json!(true), json!({"text": "{name}", "burned": true}));
         let mut m = sample(json!([l, b]));
         let v = &mut m["projects"][0]["assets"][0]["versions"][0];
-        (v["renditions"], v["original"], v["fpsNum"], v["fpsDen"]) = (json!(["1080"]), json!("originals/V.mov"), json!(25), json!(1));
+        (v["renditions"], v["original"], v["fpsNum"], v["fpsDen"]) = (json!(["1080", "2160"]), json!("originals/V.mov"), json!(25), json!(1));
         m["projects"][0]["assets"].as_array_mut().unwrap().push(json!({"id": "D", "name": "Deck", "kind": "document", "folder": null,
             "versions": [{"id": "DV", "number": 1, "pages": 2, "frames": 0}]}));
         h.publish(&m, &json!({}));
@@ -3587,7 +3646,8 @@ mod tests {
         ready_peer(&mut h, "pb", "RB");
         sent(&mut rx);
         h.request("pb", &json!({"id": 1, "t": "asset", "asset": "A"}));
-        assert_eq!(answer(&mut rx, "pb", 1)["asset"]["versions"][0]["canDownload"], false);
+        let burned = answer(&mut rx, "pb", 1)["asset"]["versions"][0].clone();
+        assert_eq!((burned["canDownload"].clone(), burned["renditions"].clone()), (json!(false), json!(["1080"])), "its own copies have no 4K");
         std::fs::create_dir_all(h.dir.join("copies/V/wm-LB/1080")).unwrap(); // pushed by Pluck
         assert!(matches!(fetch(&h, &lb, "segment", json!({"rendition": "1080", "n": 0})), Err("notReady")), "no index.json yet");
         std::fs::copy(c.join("index.json"), h.dir.join("copies/V/wm-LB/1080/index.json")).unwrap();
@@ -4290,7 +4350,8 @@ mod tests {
         assert_eq!((&e["into"], &e["placed"]), (&into, &json!("m1/Clients/Hero 2.mov")));
         assert_eq!(std::fs::read(media.join("Clients/Hero.mov")).unwrap(), b"theirs", "the existing file is untouched");
         assert_eq!(std::fs::read(media.join("Clients/Hero 2.mov")).unwrap(), b"hello");
-        assert!(!h.data.join(e["path"].as_str().unwrap()).exists(), "moved out of the quarantine");
+        assert!(!h.data.join(format!("uploads/L1/{}.mov", e["id"].as_str().unwrap())).exists(), "moved out of the quarantine");
+        assert_eq!((&e["root"], &e["path"]), (&json!(true), &json!("m1/Clients/Hero 2.mov")), "a 4.0.6 Mac adds it by reference");
         assert!(h.roots.resolve("m1/Clients/Hero 2.mov", false).is_some(), "Pluck can add it by reference");
         // The root itself (no folder), and the link the browser sees doesn't show where files go.
         let (mut h, mut rx, media) = drop_host(true);
@@ -4301,6 +4362,31 @@ mod tests {
         h.ready("p1", &json!(9), &l);
         let ready = answer(&mut rx, "p1", 9);
         assert!(ready["link"]["uploads"].is_object() && ready["link"]["uploads"]["into"].is_null(), "{ready}");
+    }
+
+    #[tokio::test]
+    async fn placing_an_upload_runs_off_the_host_task() {
+        let (mut h, mut rx, media) = drop_host(true);
+        let (tx, mut back) = mpsc::unbounded_channel();
+        h.back = Some(tx);
+        ask_link(&mut h, &mut rx, json!({"root": "m1", "folder": "Clients"}));
+        h.request("p1", &json!({"id": 1, "t": "upload-begin", "name": "Big.mov", "size": 3, "for": "asset"}));
+        let part = cmds(&mut rx).iter().find_map(|c| c["accept"]["path"].as_str().map(PathBuf::from)).unwrap();
+        std::fs::write(&part, b"abc").unwrap();
+        let sha = keys::sha256_b64(b"abc");
+        h.report(&json!({"upload": {"peer": "p1", "upload": 1, "state": "done", "bytes": 3, "sha256": sha}}));
+        h.request("p1", &json!({"id": 2, "t": "upload-end", "upload": 1, "sha256": sha}));
+        assert!(!sent(&mut rx).iter().any(|m| m["msg"]["re"] == 2), "no answer until it's in its folder");
+        assert!(h.entries.iter().all(|e| e.get("upload").is_none()), "not logged half-way (a Mac would move it too)");
+        let pull = h.sync(&json!({"op": "pull", "since": 0}));
+        assert!(pull["seq"].is_u64(), "the host keeps answering meanwhile");
+        let (k, v) = back.recv().await.unwrap();
+        h.copy_progress(k, v);
+        assert_eq!(answer(&mut rx, "p1", 2)["uploaded"]["name"], "Big.mov");
+        let e = h.entries.iter().rev().find_map(|e| e.get("upload")).unwrap();
+        assert_eq!((&e["placed"], &e["path"]), (&json!("m1/Clients/Big.mov"), &json!("m1/Clients/Big.mov")));
+        assert_eq!(std::fs::read(media.join("Clients/Big.mov")).unwrap(), b"abc");
+        assert_eq!(h.busy.transfers.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
     #[tokio::test]

@@ -320,8 +320,8 @@ final class DeliverServer {
         // Workflow plan 3, 5, 6 (optional; old pages ignore them): the link's own order, custom statuses' and fields' names.
         let content = store.content(link.project)
         if let order = link.order?.isEmpty == false ? link.order : Deliver.folderOrder(content.folders, assets: content.assets) {
-            // (Ids of the link's project only; the page orders what it lists and ignores the rest.)
-            let mine = Set(content.assets.map(\.id))
+            // (Ids the link holds only, as the NAS host's list: the page orders what it lists, and other assets' ids stay here.)
+            let mine = Set(content.assets.filter { inScope($0, link, store: store) }.map(\.id))
             info["order"] = order.filter(mine.contains).map(\.uuidString)
         }
         if link.customStatuses == true, let defs = store.library.statuses, !defs.isEmpty {
@@ -610,11 +610,16 @@ final class DeliverServer {
         if let lang = message["lang"] as? String { op["lang"] = String(lang.prefix(8)) }
         if peer.name.isEmpty == false { op["name"] = peer.name }
         Task {
-            if let answer = await mailAsk(op), answer["ok"] as? Bool == true {
+            let answer = await mailAsk(op)
+            if let answer, answer["ok"] as? Bool == true {
                 peer.subscription = (email, mode)
                 // (A typed address waits for the host's confirmation mail: the page says to check the inbox.)
                 reply(peer, id, ["ok": true, "pending": answer["pending"] as? Bool == true])
-            } else { fail(peer, id, .init("off")) }
+            } else {
+                // The host's own refusal as a NAS host answers it ("later": an address change too soon), else off.
+                let code = (answer?["error"] as? [String: Any])?["code"] as? String
+                fail(peer, id, .init(code.flatMap { ["later", "invalid"].contains($0) ? $0 : nil } ?? "off"))
+            }
         }
     }
 
@@ -632,7 +637,9 @@ final class DeliverServer {
     // MARK: - Scope
 
     /// The asset, when the link holds it (folder links hold their subfolders).
-    func inScope(_ asset: Deliver.Asset, _ link: Deliver.ShareLink) -> Bool {
+    func inScope(_ asset: Deliver.Asset, _ link: Deliver.ShareLink) -> Bool { Self.inScope(asset, link, store: store) }
+
+    static func inScope(_ asset: Deliver.Asset, _ link: Deliver.ShareLink, store: DeliverStore) -> Bool {
         guard store.find(asset.id)?.project == link.project else { return false }
         switch link.scope {
         case .project: return true
@@ -759,7 +766,9 @@ final class DeliverServer {
              var item: [String: Any] = ["id": version.id.uuidString, "number": version.number, "added": Self.date(version.added),
                                         "duration": probe?.duration ?? 0, "fpsNum": probe?.fpsNum ?? 25, "fpsDen": probe?.fpsDen ?? 1,
                                         "width": probe?.width ?? 0, "height": probe?.height ?? 0, "startTimecode": probe?.startTimecode ?? "00:00:00:00",
-                                        "dropFrame": probe?.dropFrame ?? false, "frames": probe?.frames ?? 1, "renditions": ready(version) ?? [],
+                                        "dropFrame": probe?.dropFrame ?? false, "frames": probe?.frames ?? 1,
+                                        // (A burned-in watermark plays its own copies: the H.264 ladder only, no 4K.)
+                                        "renditions": (ready(version) ?? []).filter { link.watermark?.burned != true || !$0.hasPrefix("2160") },
                                         "ready": ready(version) != nil, "canDownload": link.allowDownload, "size": link.allowDownload ? version.size : 0,
                                         "canProxy": link.allowProxy == true && ready(version)?.contains("1080") == true]
              if let pages = version.pages { item["pages"] = pages }

@@ -515,6 +515,9 @@ final class ReviewPublish {
             wire["customStatuses"] = link.customStatuses == true ? true : NSNull()
             // Null tells the host they're off (an older Mac leaves them out, and the host keeps its own).
             for key in ["order", "statusDefs", "fieldDefs"] where wire[key] == nil { wire[key] = NSNull() }
+            // `order` is what the page uses (the folders' order when the link has none); `ownOrder` the link's own, which
+            // another Mac reads back (so a folder's order never freezes into the link). Hosts keep it as they keep any field.
+            wire["ownOrder"] = link.order?.isEmpty == false ? link.order!.map(\.uuidString) : NSNull()
             return wire.merging(Self.stamp(link)) { $1 }
         }
         let folders = content.folders.map { folder -> [String: Any] in
@@ -1140,10 +1143,12 @@ final class ReviewHosting {
         // sends for its own links, as a NAS does). Reading for any paired Mac; changes for an Admin (or Full Trust).
         OfficeActions.register("reviewMail") { arguments, device in
             guard shared.isOn else { throw OfficeLink.Failure.office(String(localized: "This Mac doesn’t host reviews.")) }
-            guard let op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
+            guard var op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
             let admin = OfficeAccess.shared.isAdmin(device) || OfficeAccess.shared.rights(for: device).fullTrust
-            // (A mail's own token is the right for these two, as on a NAS.)
-            if !["mail-state", "unsubscribe", "subscribe-confirm"].contains(name), !admin { throw OfficeActions.refused() }
+            // (A mail's own token is the right for these two, as on a NAS; an Editor forwards its browsers' subscribes and asks
+            // for due reminders, and the host refuses it the team's rows, as a NAS does.)
+            if !["mail-state", "unsubscribe", "subscribe-confirm", "subscriber-set", "mail-remind"].contains(name), !admin { throw OfficeActions.refused() }
+            op["_mac"] = ["admin": admin]
             // The state for an Editor too (the share sheet's Email updates), but who subscribed only for an Admin.
             if !admin, name == "mail-state" { try OfficeActions.require(\.render, device) }
             let answer = try await shared.mail(op)
@@ -1158,15 +1163,19 @@ final class ReviewHosting {
         }
     }
 
-    /// `mail-state` for a Mac that isn't an Admin: subscribers without their emails and names.
+    /// `mail-state` for a Mac that isn't an Admin: subscribers without their emails and names, webhooks without their
+    /// URLs (they carry credentials), as a NAS host answers an editor Mac.
     nonisolated static func withoutPeople(_ state: [String: Any]) -> [String: Any] {
         var state = state
         state["subscribers"] = (state["subscribers"] as? [[String: Any]] ?? []).map { $0.filter { !["email", "name"].contains($0.key) } }
+        if let hooks = state["hooks"] as? [String: [String: Any]] {
+            state["hooks"] = hooks.mapValues { $0.merging(["url": NSNull()]) { $1 } }
+        }
         return state
     }
 
     nonisolated static let mailOps: Set<String> = ["mail-set", "mail-state", "mail-test", "subscriber-set", "subscriber-remove", "hook-set",
-                                                   "unsubscribe", "subscribe-confirm"]
+                                                   "unsubscribe", "subscribe-confirm", "mail-remind"]
 
     /// One mail op over the hosted folders: a test from one, a webhook to its project's folder, the state merged, the
     /// rest to every one (an id only one of them has: that one's answer).

@@ -52,7 +52,7 @@ extension PhotoSelfTest {
         ReviewHosting.seedMail(into: hostedB, from: [hostedA])
         check("gap: always-on Mac seeds mail into a new hosted folder", (try? String(contentsOf: hostedB.appendingPathComponent("mail.secret"), encoding: .utf8)) == "app-password"
               && mode == 0o600 && (try? String(contentsOf: hostedB.appendingPathComponent("mail.json"), encoding: .utf8)) == #"{"enabled":false}"#
-              && ReviewHosting.mailOps.contains("mail-set") && ReviewHosting.mailOps.isSuperset(of: ["unsubscribe", "subscribe-confirm"]), "mode \(String(mode, radix: 8))")
+              && ReviewHosting.mailOps.contains("mail-set") && ReviewHosting.mailOps.isSuperset(of: ["unsubscribe", "subscribe-confirm", "mail-remind"]), "mode \(String(mode, radix: 8))")
         check("gap: link mute list for this Mac's person's emails", DeliverMail.muted(["a"], "b", true) == ["a", "b"] && DeliverMail.muted(["a", "b"], "a", false) == ["b"]
               && DeliverMail.muted(["a"], "a", true) == ["a"])
         let muteRow = DeliverMail.Subscriber(id: "r1", kind: "team", email: "a@example.com", name: "", mode: "daily", mute: ["web"])
@@ -75,6 +75,14 @@ extension PhotoSelfTest {
             let info = DeliverServer.linkInfo(link, store: store)
             check("gap: a link shows its folder's order", info["order"] as? [String] == [asset.uuidString]
                   && store.content(project).folders.first { $0.id == folder.id }?.order == [asset], "\(info["order"] ?? "-")")
+            // Another Mac reading the published link back never takes the folder's order as the link's own (it would freeze).
+            if let made = try? store.newLink(scope: .project(project), title: "Folder order") {
+                let wire = (ReviewPublish(store: store).manifest(project: project, only: nil, host: nil).json["links"] as? [[String: Any]] ?? []).first { $0["id"] as? String == made.id.uuidString }
+                let back = wire.flatMap { DeliverSync.link($0) }
+                check("gap: the folder's order isn't read back as the link's", wire?["order"] as? [String] == [asset.uuidString] && wire?["ownOrder"] is NSNull
+                      && back != nil && back?.order == nil, "\(wire?["ownOrder"] ?? "-")")
+                store.deleteLink(made.id)
+            }
         } else { check("gap: folder made", false) }
         check("gap: library edits are stamped in whole seconds", store.library.at.map { $0.timeIntervalSince1970.rounded(.down) == $0.timeIntervalSince1970 && abs($0.timeIntervalSinceNow) < 5 } == true)
     }

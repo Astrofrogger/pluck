@@ -144,7 +144,7 @@ docker rm -f pluck-relay-certs >/dev/null 2>&1 || true
 if [ '$TLS' = files ]; then
   docker run -d --name pluck-relay-certs \$HARDEN --memory 128m --cpus 0.25 -v pluck-relay-certs:/certs \\
     --env-file /etc/pluck-relay/dns.env --entrypoint /bin/sh '$LEGO_IMAGE' -c \\
-    'lego --accept-tos --path /certs --email "\$EMAIL" --dns cloudflare --domains "\$HOST" run; while true; do lego --path /certs --email "\$EMAIL" --dns cloudflare --domains "\$HOST" renew --days 30; sleep 86400; done'
+    '[ -f "/certs/certificates/\$HOST.crt" ] || lego --accept-tos --path /certs --email "\$EMAIL" --dns cloudflare --domains "\$HOST" run; while true; do lego --path /certs --email "\$EMAIL" --dns cloudflare --domains "\$HOST" renew --days 30; sleep 86400; done'
 else
   rm -f /etc/pluck-relay/dns.env
 fi

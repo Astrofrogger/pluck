@@ -678,9 +678,10 @@ extension PhotoSelfTest {
         check("review: Update Now says when it can't update the NAS", stuck && !updates.noUpdater.contains(nasHost.id) && updates.asking.isEmpty
               && updates.results[nasHost.id]?.result == "ok", "")
         // A host that updates itself (4.0.7): its state in words, and Update Now through `self-update` (no API key).
-        let states = [["state": "waiting"], ["state": "downloading"], ["state": "available"], ["state": "failed", "error": "e"], ["state": "upToDate"], [:]]
+        let states = [["state": "waiting"], ["state": "downloading"], ["state": "available"], ["state": "failed", "error": "e"], ["state": "upToDate"], [:],
+                      ["state": "rolledBack", "error": "crashed"]]
             .map { DeliverHostUpdate.selfState($0) }
-        let mapped = states == [.updating, .updating, .available, .failed("e"), .upToDate, .upToDate] && DeliverHostUpdate.selfState(nil) == nil
+        let mapped = states == [.updating, .updating, .available, .failed("e"), .upToDate, .upToDate, .rolledBack("crashed")] && DeliverHostUpdate.selfState(nil) == nil
             && DeliverHostUpdate.text(.updating) == String(localized: "Updating at the next quiet moment")
             && DeliverHostUpdate.checked(["checked": "2026-11-20T10:00:00Z"]) != nil
         var selfOps: [[String: Any]] = []
@@ -1149,10 +1150,24 @@ extension PhotoSelfTest {
               && DeliverMail.errorText(["ok": true]) == nil && DeliverMail.validEmail("a@b.co") && !DeliverMail.validEmail("a@") && !DeliverMail.validEmail("a b@c.d") && !DeliverMail.validEmail("@c.d"), "")
         let heardMail = DeliverMail()
         heardMail.heard(["lastError": ["code": "rejected", "detail": "550 no such user", "at": "2026-11-20T10:00:00Z"]])
-        let stripped = ReviewHosting.withoutPeople(["queued": 1, "subscribers": [["id": "s1", "kind": "client", "email": "c@example.com", "name": "C", "mode": "daily"]]])
+        let keptSent = UserDefaults.standard.stringArray(forKey: DeliverResolveMarkers.sentKey)
+        UserDefaults.standard.removeObject(forKey: DeliverResolveMarkers.sentKey) // (older plain entries count for every timeline)
+        DeliverResolveMarkers.remember(["pluck:a", "pluck:b"], timeline: "T1")
+        DeliverResolveMarkers.remember(["pluck:b"], timeline: "T2")
+        DeliverResolveMarkers.remember(["pluck:a"], timeline: "T1", forget: ["pluck:a", "pluck:b"])
+        check("markers: one Pluck removed isn't \"removed in Resolve\" later (that timeline only)",
+              DeliverResolveMarkers.sent("T1") == ["pluck:a"] && DeliverResolveMarkers.sent("T2") == ["pluck:b"], "\(DeliverResolveMarkers.sent("T1"))")
+        UserDefaults.standard.set(keptSent, forKey: DeliverResolveMarkers.sentKey)
+        let hookMail = DeliverMail()
+        hookMail.heard(["hooks": ["p1": ["url": "https://a.example.com/x", "internal": true], "p2": ["url": "https://b.example.com/y", "internal": false]]])
+        check("mail: webhooks keep their team-only flag", hookMail.internalHooks == ["p1"] && hookMail.hooks["p2"] == "https://b.example.com/y", "")
+        let stripped = ReviewHosting.withoutPeople(["queued": 1, "subscribers": [["id": "s1", "kind": "client", "email": "c@example.com", "name": "C", "mode": "daily"]],
+                                                    "hooks": ["p1": ["url": "https://hooks.example.com/secret-token", "internal": true]]])
         let strippedRow = (stripped["subscribers"] as? [[String: Any]])?.first
+        let strippedHook = (stripped["hooks"] as? [String: [String: Any]])?["p1"]
         check("mail: last error object shown, state without people for non-admins", heardMail.lastError == "The mail server refused the message."
-              && strippedRow?["email"] == nil && strippedRow?["name"] == nil && strippedRow?["mode"] as? String == "daily" && stripped["queued"] as? Int == 1,
+              && strippedRow?["email"] == nil && strippedRow?["name"] == nil && strippedRow?["mode"] as? String == "daily" && stripped["queued"] as? Int == 1
+              && strippedHook?["url"] is NSNull && strippedHook?["internal"] as? Bool == true,
               heardMail.lastError ?? "-")
         let mailHost = UUID()
         DeliverMail.savePassword("fake-secret", for: mailHost)
@@ -1161,6 +1176,10 @@ extension PhotoSelfTest {
         check("mail: password round trip (in memory)", kept == "fake-secret" && DeliverMail.password(for: mailHost) == nil && ScreenshotMode.scene != nil, "")
         if let mailed = try? store.newLink(scope: .project(project.id), title: "Mailed") {
             store.updateLink(mailed.id) { $0.notify = .init(email: true, recipientEmail: "client@example.com") }
+            let mailedCopy = try? store.duplicate(mailed.id), mailedPersonal = store.invite(["Ola"], like: mailed.id)
+            check("mail: a copy or personal link never carries the client's email", mailedCopy?.notify?.email == true && mailedCopy?.notify?.recipientEmail == nil
+                  && mailedPersonal.first?.notify?.recipientEmail == nil && store.link(mailed.id)?.notify?.recipientEmail == "client@example.com", "")
+            for l in [mailedCopy].compactMap({ $0 }) + mailedPersonal { store.deleteLink(l.id) }
             var asked: [[String: Any]] = []
             server.mailActive = { true }
             server.mailAsk = { asked.append($0); return $0["op"] as? String == "unsubscribe" ? ["ok": true, "scope": "link"] : ["ok": true, "id": "s1"] }

@@ -137,9 +137,11 @@ extension PhotoSelfTest {
         let fromHost = DeliverSync.asset(wire, host: host)
         var linkWire = DeliverServer.linkInfo(link, store: store)
         linkWire.merge(["id": link.id.uuidString, "roomID": "r", "project": project.uuidString, "root": ["kind": "project", "id": project.uuidString], "customStatuses": true]) { $1 }
+        let pageOnly = DeliverSync.link(linkWire)
+        linkWire["ownOrder"] = [id.uuidString]
         let back = DeliverSync.link(linkWire)
-        check("flow: from a host (custom field, custom status; link order and switch)", fromHost?.customFields == [field.id: "Close"] && fromHost?.fields?.rating == 3
-              && fromHost?.status.rawValue == status.id && back?.order == [id] && back?.customStatuses == true && back?.fields == ["status", field.wireName],
+        check("flow: from a host (custom field, custom status; link order from ownOrder, never the page's order, and switch)", fromHost?.customFields == [field.id: "Close"] && fromHost?.fields?.rating == 3
+              && fromHost?.status.rawValue == status.id && back?.order == [id] && pageOnly?.order == nil && back?.customStatuses == true && back?.fields == ["status", field.wireName],
               "\(String(describing: fromHost)) \(String(describing: back))")
 
         // "As arranged": the order first, unknown ids ignored, the rest by name.

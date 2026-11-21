@@ -314,7 +314,10 @@ final class HostSession: @unchecked Sendable {
             try await send(piece)
             left -= UInt64(piece.count)
         }
-        return try await answer()
+        let answer = try await answer()
+        // A host about to update takes no new transfers: thrown, so the push stays queued and goes again.
+        if answer["error"] as? String == "later" { throw Deliver.Failure("later") }
+        return answer
     }
 
     nonisolated static func fits(_ size: Int64, limit: Int64?, in folder: URL) -> Bool {

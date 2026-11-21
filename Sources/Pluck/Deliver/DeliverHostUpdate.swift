@@ -219,7 +219,7 @@ final class DeliverHostUpdate {
 
     // MARK: - Hosts that update themselves (4.0.7)
 
-    enum SelfState: Equatable { case upToDate, updating, available, failed(String?) }
+    enum SelfState: Equatable { case upToDate, updating, available, failed(String?), rolledBack(String?) }
 
     /// A self-updating host's `selfUpdate` (status, or its `self-update` answer) as the Server settings show it.
     nonisolated static func selfState(_ answer: [String: Any]?) -> SelfState? {
@@ -228,6 +228,7 @@ final class DeliverHostUpdate {
         case "waiting", "downloading": return .updating
         case "available": return .available
         case "failed": return .failed(answer["error"] as? String)
+        case "rolledBack": return .rolledBack(answer["error"] as? String)
         default: return .upToDate
         }
     }
@@ -238,6 +239,7 @@ final class DeliverHostUpdate {
         case .updating: return String(localized: "Updating at the next quiet moment")
         case .available: return String(localized: "Update available")
         case .failed: return String(localized: "Update failed")
+        case .rolledBack: return String(localized: "Update undone: the previous version runs")
         }
     }
 
@@ -279,9 +281,11 @@ final class DeliverHostUpdate {
             }
             if let answer = status["selfUpdate"] as? [String: Any] {
                 selfStatus[host.id] = answer
-                if case .failed(let error) = Self.selfState(answer) {
+                switch Self.selfState(answer) {
+                case .failed(let error), .rolledBack(let error):
                     results[host.id] = ("failed", .now, error)
                     return
+                default: break
                 }
             }
         }
