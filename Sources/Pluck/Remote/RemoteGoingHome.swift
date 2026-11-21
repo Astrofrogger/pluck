@@ -196,7 +196,7 @@ struct RemoteGoingHomeSheet: View {
                     }
                 }
             }
-            .frame(maxHeight: 110)
+            .frame(height: min(110, CGFloat(rows.count) * 18))
         }
     }
 
