@@ -358,6 +358,7 @@ final class ArchiveModel {
         // The catalogues brought up to date (an original deleted since says so).
         let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg")
         for run in center.runs.prefix(30) where run.files.contains(where: { $0.state == .done }) { await center.catalogue(run.id, ffmpeg: ffmpeg) }
+        if !query.isEmpty { searchSoon() }
     }
 
     private func searchSoon() {

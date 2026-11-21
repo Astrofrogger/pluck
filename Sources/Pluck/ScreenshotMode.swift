@@ -531,6 +531,14 @@ enum ScreenshotMode {
                 ProjectArchiveView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
                 // (A file opens Archive on Timeline; none shows Folders.)
                 UserDefaults.standard.set(ProjectArchiveView.openFile != nil, forKey: "archiveMode")
+                // -PluckScreenshotArchiveScreen projects|settings|history: that step or list; -PluckScreenshotLink <words>: searched.
+                switch defaults.string(forKey: "PluckScreenshotArchiveScreen") {
+                case "projects": ArchiveModel.shared.rescan(cached: false); ArchiveModel.shared.screen = .projects
+                case "settings": ArchiveModel.shared.screen = .settings
+                case "history": ArchiveModel.shared.screen = .history
+                default: break
+                }
+                if let words = defaults.string(forKey: "PluckScreenshotLink") { ArchiveModel.shared.query = words }
                 StudioNavigator.shared.open(windowID: "archive")
             case "synccameras":
                 // -PluckScreenshotFile <folder> is added (and synced with -PluckScreenshotBuild).

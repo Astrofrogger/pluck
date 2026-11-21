@@ -464,6 +464,11 @@ struct ArchiveView: View {
             let info = model.projectInfo[project.folder]
             Toggle("Closed", isOn: Binding(get: { info?.isClosed == true }, set: { model.close(project, $0) })).disabled(info?.hold == true)
             Toggle("Hold", isOn: Binding(get: { info?.hold == true }, set: { model.hold(project, $0) }))
+            Menu("Second Copy") {
+                Button(model.copyTarget.map { String(localized: "To \(($0 as NSString).lastPathComponent)") } ?? String(localized: "Default")) { model.setCopy(project.folder, share: project.share, nil) }
+                Button("Another Folder…") { if let folder = pickFolder() { model.setCopy(project.folder, share: project.share, folder.path) } }
+                Button("No Second Copy") { model.setCopy(project.folder, share: project.share, "") }
+            }
         }
     }
 
@@ -686,7 +691,10 @@ struct ArchiveView: View {
         }
         .font(Design.Studio.hint)
         if center.copying == run.id {
-            Button("Pause") { model.stopCopies() }.buttonStyle(.link).font(Design.Studio.hint)
+            // (Pause on the project being copied now only.)
+            if run.files.first(where: { $0.path == center.copyingNow }).map({ ($0.project.isEmpty ? $0.folder : $0.project) == project.folder }) == true {
+                Button("Pause") { model.stopCopies() }.buttonStyle(.link).font(Design.Studio.hint)
+            }
         } else if !center.running {
             if case .target = project.decision, project.copied < project.masters {
                 Button("Make Second Copy") { model.makeCopies(run, project: project.folder) }.buttonStyle(.link).font(Design.Studio.hint)
