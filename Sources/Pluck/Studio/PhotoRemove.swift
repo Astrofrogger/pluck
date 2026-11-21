@@ -28,7 +28,7 @@ final class PhotoRemove {
     nonisolated private static var folder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Models", isDirectory: true)
     }
-    nonisolated private static var compiled: URL { folder.appendingPathComponent("LaMa.mlmodelc") }
+    nonisolated static var compiled: URL { folder.appendingPathComponent("LaMa.mlmodelc") }
 
     private init() {
         if Self.isReady { state = .ready }

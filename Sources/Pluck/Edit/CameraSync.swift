@@ -21,6 +21,8 @@ struct SyncClip: Identifiable, Hashable, Sendable {
     var hasVideo = false
     /// The first frame's timecode, in seconds.
     var timecode: Double?
+    /// Its timecode is drop frame (; or . before the frames).
+    var dropFrame = false
     /// Where the sound starts after the picture (stream start times).
     var audioOffset = 0.0
     /// When it was recorded by the camera's clock (or the file's dates: `clockFromFile`).

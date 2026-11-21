@@ -21,6 +21,20 @@ extension PhotoSelfTest {
         let saved = (try? JSONEncoder().encode(old)).map { String(decoding: $0, as: UTF8.self) } ?? ""
         check("remove: old spots save no stroke", !saved.contains("stroke"), saved)
         check("remove: old spots read back", (try? JSONDecoder().decode(PhotoSpot.self, from: Data(saved.utf8))) == old)
+        // A damaged model (a partial copy; only tried where none is installed): taken away and Try Again shown, not a Remove doing nothing.
+        if !PhotoRemove.isReady {
+            try? FileManager.default.createDirectory(at: PhotoRemove.compiled, withIntermediateDirectories: true)
+            try? Data("not a model".utf8).write(to: PhotoRemove.compiled.appendingPathComponent("model.mil"))
+            _ = await MainActor.run { PhotoRemove.shared }
+            let grey = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: CGRect(x: 0, y: 0, width: 800, height: 800))
+            let filled = PhotoRemove.fill(grey, mask: grey, square: grey.extent, context: PhotoEngine.context)
+            try? await Task.sleep(for: .milliseconds(300))
+            let state = await MainActor.run { PhotoRemove.shared.state }
+            var failed = false
+            if case .failed = state { failed = true }
+            check("remove: a damaged model is taken away, Try Again shown", filled == nil && !PhotoRemove.isReady && failed, "\(state) \(PhotoRemove.isReady)")
+            try? FileManager.default.removeItem(at: PhotoRemove.compiled)
+        }
         guard PhotoRemove.isReady else { skip("remove", "no model"); return }
 
         let context = PhotoEngine.context, square = CGRect(x: 0, y: 0, width: 1200, height: 800)

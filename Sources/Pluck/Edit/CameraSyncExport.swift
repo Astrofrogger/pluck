@@ -33,7 +33,9 @@ enum CameraSyncExport {
 
     /// Frames as "HH:MM:SS:FF" (wrapping at a day).
     /// shortcut: non-drop frame; a 29.97 timeline's start reads up to 3.6 s an hour off its drop-frame timecode.
-    static func timecode(_ frames: Int, rate: Double) -> String {
+    static func dropFrame(_ cameras: [SyncCamera], rate: Double) -> Bool { false }
+
+    static func timecode(_ frames: Int, rate: Double, drop: Bool = false) -> String {
         let base = max(Int(rate.rounded()), 1), total = ((frames % (base * 86400)) + base * 86400) % (base * 86400)
         return String(format: "%02d:%02d:%02d:%02d", total / base / 3600, total / base / 60 % 60, total / base % 60, total % base)
     }
