@@ -25,8 +25,9 @@ extension PhotoSelfTest {
         let made = Date()
         let set = base.appendingPathComponent("set.wav")
         // Pink noise whose loudness swells and falls (never repeating), with clicks: something to match on.
+        // The clicks drift (t²) so their pattern never repeats (a plain sin(0.7t) repeated after 403.9 s).
         guard run(["-f", "lavfi", "-i", "anoisesrc=d=600:c=pink:r=16000:seed=7,volume='0.15+0.85*abs(sin(t*1.7)*sin(t*0.37+1)*sin(t*0.091+2))':eval=frame",
-                   "-f", "lavfi", "-i", "aevalsrc='0.8*lt(mod(t*2.3+sin(t*0.7),1),0.01)*sin(2*PI*900*t)':d=600:s=16000",
+                   "-f", "lavfi", "-i", "aevalsrc='0.8*lt(mod(t*2.3+sin(t*0.7+0.0013*t*t),1),0.01)*sin(2*PI*900*t)':d=600:s=16000",
                    "-filter_complex", "amix=inputs=2:normalize=0", set.path]) else { return check("sync speed: the recording made", false) }
         struct Shot { var name: String; var start: Double; var timecode: Bool }
         var shots: [Shot] = []
