@@ -127,7 +127,8 @@ extension PhotoSelfTest {
               "\(String(describing: avcDone))")
         check("shrink: the project's proxies moved to the folder to delete", fm.fileExists(atPath: holding.appendingPathComponent("Projects/Job/Rushes/Proxy/A001C001.mov").path)
               && !fm.fileExists(atPath: proxy.path))
-        let inventory = (try? String(contentsOf: holding.appendingPathComponent("Inventory.csv"), encoding: .utf8)) ?? ""
+        let inventory = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).first { $0.hasPrefix("Pluck Inventory ") }
+            .flatMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) } ?? ""
         let report = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).first { $0.hasPrefix("Shrink ") && $0.hasSuffix(".csv") }
             .flatMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) } ?? ""
         check("shrink: inventory and the run's report with its projects", inventory.contains(pro4k.path) && inventory.contains("verified")
@@ -189,7 +190,12 @@ extension PhotoSelfTest {
             let first = ShrinkCenter(store: store)
             let resumeID = first.add(old3, settings: hd, roots: [share.appendingPathComponent("Projects/Old").path])
             first.set(S.prepare(old3[0], settings: hd, holding: holding, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0), in: resumeID)
-            try? Data(repeating: 1, count: 1000).write(to: URL(fileURLWithPath: S.temporary(r2.path)))
+            // (Half written by this Mac: its hidden name was saved in the run before ffmpeg started.)
+            let half = S.temporary(r2.path, token: "ab12cd34")
+            var halfFile = old3[1]
+            halfFile.temp = half
+            first.set(halfFile, in: resumeID)
+            try? Data(repeating: 1, count: 1000).write(to: URL(fileURLWithPath: half))
             let handle = try? FileHandle(forWritingTo: changed)
             _ = try? handle?.seekToEnd()
             try? handle?.write(contentsOf: Data(repeating: 0, count: 10))
@@ -202,7 +208,7 @@ extension PhotoSelfTest {
             let states = again.run(resumeID)?.files.map(\.state) ?? []
             check("shrink: carries on after a stop (master put in place, half-written one made again)", wasWorking && states.prefix(2) == [.done, .done]
                   && ProjectArchive.streams(r1.path, ffprobe: ffprobe).codec == "hevc" && ProjectArchive.streams(r2.path, ffprobe: ffprobe).codec == "hevc"
-                  && !fm.fileExists(atPath: S.temporary(r2.path)), "\(states)")
+                  && !fm.fileExists(atPath: half), "\(states)")
             check("shrink: a file changed in between is skipped", states.last == .skipped
                   && again.run(resumeID)?.files.last?.note == String(localized: "Changed since it was found") && fm.fileExists(atPath: changed.path))
         } else {
@@ -225,7 +231,7 @@ extension PhotoSelfTest {
         check("shrink: destination keeps each root's folders and names, originals stay",
               destCenter.run(destID)?.files.allSatisfy { $0.state == .done && $0.moved == nil } == true && two.count == 2
               && ProjectArchive.streams(mA.path, ffprobe: ffprobe).codec == "hevc" && ProjectArchive.streams(mB.path, ffprobe: ffprobe).codec == "hevc"
-              && fm.fileExists(atPath: a1.path) && fm.fileExists(atPath: b1.path) && fm.fileExists(atPath: dest.appendingPathComponent("Inventory.csv").path),
+              && fm.fileExists(atPath: a1.path) && fm.fileExists(atPath: b1.path) && ((try? fm.contentsOfDirectory(atPath: dest.path)) ?? []).contains { $0.hasPrefix("Pluck Inventory ") },
               "\(destCenter.run(destID)?.files.map { "\($0.state) \($0.master ?? "") \($0.note ?? "")" } ?? [])")
         check("shrink: originals ready to delete listed", destCenter.run(destID).map { destCenter.readyToDelete($0).count } == 2)
         await destCenter.putBack(destID)
@@ -535,5 +541,6 @@ extension PhotoSelfTest {
         } else {
             check("shrink: Keep 4K and Skip", false, "no job project")
         }
+        await shrinkSafetyTest()
     }
 }

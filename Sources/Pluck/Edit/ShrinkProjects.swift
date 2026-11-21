@@ -70,7 +70,23 @@ extension ShrinkFolders {
         static var url: URL {
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Shrink/projects.json")
         }
-        static func load() -> Rules { (try? JSONDecoder().decode(Rules.self, from: Data(contentsOf: url))) ?? Rules() }
+        init() {}
+        /// Each entry read on its own: one this Pluck doesn't know is left out, the others kept.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func entries(_ key: CodingKeys) -> [String: String] { ((try? c.decodeIfPresent([String: String].self, forKey: key)) ?? nil) ?? [:] }
+            marks = entries(.marks).compactMapValues(Mark.init(rawValue:))
+            names = entries(.names)
+            let read = entries(.sizes).compactMapValues(Choice.init(rawValue:))
+            sizes = read.isEmpty ? nil : read
+        }
+        /// A file that can't be read is kept aside (projects.json.unreadable) before it's saved over.
+        static func load() -> Rules {
+            guard let data = try? Data(contentsOf: url) else { return Rules() }
+            if let rules = try? JSONDecoder().decode(Rules.self, from: data) { return rules }
+            _ = rename(url.path, url.path + ".unreadable-\(Int(Date.now.timeIntervalSince1970))")
+            return Rules()
+        }
         func save() {
             try? FileManager.default.createDirectory(at: Self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? JSONEncoder().encode(self).write(to: Self.url, options: .atomic)

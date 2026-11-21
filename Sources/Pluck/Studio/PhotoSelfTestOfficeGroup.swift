@@ -181,6 +181,8 @@ extension PhotoSelfTest {
         try? await Task.sleep(for: .milliseconds(600))
         check("claims: a renewed claim stays fresh", OfficeGroup.claim(lone, mac: "Office A", stale: 1) == nil)
         let old = OfficeGroup.claim(nas.appendingPathComponent("old.mov"), mac: "Office C", now: Date.now.addingTimeInterval(-11 * 60))
+        // (Stale by the claim file's date on the share.)
+        try? FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(-11 * 60)], ofItemAtPath: OfficeGroup.claimURL(nas.appendingPathComponent("old.mov")).path)
         check("claims: one older than ten minutes is taken over", old != nil
               && OfficeGroup.claim(nas.appendingPathComponent("old.mov"), mac: "Office A") != nil)
     }

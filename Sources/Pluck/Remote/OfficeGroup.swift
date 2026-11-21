@@ -651,7 +651,7 @@ final class OfficeGroup {
     }
 
     /// Takes a clip for this Mac: the claim file next to its proxy, created exclusively (O_EXCL, which SMB keeps
-    /// atomic). A claim older than `stale` is from a Mac that went away: moved aside (only one Mac's rename works),
+    /// atomic). A claim not written for `stale` (its file's date, by the share's clock) is from a Mac that went away: moved aside (only one Mac's rename works),
     /// then taken. nil: another Mac has it.
     nonisolated static func claim(_ target: URL, mac: String, now: Date = .now, stale: TimeInterval = staleClaim) -> Claim? {
         let url = claimURL(target), token = UUID().uuidString
@@ -664,7 +664,7 @@ final class OfficeGroup {
                 close(handle)
                 return Claim(url: url, token: token, mac: mac)
             }
-            guard errno == EEXIST, let held = holder(url), now.timeIntervalSince(held.time) > stale else { return nil }
+            guard errno == EEXIST, let held = holder(url), age(url, token: token) > stale else { return nil }
             let aside = url.path + "." + token + ".stale"
             guard rename(url.path, aside) == 0 else { return nil }
             // Moved a fresh one (another Mac took over in between): it goes back, and that Mac keeps it.
@@ -677,7 +677,18 @@ final class OfficeGroup {
         return nil
     }
 
-    /// Keeps a claim fresh while its clip is being made.
+    /// How long since a claim was last written, by the share's own clock: its file's date next to the date of a
+    /// file made there now (never the writer's clock, which another Mac may have set wrong).
+    nonisolated static func age(_ url: URL, token: String) -> TimeInterval {
+        let fm = FileManager.default
+        guard let written = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date else { return 0 }
+        let probe = url.path + "." + token + ".now"
+        defer { unlink(probe) }
+        let now = fm.createFile(atPath: probe, contents: nil) ? ((try? fm.attributesOfItem(atPath: probe))?[.modificationDate] as? Date ?? .now) : .now
+        return now.timeIntervalSince(written)
+    }
+
+    /// Keeps a claim fresh while its clip is being made (its file's date on the share is what counts).
     nonisolated static func renew(_ claim: Claim, now: Date = .now) {
         guard holder(claim.url)?.token == claim.token else { return }
         try? Data("\(claim.mac)\n\(now.timeIntervalSince1970)\n\(claim.token)\n".utf8).write(to: claim.url)
