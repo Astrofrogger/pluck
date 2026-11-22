@@ -356,6 +356,13 @@ impl Host {
             return;
         }
         let name = p.name.clone();
+        // Once a day per link, file, version and person: a client fetching the same master again (or in pieces) isn't news.
+        let day = now_secs().div_euclid(86_400);
+        let key = format!("{}:{}:{}:{name}", l["id"].as_str().unwrap_or(""), asset.as_str().unwrap_or(""), version.as_str().unwrap_or(""));
+        self.downloads_heard.retain(|_, d| *d == day);
+        if self.downloads_heard.insert(key.clone(), day).is_some() {
+            return;
+        }
         let x = json!({"asset": asset, "version": version, "link": l["id"]});
         self.post_hook("downloaded", &x, false, &name, "");
         if !self.mail_on() {
@@ -363,7 +370,12 @@ impl Host {
         }
         self.sync_rows();
         let items = self.rows().iter().filter(|r| r["kind"] == "team" && !r["mute"].as_array().is_some_and(|m| m.contains(&l["id"])))
-            .map(|r| { let mut q = Self::item(r, "downloaded", &l["id"], asset, version, &Value::Null, &Value::Null); q["name"] = json!(name); q }).collect();
+            .map(|r| {
+                let mut q = Self::item(r, "downloaded", &l["id"], asset, version, &Value::Null, &Value::Null);
+                q["name"] = json!(name);
+                q["id"] = json!(format!("dl:{key}:{day}:{}", r["id"].as_str().unwrap_or(""))); // (also across a restart: the sent list)
+                q
+            }).collect();
         self.mail.push(items);
     }
 
@@ -553,7 +565,11 @@ impl Host {
             return;
         }
         let asset = self.manifest["projects"].as_array().into_iter().flatten().flat_map(|p| Self::arr(p, "assets")).find(|a| a["id"] == x["asset"]);
-        let summary = format!("{author}: {text}");
+        let summary = if event == "downloaded" {
+            format!("{author} downloaded {}", asset.and_then(|a| a["name"].as_str()).unwrap_or(""))
+        } else {
+            format!("{author}: {text}")
+        };
         // `text` first, so a Slack incoming webhook shows it as it is; no link codes (the URL would open the review).
         let body = json!({"text": summary.trim_end_matches(": "), "event": event, "project": project, "asset": asset.map(|a| &a["name"]), "version": x["version"],
             "link": x["link"], "author": author, "comment": text}).to_string();

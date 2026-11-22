@@ -44,7 +44,7 @@ const OUTAGE_PUSH: &[&str] = &["outage-macs", "outage-begin", "outage-part", "ou
 /// settings, and the team (roles, approvals, removing people, its settings, key, export and restore).
 pub const ADMIN_OPS: &[&str] = &["invite", "device-remove", "device-role", "rotate-key", "update", "self-update", "prepare-update", "cancel-update", "prefer-fastest",
     "team-set", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel", "invite-approve", "request-accept", "request-decline",
-    "team-export", "team-restore", "team-reset", "mail-set", "mail-test", "subscriber-remove", "hook-set"];
+    "team-export", "team-restore", "team-reset", "mail-set", "mail-test", "subscriber-remove", "hook-set", "download-cap"];
 
 fn read_or_make(path: &Path, make: impl FnOnce() -> Vec<u8>) -> Result<(Vec<u8>, bool)> {
     if let Ok(b) = std::fs::read(path) {
