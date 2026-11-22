@@ -223,6 +223,13 @@ final class DeliverStore {
     /// The project, its review copies and links go; the originals are never touched.
     func deleteProject(_ id: UUID) {
         for asset in contents[id]?.assets ?? [] { for version in asset.versions { try? FileManager.default.removeItem(at: copies(version.id)) } }
+        // A client page is the client's address, not this project's: it moves to one of its other projects and only goes
+        // with the last of them.
+        for page in links where page.isPortal && page.revoked == nil && (page.project == id || page.portal?.projects.contains(id) == true) {
+            let rest = (page.portal?.projects ?? []).filter { $0 != id && project($0) != nil }
+            guard let home = rest.first else { revoke(page.id); continue }
+            updateLink(page.id) { $0.portal?.projects = rest; if $0.project == id { $0.scope = .assets([], project: home) } }
+        }
         for link in links where link.project == id && link.revoked == nil { revoke(link.id) }
         note(.tombstones([tombstone("project", id, project: id, rev: project(id)?.rev)]
                          + links.filter { $0.project == id }.map { tombstone("link", $0.id, project: id, rev: $0.rev) }))
@@ -671,9 +678,16 @@ final class DeliverStore {
         lastApproval[asset] = approval.id
         if let data = try? Deliver.encoder.encode(approval), let json = try? JSONSerialization.jsonObject(with: data) { note(.entries([["approval": json]])) }
         setStatus(decision == .approve ? .approved : .needsChanges, of: asset, by: approval.author)
-        if decision == .approve { DeliverProjectFile.approvedIfAll(project, store: self) }
+        if decision == .approve { DeliverProjectFile.approvedIfAll(project, store: self) } else { notFinal(project) }
         commentsChanged += 1
         return approval
+    }
+
+    /// Changes asked for after every asset was approved: `approvedFinal` comes out of the project's NAS file again (only
+    /// when it's there: no file is made for this).
+    private func notFinal(_ project: UUID) {
+        guard let folder = DeliverProjectFile.folder(project, store: self), DeliverProjectFile.read(folder)["approvedFinal"] != nil else { return }
+        DeliverProjectFile.merge(["approvedFinal": nil], into: folder)
     }
 
     /// Fills in an approval's hash once it's known (the proof waits for it).
@@ -692,7 +706,7 @@ final class DeliverStore {
         guard !known.contains(where: { $0.id == approval.id }) else { return false }
         write(known + [approval], approvalsFile(project))
         setStatus(approval.decision == .approve ? .approved : .needsChanges, of: approval.asset, by: approval.author)
-        if approval.decision == .approve { DeliverProjectFile.approvedIfAll(project, store: self) }
+        if approval.decision == .approve { DeliverProjectFile.approvedIfAll(project, store: self) } else { notFinal(project) }
         commentsChanged += 1
         return true
     }

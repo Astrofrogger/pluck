@@ -9,11 +9,12 @@ import SwiftUI
 /// `ready.portal = {links: [{id, title, updated, assets, approved, changes}], box}` (host.rs `portal`).
 @MainActor
 enum DeliverClientPage {
-    /// The links a client page may list: live, in its projects, for clients (never team, personal or other client pages).
+    /// The links a client page may list: live (not archived: host.rs `live` refuses those too), in its projects, for clients
+    /// (never team, personal or other client pages).
     static func members(_ page: Deliver.ShareLink, store: DeliverStore, now: Date = .now) -> [Deliver.ShareLink] {
         guard let portal = page.portal else { return [] }
         return store.links.filter { link in
-            portal.projects.contains(link.project) && link.isLive && !link.isPaused && !link.isTeam && (link.recipient ?? "").isEmpty
+            portal.projects.contains(link.project) && link.isLive && !link.isPaused && link.archived == nil && !link.isTeam && (link.recipient ?? "").isEmpty
                 && !link.isPortal && (DeliverDeadlines.effective(link, store: store).map { $0 > now } ?? true)
         }
     }

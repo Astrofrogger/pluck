@@ -502,6 +502,7 @@ final class DeliverSync {
             link.portal = .init(projects: (portal["projects"] as? [String] ?? []).compactMap(UUID.init(uuidString:)))
         }
         link.delivered = date(wire["delivered"])
+        if link.delivered != nil { link.deadline = date(wire["ownDeadline"]) }   // (`deadline` is the far future for 4.0.6 hosts)
         link.archived = date(wire["archived"])
         if let mark = wire["watermark"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: mark) {
             link.watermark = try? Deliver.decoder.decode(Deliver.ShareLink.Watermark.self, from: data)

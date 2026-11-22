@@ -14,13 +14,16 @@ enum DeliverShareArchive {
         return forgetChoices.contains(v) ? v : 12
     }
 
+    /// The main NAS server is from before Delivered and archived links (4.0.6: no `portal` in its hello, which came with
+    /// them): it serves an archived link as before and leaves a delivered one's comments open.
+    static var hostIsOlder: Bool { DeliverPeople.main().map { $0.portal != 1 } ?? false }
+
     /// Writes the record and archives the link. `projectFolder` nil: the project's NAS folder (nil when unknown: throws).
     @discardableResult
     static func archive(_ id: UUID, projectFolder: URL? = nil, store: DeliverStore = .shared, now: Date = .now) throws -> URL {
         guard let link = store.link(id) else { throw Deliver.Failure("notFound") }
         guard let project = projectFolder ?? DeliverProjectFile.folder(link.project, store: store) else { throw Deliver.Failure("noFolder") }
-        let folder = project.appendingPathComponent(folderName, isDirectory: true).appendingPathComponent(DeliverServer.safeName(link.title), isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try newFolder(in: project.appendingPathComponent(folderName, isDirectory: true), title: link.title, id: id)
         let assets = store.content(link.project).assets.filter { DeliverServer.inScope($0, link, store: store) }
         // What the link showed: internal comments and replies only on a team link.
         let comments = assets.flatMap { asset in store.comments(asset.id).filter { !$0.isInternal || link.isTeam }.map { comment in
@@ -29,26 +32,48 @@ enum DeliverShareArchive {
             return (asset, shown)
         } }
             .sorted { ($0.0.name, $0.1.position) < ($1.0.name, $1.1.position) }
-        try Data(commentsCSV(comments).utf8).write(to: folder.appendingPathComponent("Comments.csv"), options: .atomic)
-        try Data(commentsText(comments, title: link.title).utf8).write(to: folder.appendingPathComponent("Comments.txt"), options: .atomic)
+        // (Never over a file on the NAS: the folder is new, each file is created only if it isn't there.)
+        try Data(commentsCSV(comments).utf8).write(to: folder.appendingPathComponent("Comments.csv"), options: .withoutOverwriting)
+        try Data(commentsText(comments, title: link.title).utf8).write(to: folder.appendingPathComponent("Comments.txt"), options: .withoutOverwriting)
         let approvals = DeliverSignOff.approvals(link: id, store: store)
         var names: Set<String> = []
         for approval in approvals {
-            guard let asset = store.find(approval.asset)?.asset, let pdf = DeliverProof.make(approval, store: store, servedBy: "Pluck") else { continue }
+            guard let asset = store.find(approval.asset)?.asset else { continue }   // (its file is gone; the sign-off sheet still lists it)
+            guard let pdf = DeliverProof.make(approval, store: store, servedBy: "Pluck") else { throw Deliver.Failure("internal") }
             var name = DeliverServer.safeName(DeliverProof.fileName(approval, asset: asset))
             if !names.insert(name).inserted { name = (name as NSString).deletingPathExtension + " " + approval.id.uuidString.prefix(8) + ".pdf"; names.insert(name) }
-            try pdf.write(to: folder.appendingPathComponent(name), options: .atomic)
+            try pdf.write(to: folder.appendingPathComponent(name), options: .withoutOverwriting)
         }
-        try DeliverSignOff.write(title: link.title, approvals: approvals, into: folder, store: store)
+        try DeliverSignOff.write(title: link.title, approvals: approvals, into: folder, store: store, exclusive: true)
         store.updateLink(id) { $0.archived = now }
         DeliverProjectFile.merge(["reviewArchived": DeliverProof.iso(now)], into: project)
         return folder
+    }
+
+    /// `<review folder>/<title>/`, made new: " 2", " 3"… when that name is taken (another link of the same title, or this
+    /// one archived before), the link id's start when the title leaves no name. Never an existing folder.
+    nonisolated static func newFolder(in review: URL, title: String, id: UUID) throws -> URL {
+        try FileManager.default.createDirectory(at: review, withIntermediateDirectories: true)
+        let base = DeliverServer.safeName(title).trimmingCharacters(in: .whitespaces)
+        let name = base.isEmpty ? "Link " + id.uuidString.prefix(8) : base
+        for n in 1...999 {
+            let folder = review.appendingPathComponent(n == 1 ? name : "\(name) \(n)", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+                return folder
+            } catch CocoaError.fileWriteFileExists {
+                continue
+            }
+        }
+        throw Deliver.Failure("internal")
     }
 
     /// Reopened: the link works again (what was written stays where it is).
     static func reopen(_ id: UUID, store: DeliverStore = .shared) {
         guard let link = store.link(id), link.archived != nil else { return }
         store.updateLink(id) { $0.archived = nil }
+        // (Only once no other link of the project is archived.)
+        guard !store.links.contains(where: { $0.id != id && $0.project == link.project && $0.archived != nil && $0.revoked == nil }) else { return }
         DeliverProjectFile.mark("reviewArchived", nil, project: link.project, store: store, replace: true)
     }
 
@@ -62,7 +87,7 @@ enum DeliverShareArchive {
 
     nonisolated static func commentsCSV(_ comments: [(Deliver.Asset, Deliver.Comment)]) -> String {
         func cell(_ text: String) -> String {
-            let safe = text.first.map { "=+-@".contains($0) } == true ? "'" + text : text
+            let safe = text.first.map { "=+-@\t\r".contains($0) } == true ? "'" + text : text
             return safe.contains(where: { ",\"\n\r".contains($0) }) ? "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : safe
         }
         var lines = [["Asset", "Version", "Timecode", "Author", "Time (UTC)", "Comment", "Reply to", "Done"]]
@@ -118,10 +143,18 @@ enum DeliverShareArchive {
             let alert = NSAlert()
             alert.messageText = String(localized: "Archive “\(link.title)”?")
             alert.informativeText = String(localized: "Comments, approvals and the sign-off sheet go into the project’s folder. The link then says it’s archived; you can reopen it.")
+            if hostIsOlder { alert.informativeText += "\n\n" + String(localized: "The link says it’s archived once the NAS server is updated.") }
             alert.addButton(withTitle: String(localized: "Archive"))
             alert.addButton(withTitle: String(localized: "Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
-        if let made = try? archive(id, projectFolder: folder, store: store) { NSWorkspace.shared.activateFileViewerSelecting([made]) }
+        do {
+            NSWorkspace.shared.activateFileViewerSelecting([try archive(id, projectFolder: folder, store: store)])
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Couldn’t archive “\(link.title)”")
+            alert.informativeText = error is Deliver.Failure ? String(localized: "Check that the project’s folder can be written to, then try again.") : error.localizedDescription
+            alert.runModal()
+        }
     }
 }

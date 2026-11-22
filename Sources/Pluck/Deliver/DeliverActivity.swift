@@ -34,10 +34,19 @@ extension DeliverStore {
         if activityChanged % 200 == 0 { trimActivity(entry.link) }
         // "<name> downloaded <file>" (wf-deliver): here or on a host; a host's backlog from long ago stays quiet.
         if entry.kind == "downloaded", entry.detail?.what != "proxy", Date.now.timeIntervalSince(entry.at) < 3600,
-           let link = self.link(entry.link), !link.isTeam, link.muted != true {
+           let link = self.link(entry.link), !link.isTeam, link.muted != true, Self.firstToday(entry) {
             DeliverNotify.downloaded(link, by: entry.name ?? "", file: entry.asset.flatMap { find($0)?.asset.name } ?? "")
         }
         return true
+    }
+
+    /// One "downloaded" notification a day per link, file, version and person (a master fetched again isn't news).
+    static var downloadsHeard: [String: Int] = [:]
+    static func firstToday(_ entry: Deliver.Activity) -> Bool {
+        let day = Int(entry.at.timeIntervalSince1970 / 86400)
+        let key = [entry.link.uuidString, entry.asset?.uuidString ?? "", entry.version?.uuidString ?? "", entry.name ?? ""].joined(separator: ":")
+        downloadsHeard = downloadsHeard.filter { $0.value == day }
+        return downloadsHeard.updateValue(day, forKey: key) == nil
     }
 
     /// A host's entry, once by id.

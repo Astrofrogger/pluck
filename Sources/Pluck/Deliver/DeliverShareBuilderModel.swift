@@ -140,7 +140,11 @@ final class ShareBuilderSession: Identifiable {
             DeliverCopies.shared.remark(now)
         }
         // Delivered (wf-deliver): into the project's NAS folder, for Archive (off again: taken out).
-        if before.delivered != now.delivered { DeliverProjectFile.mark("delivered", now.delivered, project: now.project, store: store, replace: true) }
+        // (Off: only once no other link of the project is delivered.)
+        if before.delivered != now.delivered,
+           now.delivered != nil || !store.links.contains(where: { $0.id != now.id && $0.project == now.project && $0.delivered != nil && $0.revoked == nil }) {
+            DeliverProjectFile.mark("delivered", now.delivered, project: now.project, store: store, replace: true)
+        }
         draft = now
         baseline = now
         return true

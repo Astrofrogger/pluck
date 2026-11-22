@@ -135,6 +135,7 @@ pub struct Host {
     pub devices: Option<Arc<crate::devices::Devices>>, // the paired Macs: admins count for the last-admin guard (roles)
     pub mail: crate::mail::Mail, // email settings, subscribers and the queue (host_mail.rs)
     pub drops: HashMap<String, PathBuf>, // media root id → where clients' uploads may be written into it (--drop)
+    downloads_heard: HashMap<String, i64>, // "link:asset:version:name" → the day the team last heard it (one webhook and mail a day)
 }
 
 /// Who this host is: shown to Pluck, written into tombstones and proofs.
@@ -400,7 +401,7 @@ impl Host {
             fields: HashMap::new(), activity: HashMap::new(), attachments: HashMap::new(), uploads: HashMap::new(), up_hour: HashMap::new(),
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
-            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), placing: HashMap::new(), devices: None,
+            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), placing: HashMap::new(), downloads_heard: HashMap::new(), devices: None,
             mail: crate::mail::Mail::load(data),
             drops: HashMap::new(),
         };
@@ -1009,7 +1010,9 @@ impl Host {
     fn set_serving(&mut self, key: &str, value: Value) -> Result<(), String> {
         let mut v = self.serving();
         v[key] = value;
-        std::fs::write(self.data.join("serving.json"), v.to_string()).map_err(|e| format!("can't write serving.json: {e}"))?;
+        // (A new file renamed over the old one: a crash halfway never leaves half a serving.json.)
+        let (tmp, path) = (self.data.join("serving.json.tmp"), self.data.join("serving.json"));
+        std::fs::write(&tmp, v.to_string()).and_then(|()| std::fs::rename(&tmp, &path)).map_err(|e| format!("can't write serving.json: {e}"))?;
         self.load_serving();
         Ok(())
     }
@@ -4654,6 +4657,8 @@ mod tests {
         (row["email"], row["link"]) = (json!("client@example.com"), json!("LD"));
         h.mail.subs.push(row);
         h.mail_download("c1", &json!("A"), &json!("V"));
+        h.mail_download("c1", &json!("A"), &json!("V")); // the same master again (a retry, a second browser): no second mail
+        assert_eq!(h.mail.queue.iter().filter(|q| q["event"] == "downloaded").count(), 1, "once a day per file and person");
         let q = h.mail.queue.iter().find(|q| q["event"] == "downloaded").cloned().expect("the team's mail");
         let owner = h.mail.subs.iter().find(|r| r["email"] == "owner@example.com").cloned().unwrap();
         assert_eq!(h.compose(&owner, &[q]).unwrap().subject, "Client one downloaded Cut");
