@@ -294,7 +294,7 @@ struct DeliverPage: View {
             // Drawn as the sheet it is in the app: over the page it opens from, dimmed.
             ZStack(alignment: .top) {
                 pageMain.allowsHitTesting(false)
-                Color.black.opacity(0.35)
+                Color.black.opacity(0.5)
                 ScrollView {
                     panel.background(Design.Studio.panel).clipShape(.rect(cornerRadius: Design.Studio.panelRadius))
                         .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
