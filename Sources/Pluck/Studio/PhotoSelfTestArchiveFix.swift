@@ -214,6 +214,9 @@ extension PhotoSelfTest {
         let subTasks: [[String: Any]] = [["dataset": "tank/media/footage", "recursive": false, "enabled": true, "lifetime_value": 3, "lifetime_unit": "DAY"]]
         check("archive fix: a share that's a folder below its dataset gets the dataset's snapshot days",
               ArchiveSnapshots.days(shares: subShares, tasks: subTasks, share: "sub") == 3, "\(ArchiveSnapshots.days(shares: subShares, tasks: subTasks, share: "sub") ?? -1)")
+        check("archive fix: snapshot days come from the NAS the share is mounted from (its address), not the first NAS with that share name",
+              ArchiveSnapshots.sameNAS("nas.local", remount: "smb://editor@NAS.local/Footage") && ArchiveSnapshots.sameNAS("192.168.1.5", remount: "smb://192.168.1.5/Footage")
+              && !ArchiveSnapshots.sameNAS("192.168.1.6", remount: "smb://192.168.1.5/Footage") && !ArchiveSnapshots.sameNAS("nas", remount: "/Volumes/Footage"))
 
         // MARK: 8 Measured: all deleted, then a smaller new run starts a new measure
 
@@ -247,6 +250,11 @@ extension PhotoSelfTest {
         let ownModel = ArchiveModel(center: ownCenter)
         await ownModel.refreshSpace()
         let ownLine = ownCenter.run(ownID).map(ownModel.checks)?.first
+        // (What the history row shows: made with the space, off the main thread, the same lines.)
+        let cachedLine = ownModel.history[ownID]?.checks.first
+        check("archive fix: the history row's project lines are made off the main thread with the space, the same as asked now",
+              cachedLine != nil && cachedLine?.safe == ownLine?.safe && cachedLine?.copied == ownLine?.copied && cachedLine?.decision == ownLine?.decision,
+              "\(cachedLine?.safe ?? false) \(ownLine?.safe ?? false)")
         let ownWaiting = ownModel.waiting.first { S.real($0.folder).path == S.real(holding).path }
         S.decide = { _ in .none }
         check("archive fix: \"safe to delete\" goes by the run's own second-copy choice (the same on every Mac)",

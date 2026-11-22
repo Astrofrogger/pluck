@@ -374858,6 +374858,238 @@
           }
         }
       }
+    },
+    "Project file can’t be read" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projektdatei kann nicht gelesen werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede leer el archivo del proyecto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de lire le fichier du projet"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile leggere il file del progetto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロジェクトファイルを読み込めません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "프로젝트 파일을 읽을 수 없습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projectbestand kan niet worden gelezen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não é possível ler o arquivo do projeto"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取项目文件"
+          }
+        }
+      }
+    },
+    "This Mac can’t read the RAW original: check on a Mac with RAW support" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Mac kann das RAW-Original nicht lesen: Prüfe es auf einem Mac mit RAW-Unterstützung"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este Mac no puede leer el original RAW: compruébalo en un Mac compatible con RAW"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac ne peut pas lire l’original RAW : vérifiez-le sur un Mac compatible RAW"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo Mac non può leggere l’originale RAW: controllalo su un Mac con supporto RAW"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacではRAWオリジナルを読み込めません：RAW対応のMacで確認してください"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac에서는 RAW 원본을 읽을 수 없습니다: RAW를 지원하는 Mac에서 확인하세요"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deze Mac kan het RAW-origineel niet lezen: controleer het op een Mac met RAW-ondersteuning"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este Mac não consegue ler o original RAW: verifique em um Mac com suporte a RAW"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台 Mac 无法读取 RAW 原件：请在支持 RAW 的 Mac 上检查"
+          }
+        }
+      }
+    },
+    "%@ is an rclone or FUSE mount: a copy there can’t be read back from the drive to check it. Choose a NAS share or a disk" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ist ein rclone- oder FUSE-Laufwerk: Eine Kopie dort kann nicht vom Laufwerk zurückgelesen und geprüft werden. Wähle eine NAS-Freigabe oder ein Laufwerk"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ es un montaje rclone o FUSE: una copia allí no se puede volver a leer del disco para comprobarla. Elige un recurso compartido del NAS o un disco"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ est un montage rclone ou FUSE : une copie ne peut pas y être relue depuis le disque pour la vérifier. Choisissez un partage NAS ou un disque"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ è un montaggio rclone o FUSE: una copia lì non può essere riletta dal disco per controllarla. Scegli una condivisione NAS o un disco"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ は rclone または FUSE のマウントです：そこにあるコピーはドライブから読み戻して確認できません。NASの共有またはディスクを選んでください"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@은(는) rclone 또는 FUSE 마운트입니다: 그곳의 사본은 드라이브에서 다시 읽어 확인할 수 없습니다. NAS 공유나 디스크를 선택하세요"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is een rclone- of FUSE-koppeling: een kopie daar kan niet van de schijf worden teruggelezen om te controleren. Kies een NAS-share of een schijf"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ é uma montagem rclone ou FUSE: uma cópia ali não pode ser lida de volta do disco para verificação. Escolha um compartilhamento do NAS ou um disco"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 是 rclone 或 FUSE 装载：那里的副本无法从驱动器读回进行检查。请选择 NAS 共享或磁盘"
+          }
+        }
+      }
+    },
+    "Its folder isn’t there any more" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sein Ordner ist nicht mehr da"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su carpeta ya no está"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son dossier n’est plus là"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sua cartella non c’è più"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダがもうありません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "폴더가 더 이상 없습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De map is er niet meer"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A pasta não está mais lá"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其文件夹已不在"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

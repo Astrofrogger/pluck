@@ -7,6 +7,10 @@ import Foundation
 /// only once the archive is checked.
 extension PhotoSelfTest {
     static func archiveTest() async {
+        // (Second copies off unless a test turns them on: a default target left in this test app's settings makes runs wait for it.)
+        let ownDecide = ShrinkFolders.decide
+        ShrinkFolders.decide = ownDecide ?? { _ in .none }
+        defer { ShrinkFolders.decide = ownDecide }
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("pluck-archive-\(UUID().uuidString)", isDirectory: true)
         let before = Set(OffloadCenter.shared.jobs.map(\.id))

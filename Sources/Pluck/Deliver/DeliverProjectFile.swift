@@ -32,19 +32,14 @@ enum DeliverProjectFile {
         return (try? url.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal == false
     }
 
-    /// Sets `values` (nil removes the key) in the folder's file, keeping every other key. False when it couldn't be written.
+    /// Sets `values` (nil removes the key) in the folder's file, keeping every other key (Archive's writer: a file that
+    /// can't be read is never written over, its Hold kept). False when it couldn't be written.
     @discardableResult
     nonisolated static func merge(_ values: [String: Any?], into folder: URL) -> Bool {
-        let file = folder.appendingPathComponent(name)
-        var json = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        for (key, value) in values { json[key] = value }
-        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else { return false }
-        return (try? data.write(to: file, options: .atomic)) != nil
+        ArchiveProject.write(folder.path) { json in for (key, value) in values { json[key] = value } }
     }
 
-    nonisolated static func read(_ folder: URL) -> [String: Any] {
-        (try? Data(contentsOf: folder.appendingPathComponent(name))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-    }
+    nonisolated static func read(_ folder: URL) -> [String: Any] { ArchiveProject.json(folder.path) ?? [:] }
 
     /// One of Deliver's dates for a project, when its folder is known (a key already there is left: the first date counts).
     static func mark(_ key: String, _ date: Date?, project: UUID, store: DeliverStore = .shared, replace: Bool = false) {

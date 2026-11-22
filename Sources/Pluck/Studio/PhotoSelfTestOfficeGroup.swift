@@ -10,6 +10,10 @@ extension PhotoSelfTest {
     /// the same NAS folder gets one id; and the protocol over this Mac: an office Mac joining with a code, groupSync,
     /// a home Mac paired on another office Mac let in here, groupNode, failover to the live office Mac.
     static func officeGroupTest() async {
+        // (Second copies off unless a test turns them on: a default target left in this test app's settings makes runs wait for it.)
+        let ownDecide = ShrinkFolders.decide
+        ShrinkFolders.decide = ownDecide ?? { _ in .none }
+        defer { ShrinkFolders.decide = ownDecide }
         mergeChecks()
         accessGroupChecks()
         await claimChecks()

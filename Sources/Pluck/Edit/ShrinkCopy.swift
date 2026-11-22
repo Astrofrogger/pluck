@@ -16,6 +16,8 @@ extension ShrinkFolders {
         var hashes: [String: String]
         var sizes: [String: Int64]
         var date: Date
+        /// Pieces found already there with the same bytes (a quit after they went in): "verified" in the MHL, not "original".
+        var verified: [String]?
     }
 
     /// What a project's originals get: a second copy somewhere, or none (the default).
@@ -84,6 +86,20 @@ extension ShrinkFolders {
         return (text(info.f_fstypename), text(info.f_mntfromname))
     }
 
+    /// A file system where a copy can't be read back from the drive: macFUSE / fuse-t / rclone mounts, or a share served by
+    /// this Mac itself (rclone's NFS or WebDAV serve). Their own caches answer the read back, so a copy there is never "checked".
+    static func uncheckable(_ system: (type: String, from: String)) -> Bool {
+        let type = system.type.lowercased(), from = system.from.lowercased()
+        return type.contains("fuse") || ["fuse-t", "rclone", "localhost", "127.0.0.1", "::1"].contains { from.contains($0) }
+    }
+
+    /// The nearest folder of a path that's there isn't the startup disk's root or /Volumes: its share is mounted.
+    static func shareMounted(_ path: String) -> Bool {
+        var url = URL(fileURLWithPath: path)
+        while !FileManager.default.fileExists(atPath: url.path), url.path != "/" { url.deleteLastPathComponent() }
+        return url.path != "/" && url.path != "/Volumes"
+    }
+
     /// Bytes read and written at a time (self-tests: small, to stop halfway).
     nonisolated(unsafe) static var copyChunk = 8 << 20
     /// Self-tests: a copy damaged on its way (after it's written, before it's read back).
@@ -146,11 +162,14 @@ extension ShrinkFolders {
         let main = (file.path as NSString).lastPathComponent
         guard fm.fileExists(atPath: target.path) else { return fail(String(localized: "\(target.lastPathComponent) isn’t there: connect it"), stopped: true) }
         guard fm.fileExists(atPath: source) else {
-            // (Its share not mounted: nothing to say yet. Its folder there but the original gone: deleted already.)
-            if !fm.fileExists(atPath: from) { return fail(String(localized: "Its share isn’t mounted"), stopped: true) }
+            // (Its share not mounted: nothing to say yet. The share there but the original, or its folder, gone: deleted already.)
+            if !shareMounted(from) { return fail(String(localized: "Its share isn’t mounted"), stopped: true) }
             return fail(String(localized: "The original isn’t there any more"))
         }
         guard !sameDrive(source, target.path) else { return fail(String(localized: "A second copy has to go to another drive or share")) }
+        if let system = fileSystem(target.path), uncheckable(system) {
+            return fail(String(localized: "\(target.lastPathComponent) is an rclone or FUSE mount: a copy there can’t be read back from the drive to check it. Choose a NAS share or a disk"))
+        }
         let parts = file.parts.map { ($0 as NSString).lastPathComponent }
         let sidecars = (file.sidecars ?? []).map { ($0 as NSString).lastPathComponent }
             .filter { $0 != main && !parts.contains($0) && fm.fileExists(atPath: (from as NSString).appendingPathComponent($0)) }
@@ -162,7 +181,7 @@ extension ShrinkFolders {
         let folder = copyFolder(file.path, folder: file.folder, target: target)
         try? fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
         guard fm.isWritableFile(atPath: folder) else { return fail(String(localized: "Read-only: no permission to write to \(target.lastPathComponent)")) }
-        var hashes: [String: String] = [:], bytes: [String: Int64] = [:]
+        var hashes: [String: String] = [:], bytes: [String: Int64] = [:], verified: [String] = []
         for name in [main] + parts + sidecars {
             let piece = (from as NSString).appendingPathComponent(name), place = (folder as NSString).appendingPathComponent(name)
             let want = size(piece) ?? -1
@@ -174,6 +193,7 @@ extension ShrinkFolders {
                     return fail(String(localized: "Something else is where the second copy of \(name) goes: left as it is"))
                 }
                 (hashes[name], bytes[name]) = (there, want)
+                verified.append(name)
                 continue
             }
             let temp = (folder as NSString).appendingPathComponent(".pluck-copying-\(token)-\(name)")
@@ -192,7 +212,7 @@ extension ShrinkFolders {
         }
         // (Still the original it was: a file changed meanwhile isn't counted as copied.)
         if let head = file.originalHead, headHash(source) != head { return fail(String(localized: "The original changed")) }
-        file.copied = Copied(folder: folder, target: target.path, hashes: hashes, sizes: bytes, date: .now)
+        file.copied = Copied(folder: folder, target: target.path, hashes: hashes, sizes: bytes, date: .now, verified: verified.isEmpty ? nil : verified)
         file.copyProblem = nil
         return (file, false)
     }
@@ -221,7 +241,8 @@ extension ShrinkFolders {
     /// A new ASC MHL generation in `root`/ascmhl listing these files (paths below root), and the chain updated.
     /// Never over an earlier generation: each gets its own number.
     @discardableResult
-    static func writeASCMHL(root: URL, files: [(path: String, size: Int64, modified: Date, hash: String)], now: Date = .now) throws -> URL {
+    /// (`action`: "original" for a hash made as it was copied, "verified" for a copy already there read again the same.)
+    static func writeASCMHL(root: URL, files: [(path: String, size: Int64, modified: Date, hash: String, action: String)], now: Date = .now) throws -> URL {
         let folder = root.appendingPathComponent("ascmhl", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let iso = ISO8601DateFormatter()
@@ -247,7 +268,7 @@ extension ShrinkFolders {
             body += """
                 <hash>
                   <path size="\(file.size)" lastmodificationdate="\(iso.string(from: file.modified))">\(xml(file.path))</path>
-                  <xxh64 action="original" hashdate="\(iso.string(from: now))">\(file.hash)</xxh64>
+                  <xxh64 action="\(file.action)" hashdate="\(iso.string(from: now))">\(file.hash)</xxh64>
                 </hash>
 
             """
@@ -285,7 +306,7 @@ extension ShrinkFolders {
 
 extension ShrinkCenter {
     /// Where a file's second copy goes now (nil: none, or not decided).
-    func copyTarget(_ file: ShrinkFolders.File, in run: ShrinkFolders.Run, rules: ShrinkFolders.Rules) -> String? {
+    nonisolated func copyTarget(_ file: ShrinkFolders.File, in run: ShrinkFolders.Run, rules: ShrinkFolders.Rules) -> String? {
         if let given = run.copyTargets?[file.project] { return given.isEmpty ? nil : given }
         if case .target(let path) = ShrinkFolders.decision(file, rules: rules) { return path }
         return nil
@@ -304,13 +325,16 @@ extension ShrinkCenter {
         defer { copying = nil; copyingNow = nil }
         let rules = ShrinkFolders.Rules.load()
         let token = String(install.prefix(8)), mac = claimName
-        var listed: [String: [(path: String, size: Int64, modified: Date, hash: String)]] = [:]
+        var listed: [String: [(path: String, size: Int64, modified: Date, hash: String, action: String)]] = [:]
         var stopped: String?
-        for file in run.files where file.state == .done && (project == nil || file.project == project) && (retry || file.copyProblem == nil)
-            && !ShrinkFolders.copyThere(file) {
+        // (Which copies aren't there, looked at off the main thread.)
+        let wanted = await Task.detached(priority: .utility) {
+            Set(run.files.filter { $0.state == .done && (project == nil || $0.project == project) && (retry || $0.copyProblem == nil) && !ShrinkFolders.copyThere($0) }.map(\.path))
+        }.value
+        for file in run.files where wanted.contains(file.path) {
             guard let target = given ?? copyTarget(file, in: run, rules: rules) else { continue }
             let projectFolder = file.project.isEmpty ? file.folder : file.project
-            if await Task.detached(priority: .utility, operation: { ArchiveProject.read(projectFolder)?.hold == true }).value { continue }
+            if await Task.detached(priority: .utility, operation: { ArchiveProject.heldNow(projectFolder) != nil }).value { continue }
             let place = (ShrinkFolders.copyFolder(file.path, folder: file.folder, target: URL(fileURLWithPath: target)) as NSString)
                 .appendingPathComponent((file.path as NSString).lastPathComponent)
             var result: (file: ShrinkFolders.File, stopped: Bool)?, editedOff = false
@@ -382,7 +406,8 @@ extension ShrinkCenter {
                 for (name, hash) in made.hashes {
                     let path = (made.folder as NSString).appendingPathComponent(name)
                     let modified = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date) ?? .now
-                    listed[root, default: []].append((String(path.dropFirst(root.count + 1)), made.sizes[name] ?? 0, modified, hash))
+                    listed[root, default: []].append((String(path.dropFirst(root.count + 1)), made.sizes[name] ?? 0, modified, hash,
+                                                      made.verified?.contains(name) == true ? "verified" : "original"))
                 }
             }
             if result.stopped { stopped = result.file.copyProblem ?? String(localized: "Second copies paused"); break }
@@ -429,7 +454,10 @@ extension ShrinkFolders {
         guard copyThere(file) else { return fail(String(localized: "The second copy isn’t all there")) }
         let pieces = [file.path] + file.parts
         let folder = (file.path as NSString).deletingLastPathComponent
-        guard fm.fileExists(atPath: folder) else { return (fail(String(localized: "Its share isn’t mounted")).file, true) }
+        guard fm.fileExists(atPath: folder) else {
+            if !shareMounted(folder) { return (fail(String(localized: "Its share isn’t mounted")).file, true) }
+            return fail(String(localized: "Its folder isn’t there any more"))
+        }
         if let free = OffloadCenter.freeSpace(URL(fileURLWithPath: folder)), free < file.size + headroom(capacity(URL(fileURLWithPath: folder))) {
             return fail(String(localized: "Not enough free space to restore the original"))
         }
@@ -438,15 +466,17 @@ extension ShrinkFolders {
             return fail(String(localized: "Something is at the original’s place: left as it is"))
         }
         var moves: [(String, String)] = []
+        /// Not restored: its hidden pieces (Pluck's own partial copies, never an original) removed, as a copy that reads back wrong is.
+        func failed(_ why: String) -> (file: File, stopped: Bool) { moves.forEach { unlink($0.0) }; return fail(why) }
         for piece in pieces {
             let name = (piece as NSString).lastPathComponent
-            guard let hash = copy.hashes[name] else { return fail(String(localized: "The second copy isn’t all there")) }
+            guard let hash = copy.hashes[name] else { return failed(String(localized: "The second copy isn’t all there")) }
             let temp = ((piece as NSString).deletingLastPathComponent as NSString).appendingPathComponent(".pluck-restoring-\(token)-\(name)")
             let made = copyPiece((copy.folder as NSString).appendingPathComponent(name), to: temp, stop: stop)
             if made.stopped { return (file, true) }
             guard made.hash == hash, readBack(temp).hash == hash else {
                 unlink(temp)
-                return fail(made.problem ?? String(localized: "The restored original read back differently: try again"))
+                return failed(made.problem ?? String(localized: "The restored original read back differently: try again"))
             }
             moves.append((temp, piece))
         }
@@ -454,18 +484,18 @@ extension ShrinkFolders {
         var aside: String?
         if fm.fileExists(atPath: master), pieces.contains(master) {
             guard size(master) == file.masterSize, file.masterHash == nil || readBack(master).hash == file.masterHash else {
-                return fail(String(localized: "The file at the master’s name isn’t this master: left as it is"))
+                return failed(String(localized: "The file at the master’s name isn’t this master: left as it is"))
             }
             let hidden = (folder as NSString).appendingPathComponent(".pluck-removed-\(UUID().uuidString.prefix(8))-" + (master as NSString).lastPathComponent)
-            if let why = rename(master, hidden) { return fail(why) }
+            if let why = rename(master, hidden) { return failed(why) }
             aside = hidden
         }
         pieces.forEach { if placeholder($0) { unlink($0) } }
         if let why = moveAll(moves) {
             if let aside, rename(aside, master) != nil {
-                return fail(String(localized: "Couldn’t restore the original: \(why). The master is hidden next to it as \((aside as NSString).lastPathComponent)"))
+                return failed(String(localized: "Couldn’t restore the original: \(why). The master is hidden next to it as \((aside as NSString).lastPathComponent)"))
             }
-            return fail(String(localized: "Couldn’t restore the original: \(why)"))
+            return failed(String(localized: "Couldn’t restore the original: \(why)"))
         }
         // The master (a different name) goes too, as Put Back does; set aside first so only this master ever goes.
         if aside == nil, fm.fileExists(atPath: master), master != file.path {

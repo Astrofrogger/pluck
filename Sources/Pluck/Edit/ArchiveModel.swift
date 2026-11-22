@@ -72,7 +72,7 @@ final class ArchiveModel {
         var notSafeFiles: [String] = []
     }
     /// Check Before Deleting's result for one project of a run.
-    struct ProjectCheck: Identifiable {
+    struct ProjectCheck: Identifiable, Sendable {
         var id: String { title }; var title: String; var masters: Int; var checked: Int; var problems: [String]
         /// Its run is through (here and on the other Mac).
         var finished = true
@@ -89,7 +89,7 @@ final class ArchiveModel {
     }
     typealias Choice = ShrinkFolders.Rules.Choice
     /// What a run's history row shows that needs the drive (looked at off the main thread, kept).
-    struct RunInfo: Sendable { var canPutBack = false; var ready: [File] = []; var relinkBack = false }
+    struct RunInfo: Sendable { var canPutBack = false; var ready: [File] = []; var relinkBack = false; var checks: [ProjectCheck] = [] }
     private(set) var history: [UUID: RunInfo] = [:]
 
     // MARK: State
@@ -349,10 +349,12 @@ final class ArchiveModel {
         }
         // Second copies stopped by a quit, a pause or a drive that was gone carry on.
         if !center.running, center.copying == nil {
-            let rules = ShrinkFolders.Rules.load()
-            for run in center.runs where run.files.contains(where: { $0.state == .done && $0.copyProblem == nil && !ShrinkFolders.copyThere($0) && center.copyTarget($0, in: run, rules: rules) != nil }) {
-                await center.secondCopies(run.id, retry: false)
-            }
+            let runs = center.runs, center = center
+            let toCopy = await Task.detached(priority: .utility) { () -> [UUID] in
+                let rules = ShrinkFolders.Rules.load()
+                return runs.filter { run in run.files.contains { $0.state == .done && $0.copyProblem == nil && !ShrinkFolders.copyThere($0) && center.copyTarget($0, in: run, rules: rules) != nil } }.map(\.id)
+            }.value
+            for id in toCopy { await center.secondCopies(id, retry: false) }
             await refreshSpace()
         }
         // The catalogues brought up to date (an original deleted since says so).
@@ -404,6 +406,7 @@ final class ArchiveModel {
     func restore(_ run: ShrinkFolders.Run, project: String) {
         Task {
             if let why = await center.restore(run.id, project: project) { problems.append(why) }
+            forgetMeasures(run)
             await refreshSpace()
         }
     }
@@ -565,7 +568,7 @@ final class ArchiveModel {
             let rules = ShrinkFolders.Rules.load()
             func size(_ path: String) -> Int64? { (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int64 }
             for file in runs.flatMap(\.files) { if let original = file.moved, let (root, below) = key(original) { originals[root, default: []].insert(below) } }
-            for file in moved {
+            for (run, file) in runs.flatMap({ run in run.files.filter { ($0.state == .done || $0.state == .working) && $0.moved != nil }.map { (run, $0) } }) {
                 guard let original = file.moved else { continue }
                 let folder0 = (original as NSString).deletingLastPathComponent
                 // (Safe also needs the original whole where it waits.)
@@ -574,7 +577,8 @@ final class ArchiveModel {
                 var why = file.notSafe(), good = file.safeNow()
                 if good, !intact { good = false; why = String(localized: "The original changed") }
                 // (Second copy on for its project: checked isn't enough until the copy is there.)
-                let copyMissing = good && !ShrinkFolders.copyOK(file, ShrinkFolders.decision(file, rules: rules))
+                // (The run's own choice first, as the always-on Mac made it: every Mac says the same.)
+                let copyMissing = good && !ShrinkFolders.copyOK(file, center.copyTarget(file, in: run, rules: rules).map { .target($0) } ?? .none)
                 guard good || why != nil else { continue }
                 let folder = (original as NSString).deletingLastPathComponent
                 for path in [original] + (file.parts + (file.sidecars ?? [])).map({ (folder as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }) {
@@ -629,7 +633,8 @@ final class ArchiveModel {
             }.reduce(Int64(0)) { $0 + max($1.size - ($1.masterSize ?? 0), 0) }
             // What the history rows show from the drive (the last 30 runs).
             let history = Dictionary(uniqueKeysWithValues: runs.prefix(30).map { run in
-                (run.id, RunInfo(canPutBack: center.canPutBack(run), ready: center.readyToDelete(run), relinkBack: !ShrinkRelink.map([run], back: true).isEmpty))
+                (run.id, RunInfo(canPutBack: center.canPutBack(run), ready: center.readyToDelete(run), relinkBack: !ShrinkRelink.map([run], back: true).isEmpty,
+                                 checks: ArchiveModel.checks(run, rules: rules, center: center)))
             })
             return (waiting, freed, history)
         }.value
@@ -652,12 +657,14 @@ final class ArchiveModel {
     /// Check Before Deleting's results for a run, by project.
     /// (Looked at now; a file whose original waits without its master is not safe too.)
     /// (A file not finished, here or on the other Mac, is a problem of its project; a run not through is never safe.)
-    func checks(_ run: ShrinkFolders.Run) -> [ProjectCheck] {
+    /// (The history rows show these as refreshSpace made them, off the main thread: `history[run.id].checks`.)
+    func checks(_ run: ShrinkFolders.Run) -> [ProjectCheck] { Self.checks(run, rules: ShrinkFolders.Rules.load(), center: center) }
+
+    nonisolated static func checks(_ run: ShrinkFolders.Run, rules: ShrinkFolders.Rules, center: ShrinkCenter) -> [ProjectCheck] {
         let mine = run.files.filter { $0.state == .done || ($0.state == .working && ($0.problem != nil || $0.moved != nil)) }
         func title(_ file: File) -> String { file.client.isEmpty ? (file.folder as NSString).lastPathComponent : ShrinkFolders.title(client: file.client, project: file.projectName) }
         // (Per project: one with a file still to do, here or on the other Mac, isn't through; another project's doesn't hold it back.)
         let open = Set(run.files.filter { $0.state == .pending || $0.state == .working || $0.state == .elsewhere }.map(title))
-        let rules = ShrinkFolders.Rules.load()
         return Dictionary(grouping: mine, by: title)
             .map { title, files in
                 let finished = !open.contains(title)
@@ -668,7 +675,8 @@ final class ArchiveModel {
                 if let first = files.first {
                     line.folder = first.project.isEmpty ? first.folder : first.project
                     line.share = ShrinkFolders.shareRoot(of: URL(fileURLWithPath: first.folder))
-                    line.decision = ShrinkFolders.decision(first, rules: rules)
+                    // (The run's own choice first, as the always-on Mac made it: every Mac says the same.)
+                    line.decision = center.copyTarget(first, in: run, rules: rules).map { .target($0) } ?? .none
                 }
                 line.copied = done.filter(ShrinkFolders.copyThere).count
                 line.copyProblem = done.compactMap(\.copyProblem).first
@@ -758,7 +766,12 @@ final class ArchiveModel {
         }
     }
 
-    func putBack(_ run: ShrinkFolders.Run) { Task { await center.putBack(run.id); await refreshSpace() } }
+    func putBack(_ run: ShrinkFolders.Run) { Task { await center.putBack(run.id); forgetMeasures(run); await refreshSpace() } }
+
+    /// Originals Pluck moved out of the folders to delete aren't "deleted": their shares measured again from now.
+    private func forgetMeasures(_ run: ShrinkFolders.Run) {
+        ArchiveSnapshots.forget(Array(Set(run.files.compactMap { $0.moved.flatMap(ShrinkFolders.holdingFolder(of:))?.deletingLastPathComponent().path })))
+    }
     func moveOriginals(_ run: ShrinkFolders.Run) {
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else { return }
         Task { problems = await center.moveOriginals(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe); await refreshSpace() }
