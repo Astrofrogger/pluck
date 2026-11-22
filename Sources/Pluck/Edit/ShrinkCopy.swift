@@ -76,6 +76,14 @@ extension ShrinkFolders {
         return vx.isEqual(vy)
     }
 
+    /// A folder's file system as statfs says it (its type and what's mounted), nil: can't be told. (Self-tests stand in an rclone mount.)
+    nonisolated(unsafe) static var fileSystem: (String) -> (type: String, from: String)? = { path in
+        var info = statfs()
+        guard statfs(path, &info) == 0 else { return nil }
+        func text<T>(_ value: T) -> String { withUnsafeBytes(of: value) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) } }
+        return (text(info.f_fstypename), text(info.f_mntfromname))
+    }
+
     /// Bytes read and written at a time (self-tests: small, to stop halfway).
     nonisolated(unsafe) static var copyChunk = 8 << 20
     /// Self-tests: a copy damaged on its way (after it's written, before it's read back).
