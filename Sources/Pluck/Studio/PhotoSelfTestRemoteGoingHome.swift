@@ -16,8 +16,8 @@ extension PhotoSelfTest {
         [a, b, c].forEach { keep($0) }
         let pin = RemotePins.Pin(share: "s", shareName: "Share", path: "Day 1", originals: false, limit: 1_000_000, destination: root.path, here: [a, b, c])
         let originals: Set<String> = Set([a, b, c].map(\.path))
-        func run(_ wanted: [RemoteManifestEntry]?, _ originals: Set<String>?, pins: [RemotePins.Pin]) -> RemoteGoingHome.Result {
-            RemoteGoingHome.evaluate(share: "s", path: "Day 1", wanted: wanted, originals: originals, pins: pins)
+        func run(_ wanted: [RemoteManifestEntry]?, _ originals: Set<String>?, partial: Bool = false, pins: [RemotePins.Pin]) -> RemoteGoingHome.Result {
+            RemoteGoingHome.evaluate(share: "s", path: "Day 1", wanted: wanted, originals: originals, partialWalk: partial, pins: pins)
         }
 
         let ready = run([a, b, c], originals, pins: [pin])
@@ -41,6 +41,21 @@ extension PhotoSelfTest {
         check("going home: a proxy with no matching original is listed", lonely.orphans.map(\.proxy) == [c.proxy] && lonely.orphans.first?.timecode == "01:00:00:00", "\(lonely.orphans)")
         let bare = run([a, b, c], originals.union(["Day 1/A009.mxf"]), pins: [pin])
         check("going home: an original with no proxy is listed and keeps it from ready", bare.noProxy == ["Day 1/A009.mxf"] && !bare.ready && bare.orphans.isEmpty, "\(bare.noProxy)")
+
+        // A walk that stopped early (300 folders, or one folder failing mid-walk) never reads ready, and judges no orphans.
+        let cut = run([a, b, c], [a.path, b.path], partial: true, pins: [pin])
+        check("going home: a partial walk never reads ready", !cut.ready && cut.partialWalk && cut.line == String(localized: "Only the first \(RemoteGoingHome.maxFolders) folders were checked, so not sure"), cut.line)
+        check("going home: a partial walk judges no orphans but still counts what's kept", cut.orphans.isEmpty && cut.here == 3 && cut.reachable)
+        let cutGaps = run([a, d], [a.path, d.path], partial: true, pins: [pin])
+        check("going home: a partial walk still says what is missing", cutGaps.line == "Not ready: 1 of 2 proxies aren’t on this Mac", cutGaps.line)
+        // The first folder failing to list means the office is away; a later one must not be (nil wanted is only that case).
+        check("going home: a failed browse mid-walk is not 'office unreachable'", cut.reachable && cut.line != String(localized: "Can’t reach the office now. Connect before you leave."))
+        let none = run([], [], pins: [pin])
+        check("going home: an empty folder says nothing to check, not ready", none.empty && !none.ready && none.line == String(localized: "Nothing to check here"), none.line)
+        let one = RemoteGoingHome.Result(reachable: true, total: 4, noProxy: ["x"])
+        check("going home: plural at 1 (original, not originals)", one.line == "Not ready: 1 original has no proxy yet", one.line)
+        let many = RemoteGoingHome.Result(reachable: true, total: 4, noProxy: ["x", "y"])
+        check("going home: plural at 2", many.line == "Not ready: 2 originals have no proxy yet", many.line)
     }
     private typealias Item = RemoteGoingHome.Item
 }
