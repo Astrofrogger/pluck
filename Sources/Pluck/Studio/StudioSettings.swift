@@ -222,7 +222,7 @@ struct SettingsCard<Content: View>: View {
 }
 
 /// ⓘ with the explanation as its tooltip (and what VoiceOver reads).
-private struct InfoMark: View {
+struct InfoMark: View {
     let text: String
 
     var body: some View {

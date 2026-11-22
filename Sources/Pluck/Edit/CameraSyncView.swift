@@ -534,34 +534,37 @@ struct CameraSyncView: View {
             Spacer()
             if !model.cameras.isEmpty {
                 Button("Add…", systemImage: "plus", action: choose).buttonStyle(StudioFlatButtonStyle())
-                Button("Clear", action: model.clear).buttonStyle(StudioFlatButtonStyle()).disabled(model.running)
-                HStack(spacing: 6) {
-                    Text("Sound first").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                    Toggle("Sound first", isOn: $model.audioFirst).toggleStyle(StudioSwitchStyle())
-                }
-                .help("For a shoot whose timecode can't be trusted")
-                .disabled(model.running)
-                HStack(spacing: 6) {
-                    Text("Timecode on camera").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                    Toggle("Timecode on camera", isOn: $model.shownTimecode).toggleStyle(StudioSwitchStyle())
-                }
-                .help("A slate, a timecode app held in frame, or burned-in timecode: read off the picture")
-                .disabled(model.running)
+                // The rest of the options in one ⋯ menu: the header keeps Add, Sync and Resolve.
                 Menu {
-                    Button("FCPXML File…", systemImage: "doc", action: model.saveFCPXML)
-                    Button("Pluck Edit", systemImage: "rectangle.stack", action: model.openInEdit)
-                    if model.hasRecorder {
-                        Divider()
-                        Toggle("Recorder as Main Sound", isOn: $model.recorderFirst)
-                            .help("DaVinci Resolve: the recorder’s sound on top, the cameras’ sound on tracks below, turned off")
+                    Toggle("Sound first", isOn: $model.audioFirst)
+                        .help("For a shoot whose timecode can't be trusted")
+                        .disabled(model.running)
+                    Toggle("Timecode on camera", isOn: $model.shownTimecode)
+                        .help("A slate, a timecode app held in frame, or burned-in timecode: read off the picture")
+                        .disabled(model.running)
+                    Divider()
+                    Group {
+                        Button("FCPXML File…", systemImage: "doc", action: model.saveFCPXML)
+                        Button("Pluck Edit", systemImage: "rectangle.stack", action: model.openInEdit)
+                        if model.hasRecorder {
+                            Toggle("Recorder as Main Sound", isOn: $model.recorderFirst)
+                                .help("DaVinci Resolve: the recorder’s sound on top, the cameras’ sound on tracks below, turned off")
+                        }
                     }
+                    .disabled(!model.synced || model.running)
+                    Divider()
+                    Button("Clear", systemImage: "xmark", action: model.clear).disabled(model.running)
                 } label: {
-                    Label("Send", systemImage: "paperplane").font(Design.Studio.body)
+                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).foregroundStyle(Design.Studio.text)
+                        .frame(width: 28, height: 28)
+                        .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                        .contentShape(.rect)
                 }
                 .menuStyle(.button)
-                .buttonStyle(StudioFlatButtonStyle())
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
                 .fixedSize()
-                .disabled(!model.synced || model.running)
+                .help("More")
                 Button(!model.fresh.isEmpty ? "Sync New Clips" : model.synced ? "Sync Again" : "Sync", systemImage: "waveform.badge.magnifyingglass") { model.sync() }
                     .buttonStyle(StudioFlatButtonStyle(prominent: !model.synced || !Resolve.isInstalled, height: 32))
                     .disabled(model.running || model.proxyLine != nil)
