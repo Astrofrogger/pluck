@@ -12,6 +12,8 @@ struct DeliverShareBuilderView: View {
     @State private var dropping = false
     @State private var originals: DeliverUploadDestination.Offer?
     @State private var hasDefault = DeliverLinkOptions.hasDefault
+    /// A project's client (from its NAS folder), found once per project, not on every redraw of the menu.
+    @State private var clients: [UUID: String] = [:]
 
     private var draft: Deliver.ShareLink { session.draft }
 
@@ -107,7 +109,7 @@ struct DeliverShareBuilderView: View {
             Divider()
             // wf-deliver: the record of who approved what, and archiving the share into the project's folder.
             Button("Sign-off Sheet…") { DeliverSignOff.save(title: link.title, approvals: DeliverSignOff.approvals(link: link.id, store: store)) }
-            if let client = DeliverProjectFile.client(link.project, store: store) {
+            if let client = clients[link.project] {
                 Button("Sign-off Sheet for \(client)…") { DeliverSignOff.save(title: client, approvals: DeliverSignOff.approvals(client: client, store: store)) }
             }
             if link.archived != nil { Button("Reopen") { DeliverShareArchive.reopen(link.id) } }
@@ -116,6 +118,8 @@ struct DeliverShareBuilderView: View {
             Button("Turn Off", role: .destructive) { store.revoke(link.id) }
         } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Design.Studio.textQuiet) }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            // shortcut: still on the main actor (DeliverProjectFile is), once per project; move off it with that file.
+            .task(id: link.project) { if clients[link.project] == nil { clients[link.project] = DeliverProjectFile.client(link.project, store: store) } }
     }
 
     private func update() {
@@ -244,6 +248,8 @@ struct DeliverShareBuilderView: View {
             StudioSwitchRow(title: "Delivered", isOn: Binding(get: { draft.delivered != nil }, set: { session.setDelivered($0) }))
             if draft.delivered != nil {
                 hint(draft.expires == nil ? "Masters to download. Comments are read only." : "Masters to download. Comments are read only. A reminder goes 7 days before it expires.")
+                // (A NAS server from before Delivered keeps the downloads open but not the read-only comments.)
+                if DeliverShareArchive.hostIsOlder { hint("Comments stay open until the NAS server is updated.") }
             }
         }
     }

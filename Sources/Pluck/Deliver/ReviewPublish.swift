@@ -514,6 +514,12 @@ final class ReviewPublish {
             }
             wire["created"] = DeliverServer.date(link.created)
             wire["deadline"] = link.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()
+            // Delivered: a 4.0.6 host doesn't know `delivered` and would close the link at a past deadline (the masters
+            // with it), so it hears "no deadline" (the far future, which it knows); Macs read the link's own back.
+            if link.delivered != nil {
+                wire["ownDeadline"] = wire["deadline"]
+                wire["deadline"] = DeliverServer.date(.distantFuture)
+            }
             if let madeOn = link.madeOn { wire["madeOn"] = madeOn }
             wire["customStatuses"] = link.customStatuses == true ? true : NSNull()
             // wf-deliver: null clears them on the host (an older host ignores both and serves the link as before).
@@ -535,9 +541,10 @@ final class ReviewPublish {
         var meta = store.project(project).map(Self.meta) ?? ["id": project.uuidString, "name": ""]
         meta["folders"] = folders.filter { onlyFolders?.contains(UUID(uuidString: $0["id"] as? String ?? "") ?? UUID()) ?? true }
         meta["assets"] = wireAssets
-        var json: [String: Any] = ["format": 1, "projects": [meta], "links": wireLinks, "activityDays": DeliverStore.activityDays,
-                                   // wf-deliver: an archived link's client emails and activity go after this (0 = kept); older hosts ignore it.
-                                   "archiveForgetDays": DeliverShareArchive.forgetMonths * 31]
+        var json: [String: Any] = ["format": 1, "projects": [meta], "links": wireLinks, "activityDays": DeliverStore.activityDays]
+        // wf-deliver: an archived link's client emails and activity go after this (0 = kept); older hosts ignore it. An admin
+        // Mac's setting (left out, the host keeps the one it has), so an editor's publish doesn't change it.
+        if DeliverPeople.isAdmin(DeliverPeople.main()) { json["archiveForgetDays"] = DeliverShareArchive.forgetMonths * 31 }
         // The same look on the host: the logos as bundle files.
         if let branding = store.branding(for: project) {
             var wire: [String: Any] = ["name": branding.name, "accent": branding.accent, "bg": branding.bg, "text": branding.text]

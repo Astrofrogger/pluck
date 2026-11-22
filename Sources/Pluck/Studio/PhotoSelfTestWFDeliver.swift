@@ -59,6 +59,22 @@ extension PhotoSelfTest {
         check("sign-off: every approval of the link, its record as on the proof", approvals.count == 4 && rows.count == 4 && rows.first?.record == expected
               && rows.allSatisfy { $0.decision == "Approved" && $0.name == "Client" && $0.link == "Client" }, "\(rows.first.map { "\($0)" } ?? "")")
         let csv = DeliverSignOff.csv(rows)
+        // Each row checks against its record from its own columns (Served by and Generated as the sheet says).
+        let header = DeliverSignOff.columns
+        let checked = rows.allSatisfy { row in
+            var cells = zip(header, [row.project, row.asset, row.version, row.decision, row.name, row.email, row.time, row.link, row.note, row.file,
+                                     row.sha256, row.hashOf, row.linkID, row.approval, row.record]).reduce(into: [String: String]()) { $0[$1.0] = $1.1 }
+            let fields: [(key: String, label: String, value: String)] = [("project", "Project"), ("asset", "Asset"), ("version", "Version"), ("file", "File"),
+                ("sha256", "SHA-256"), ("hashOf", "Hash of"), ("decision", "Decision"), ("name", "Name"), ("email", "Email"), ("time", "Time (UTC)"),
+                ("linkTitle", "Link"), ("link", "Link id"), ("approval", "Approval id")].compactMap { key, column in
+                    let value = cells.removeValue(forKey: column) ?? ""
+                    return key == "email" && value.isEmpty ? nil : (key: key, label: column, value: value)
+                } + [(key: "servedBy", label: "", value: DeliverSignOff.servedBy), (key: "generated", label: "", value: row.time)]
+            return DeliverProof.record(fields) == row.record
+        }
+        check("sign-off: each row's record checks from the CSV's own columns", checked && csv.contains("Hash of,Link id"))
+        check("sign-off: a leading tab or return is defused too", DeliverSignOff.csv([.init(project: "\tP", asset: "\rA", version: "", decision: "", name: "", email: "",
+              time: "", link: "", note: "", file: "", sha256: "", hashOf: "", linkID: "", approval: "", record: "")]).contains("'\tP"))
         check("sign-off: CSV with a header, the note, formulas defused", csv.hasPrefix("Project,Asset,Version,Decision,Name") && csv.contains("'=Looks great")
               && csv.components(separatedBy: "\r\n").count == 6, csv)
         let folder = base.appendingPathComponent("Sheets", isDirectory: true)
@@ -84,7 +100,15 @@ extension PhotoSelfTest {
               && DeliverProjectFile.read(folder)["reviewArchived"] is String && DeliverProjectFile.read(folder)["hold"] as? Bool == true)
         DeliverShareArchive.reopen(link.id, store: store)
         check("archive: reopened", store.link(link.id)?.archived == nil && DeliverProjectFile.read(folder)["reviewArchived"] == nil)
-        _ = try? DeliverShareArchive.archive(link.id, store: store, now: Date.now.addingTimeInterval(-400 * 86400))
+        let firstCSV = made.flatMap { try? Data(contentsOf: $0.appendingPathComponent("Comments.csv")) }
+        let again = try? DeliverShareArchive.archive(link.id, store: store, now: Date.now.addingTimeInterval(-400 * 86400))
+        check("archive: archived again (or a link of the same title) goes into a new folder, the first one untouched",
+              again?.lastPathComponent == "Client 2" && firstCSV != nil
+              && made.flatMap { try? Data(contentsOf: $0.appendingPathComponent("Comments.csv")) } == firstCSV, "\(String(describing: again))")
+        let review = folder.appendingPathComponent(DeliverShareArchive.folderName, isDirectory: true)
+        let dots = try? DeliverShareArchive.newFolder(in: review, title: "..-", id: link.id)
+        check("archive: a title of only dots and dashes still gets its own folder", dots?.deletingLastPathComponent().standardizedFileURL.path == review.standardizedFileURL.path
+              && dots?.lastPathComponent == "Link " + link.id.uuidString.prefix(8), "\(String(describing: dots))")
         DeliverShareArchive.forget(store: store)
         let approvals = DeliverSignOff.approvals(link: link.id, store: store)
         check("archive: after the retention, no activity and no emails; approvals keep name and date",
@@ -115,6 +139,12 @@ extension PhotoSelfTest {
         check("delivered: no feedback deadline any more", now.map { DeliverDeadlines.effective($0, store: store) } == .some(nil))
         let info = now.map { DeliverServer.linkInfo($0, store: store) } ?? [:]
         check("delivered: ready.link says so, without a deadline", info["delivered"] is String && info["deadline"] == nil, "\(info)")
+        // A 4.0.6 host doesn't know `delivered`: it hears no deadline (the far future), so it never closes the masters.
+        let published = ReviewPublish(store: store).manifest(project: project, only: nil, host: nil).json
+        let wired = (published["links"] as? [[String: Any]])?.first { $0["id"] as? String == link.id.uuidString } ?? [:]
+        let readBack = DeliverSync.link(wired)
+        check("delivered: older hosts hear no deadline, Macs read the link's own back", (wired["deadline"] as? String)?.hasPrefix("4001") == true
+              && wired["ownDeadline"] is String && readBack?.deadline.map { abs($0.timeIntervalSince(now?.deadline ?? .distantPast)) < 1 } == true, "\(wired)")
 
         // The server: reading works, writing is read only, an archived link says so.
         let server = DeliverServer(store: store)
@@ -146,6 +176,11 @@ extension PhotoSelfTest {
         _ = session.update()
         check("delivered: off again, out of the file", store.link(link.id)?.delivered == nil && DeliverProjectFile.read(folder)["delivered"] == nil
               && DeliverProjectFile.read(folder)["hold"] as? Bool == true)
+        let fetched = Deliver.Activity(link: link.id, name: "Client", kind: "downloaded", asset: asset.id, version: asset.current.id)
+        var other = fetched
+        other.name = "Someone else"
+        check("delivered: one download notification a day per file and person", DeliverStore.firstToday(fetched) && !DeliverStore.firstToday(fetched)
+              && DeliverStore.firstToday(other))
         check("delivered: a project on this Mac's own disk has no NAS file", !DeliverProjectFile.onShare(URL(fileURLWithPath: NSTemporaryDirectory())))
     }
 

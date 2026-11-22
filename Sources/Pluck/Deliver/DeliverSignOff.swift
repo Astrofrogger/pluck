@@ -10,7 +10,7 @@ enum DeliverSignOff {
     static let servedBy = "Pluck sign-off"
 
     struct Row: Hashable {
-        var project, asset, version, decision, name, email, time, link, note, file, sha256, approval, record: String
+        var project, asset, version, decision, name, email, time, link, note, file, sha256, hashOf, linkID, approval, record: String
     }
 
     /// A link's approvals, oldest first.
@@ -31,7 +31,7 @@ enum DeliverSignOff {
             let value = { (key: String) in fields.first { $0.key == key }?.value ?? "" }
             return Row(project: value("project"), asset: value("asset"), version: value("version"), decision: value("decision"), name: value("name"),
                        email: value("email"), time: value("time"), link: value("linkTitle"), note: note(approval, store: store), file: value("file"),
-                       sha256: value("sha256"), approval: approval.id.uuidString, record: DeliverProof.record(fields))
+                       sha256: value("sha256"), hashOf: value("hashOf"), linkID: value("link"), approval: approval.id.uuidString, record: DeliverProof.record(fields))
         }
     }
 
@@ -43,16 +43,17 @@ enum DeliverSignOff {
             .max { $0.created < $1.created }.map { String($0.text.prefix(300)) } ?? ""
     }
 
-    static let columns = ["Project", "Asset", "Version", "Decision", "Name", "Email", "Time (UTC)", "Link", "Note", "File", "SHA-256", "Approval id", "Record"]
+    /// Every field the record hashes is a column (with "Served by" and "Generated" as said above), so a row can be checked.
+    static let columns = ["Project", "Asset", "Version", "Decision", "Name", "Email", "Time (UTC)", "Link", "Note", "File", "SHA-256", "Hash of", "Link id", "Approval id", "Record"]
 
     nonisolated static func csv(_ rows: [Row]) -> String {
         func cell(_ text: String) -> String {
-            // (A leading = + - @ would run as a formula in a spreadsheet.)
-            let safe = text.first.map { "=+-@".contains($0) } == true ? "'" + text : text
+            // (A leading = + - @, tab or return would run as a formula in a spreadsheet.)
+            let safe = text.first.map { "=+-@\t\r".contains($0) } == true ? "'" + text : text
             return safe.contains(where: { ",\"\n\r".contains($0) }) ? "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : safe
         }
         let lines = [columns.map(cell)] + rows.map { [$0.project, $0.asset, $0.version, $0.decision, $0.name, $0.email, $0.time, $0.link, $0.note,
-                                                       $0.file, $0.sha256, $0.approval, $0.record].map(cell) }
+                                                       $0.file, $0.sha256, $0.hashOf, $0.linkID, $0.approval, $0.record].map(cell) }
         return lines.map { $0.joined(separator: ",") }.joined(separator: "\r\n") + "\r\n"
     }
 
@@ -109,14 +110,16 @@ enum DeliverSignOff {
 
     /// Writes "Sign-off – <title>.pdf" and ".csv" into a folder; their URLs.
     @discardableResult
-    static func write(title: String, approvals: [Deliver.Approval], into folder: URL, store: DeliverStore) throws -> [URL] {
+    /// `exclusive`: never over a file already there (Archive a share, on the NAS).
+    static func write(title: String, approvals: [Deliver.Approval], into folder: URL, store: DeliverStore, exclusive: Bool = false) throws -> [URL] {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let rows = rows(approvals, store: store)
         let name = "Sign-off – " + DeliverServer.safeName(title)
         let pdfURL = folder.appendingPathComponent(name + ".pdf"), csvURL = folder.appendingPathComponent(name + ".csv")
         guard let pdf = pdf(title: title, rows: rows) else { throw Deliver.Failure("internal") }
-        try pdf.write(to: pdfURL, options: .atomic)
-        try Data(csv(rows).utf8).write(to: csvURL, options: .atomic)
+        let options: Data.WritingOptions = exclusive ? .withoutOverwriting : .atomic
+        try pdf.write(to: pdfURL, options: options)
+        try Data(csv(rows).utf8).write(to: csvURL, options: options)
         return [pdfURL, csvURL]
     }
 
