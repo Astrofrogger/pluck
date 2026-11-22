@@ -131,7 +131,7 @@ extension PhotoSelfTest {
               "safe, 3 photos in 2 copies; got \(clean) \(files(goodBackup))")
         let bad = dir("bad-main"), badBackup = dir("bad-backup")
         PhotoImporter.afterCopy = { copy in
-            guard copy.path.contains("/bad-backup/"), copy.lastPathComponent == "A1.JPG", let handle = try? FileHandle(forWritingTo: copy) else { return }
+            guard copy.path.contains("/bad-backup/"), copy.lastPathComponent.contains("A1.JPG"), let handle = try? FileHandle(forWritingTo: copy) else { return }
             try? handle.seekToEnd(); try? handle.write(contentsOf: Data([0])); try? handle.close()
         }
         var dirty = PhotoImporter.Report(total: 3, copies: 2)
@@ -140,8 +140,67 @@ extension PhotoSelfTest {
         }
         PhotoImporter.afterCopy = nil
         check("import one corrupted copy is not safe to format", !dirty.safe && dirty.failed == ["A1.JPG"] && dirty.copied == 2
-              && !fm.fileExists(atPath: badBackup.appendingPathComponent("A1.JPG").path), "not safe, A1.JPG failed, bad copy removed; got \(dirty)")
+              && !fm.fileExists(atPath: badBackup.appendingPathComponent("A1.JPG").path) && files(badBackup).count == 2,
+              "not safe, A1.JPG failed, bad copy removed (no part file left); got \(dirty) \(files(badBackup))")
         check("import nothing found is not safe", !PhotoImporter.Report(total: 0).safe, "not safe")
+
+        // A JPEG-only IMG_0001 from camera B where camera A's RAW-only IMG_0001.CR3 + .xmp already are: another
+        // photo, so -2 with its own sidecar and date; A's sidecar untouched. The same A again isn't copied twice.
+        let camA = dir("camA"), camB = dir("camB"), mixed = dir("out-mixed")
+        let ar = camA.appendingPathComponent("IMG_0001.CR3")
+        try? Data("raw A".utf8).write(to: ar)
+        try? Data("<a/>".utf8).write(to: camA.appendingPathComponent("IMG_0001.xmp"))
+        _ = copyAll([ar], to: mixed, byDate: false)
+        let bj = jpeg(camB, "IMG_0001.JPG", taken: "2026-06-14 15:00:00", model: "B2", serial: "222", shade: 61)
+        try? Data("<b/>".utf8).write(to: camB.appendingPathComponent("IMG_0001.xmp"))
+        let bPath = copyAll([bj], to: mixed, byDate: false, offsets: [PhotoImporter.meta(bj).camera?.key ?? "": 60]).first ?? ""
+        _ = copyAll([ar], to: mixed, byDate: false)
+        let aSide = try? Data(contentsOf: mixed.appendingPathComponent("IMG_0001.xmp"))
+        check("import JPEG-only photo beside another camera's RAW is -2", bPath.hasSuffix("/IMG_0001-2.JPG")
+              && files(mixed) == ["IMG_0001-2.JPG", "IMG_0001-2.xmp", "IMG_0001.CR3", "IMG_0001.xmp"] && aSide == Data("<a/>".utf8)
+              && PhotoImporter.captureDate(URL(fileURLWithPath: bPath)) == at("2026-06-14 15:01:00"),
+              "B as -2 with its own sidecar and date, A's sidecar unchanged; got \(bPath) \(files(mixed)) B \(PhotoImporter.captureDate(URL(fileURLWithPath: bPath)))")
+        // A leftover sidecar alone (no photo) isn't taken as this photo's either.
+        let orphan = dir("out-orphan")
+        try? Data("<o/>".utf8).write(to: orphan.appendingPathComponent("IMG_0001.xmp"))
+        check("import a lone sidecar of the same name is another photo's", copyAll([bj], to: orphan, byDate: false).first?.hasSuffix("/IMG_0001-2.JPG") == true,
+              "-2; got \(files(orphan))")
+
+        // Never over a file that's there; a copy is named only once checked.
+        let spot = dir("excl").appendingPathComponent("X.JPG")
+        try? Data("theirs".utf8).write(to: spot)
+        let refused = (try? PhotoImporter.copyChecked(bj, to: spot)) == nil
+        check("import copy never replaces a file", refused && (try? Data(contentsOf: spot)) == Data("theirs".utf8) && files(spot.deletingLastPathComponent()) == ["X.JPG"],
+              "refused, theirs kept, no part file; got \(files(spot.deletingLastPathComponent()))")
+
+        // Safe to format only when nothing else is on the card: a hybrid card's clips and sound stay there.
+        let hybrid = dir("hybrid")
+        let shots = dir("hybrid/DCIM/100CAM")
+        let hp = jpeg(shots, "IMG_5.JPG", taken: "2026-06-14 12:00:00", model: "A1", serial: "111", shade: 70)
+        let hr = shots.appendingPathComponent("IMG_5.CR3")
+        try? Data("raw 5".utf8).write(to: hr)
+        try? fm.createDirectory(at: hybrid.appendingPathComponent("PRIVATE/M4ROOT/CLIP"), withIntermediateDirectories: true)
+        try? Data("clip".utf8).write(to: hybrid.appendingPathComponent("PRIVATE/M4ROOT/CLIP/C0001.MP4"))
+        try? Data("wav".utf8).write(to: shots.appendingPathComponent("IMG_5.WAV"))
+        try? Data("x".utf8).write(to: hybrid.appendingPathComponent(".Spotlight-V100"))
+        try? Data("x".utf8).write(to: shots.appendingPathComponent(".hidden"))
+        let hybridItems = PhotoImporter.items([hp, hr])
+        let left = PhotoImporter.leftOnCards([hybrid], items: hybridItems)
+        var mixedReport = PhotoImporter.Report(total: 1, copies: 1)
+        mixedReport.left = left
+        _ = mixedReport.add(PhotoImporter.copy(PhotoImporter.plan(hybridItems, offsets: [:])[0], to: dir("out-hybrid"), backup: nil, byDate: false, rename: false), "IMG_5.CR3")
+        check("import a card with videos is not safe to format", left == ["DCIM/100CAM/IMG_5.WAV", "PRIVATE/M4ROOT/CLIP/C0001.MP4"] && !mixedReport.safe && mixedReport.copied == 1,
+              "the clip and the sound left, not safe; got \(left) \(mixedReport)")
+        try? fm.removeItem(at: hybrid.appendingPathComponent("PRIVATE"))
+        try? fm.removeItem(at: shots.appendingPathComponent("IMG_5.WAV"))
+        check("import a photo-only card has nothing left", PhotoImporter.leftOnCards([hybrid], items: hybridItems).isEmpty,
+              "nothing; got \(PhotoImporter.leftOnCards([hybrid], items: hybridItems))")
+
+        // Set the Real Time: the picked minute with the camera's seconds (no minute's jump forward).
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let shift = PhotoImporter.offset(realTime: at("2026-06-14 14:05:50"), cameraTime: at("2026-06-14 12:00:37"), calendar: utc)
+        check("import real time keeps the camera's seconds", shift == 2 * 3600 + 5 * 60, "7500 s; got \(shift)")
     }
     /// Fixtures for the import sheet's snapshots: two cameras (one clock two hours off) and a RAW+JPEG pair,
     /// under ~/.pluck-test/shots407b/wf-photo/cards (a fresh copy each time).

@@ -29,13 +29,15 @@ enum PhotoImporter {
     }
 
     /// What a copy to a card's photos ended as: safe to format only when every photo was copied
-    /// (to every copy) and read back identical.
+    /// (to every copy) and read back identical, and nothing else is on the card.
     struct Report {
         var total = 0
         var copied = 0
         var copies = 1
         var failed: [String] = []
-        var safe: Bool { total > 0 && copied == total && failed.isEmpty }
+        /// Files on the card the import doesn't bring in (videos, sound…): they'd be lost by a format.
+        var left: [String] = []
+        var safe: Bool { total > 0 && copied == total && failed.isEmpty && left.isEmpty }
 
         /// One item's result in; its copy's path, or nil for a failure (named in `failed`).
         mutating func add(_ result: Result<String, Error>, _ name: String) -> String? {
@@ -160,6 +162,39 @@ enum PhotoImporter {
 
     // MARK: - Copying
 
+    /// What's on the cards that the import doesn't copy (not hidden files, not what macOS leaves): their
+    /// paths on the card. A folder that can't be read is named too, as it could hold anything.
+    nonisolated static func leftOnCards(_ cards: [URL], items: [Item]) -> [String] {
+        var brought = Set<String>()
+        for member in items.flatMap(\.members) {
+            brought.insert(member.standardizedFileURL.path)
+            for sidecar in PhotoXMP.sidecars(for: member.path) { brought.insert(sidecar.standardizedFileURL.path) }
+        }
+        return cards.flatMap { card -> [String] in
+            let found = OffloadCenter.scan(card)
+            let visible = found.files.map(\.path).filter { !$0.split(separator: "/").contains { $0.hasPrefix(".") } }
+            return found.unreadable.map { $0.isEmpty ? card.lastPathComponent : $0 }
+                + visible.filter { !brought.contains(card.appendingPathComponent($0).standardizedFileURL.path) }
+        }
+    }
+
+    /// Whether `stem` can take this item in this folder: nothing there by that name (any extension, sidecars
+    /// too), or only this same photo (identical files) and its sidecars, from an earlier import.
+    /// Anything else (another camera's IMG_0001.CR3 or .xmp beside a JPEG-only IMG_0001) is another photo.
+    nonisolated static func free(_ stem: String, in place: URL, for item: Item) -> Bool {
+        let prefix = stem.lowercased() + "."
+        let there = ((try? FileManager.default.contentsOfDirectory(atPath: place.path)) ?? []).filter { $0.lowercased().hasPrefix(prefix) }
+        var same = false
+        for name in there {
+            let lower = name.lowercased()
+            if let member = item.members.first(where: { (stem + "." + $0.pathExtension).lowercased() == lower }),
+               sameFile(member, place.appendingPathComponent(name)) { same = true; continue }
+            if lower.hasSuffix(".xmp") { continue }
+            return false
+        }
+        return there.isEmpty || same
+    }
+
     /// One item copied (its companions and sidecars too) to the folder and the backup; the copy's path.
     /// The same photo already there (also as name-2, -3… from an earlier import) isn't copied again;
     /// another photo with this name (a second card) is kept as name-2, -3….
@@ -179,21 +214,18 @@ enum PhotoImporter {
                 }
                 // One number for the whole item, so a RAW and its JPEG stay a pair.
                 var n = 1
-                while item.members.contains(where: { FileManager.default.fileExists(atPath: target($0, n).path) && !sameFile($0, target($0, n)) }) { n += 1 }
+                while !free(n == 1 ? stem : stem + "-\(n)", in: place, for: item) { n += 1 }
                 let finalStem = n == 1 ? stem : stem + "-\(n)"
                 for member in item.members {
                     let spot = target(member, n)
-                    if !FileManager.default.fileExists(atPath: spot.path) {
-                        try FileManager.default.copyItem(at: member, to: spot)
-                        try checked(member, spot)
-                    }
+                    if !FileManager.default.fileExists(atPath: spot.path) { try copyChecked(member, to: spot) }
                     if member == item.primary && i == 0 { main = spot.path }
                     // Its sidecar too (named after the copy).
                     for sidecar in PhotoXMP.sidecars(for: member.path) where FileManager.default.fileExists(atPath: sidecar.path) {
                         let ofPhoto = sidecar.lastPathComponent.lowercased() == member.deletingPathExtension().lastPathComponent.lowercased() + ".xmp"
                         let name = ofPhoto ? finalStem + ".xmp" : spot.lastPathComponent + ".xmp"
                         let to = place.appendingPathComponent(name)
-                        if !FileManager.default.fileExists(atPath: to.path) { try? FileManager.default.copyItem(at: sidecar, to: to) }
+                        if !FileManager.default.fileExists(atPath: to.path) { try copyChecked(sidecar, to: to) }
                     }
                 }
                 // A camera's clock shifted: the date goes into the copy's sidecar, not the photo.
@@ -207,25 +239,44 @@ enum PhotoImporter {
         return .success(main)
     }
 
-    /// The copy read back and compared with the card's (as Offload does): a bad one is removed
-    /// and the import stops, so nothing is filed that isn't the photo.
-    nonisolated private static func checked(_ photo: URL, _ copy: URL) throws {
+    /// Copied as Offload does: to a hidden part file, onto the disk itself, read back from the disk (not
+    /// memory) and compared with the card's, and only then given its name (never over a file that's
+    /// there). A bad or broken copy is removed and the import stops, so nothing is filed that isn't the photo.
+    nonisolated static func copyChecked(_ photo: URL, to copy: URL) throws {
+        let fm = FileManager.default
+        let part = copy.deletingLastPathComponent().appendingPathComponent("." + copy.lastPathComponent + ".pluckpart")
+        try? fm.removeItem(at: part)
+        defer { try? fm.removeItem(at: part) }
+        try fm.copyItem(at: photo, to: part)
+        if let handle = try? FileHandle(forUpdating: part) {
+            if fcntl(handle.fileDescriptor, F_FULLFSYNC) != 0 { _ = fsync(handle.fileDescriptor) }
+            try? handle.close()
+        }
         func digest(_ url: URL) throws -> SHA256.Digest {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
+            _ = fcntl(handle.fileDescriptor, F_NOCACHE, 1)
             var hash = SHA256()
             while let chunk = try handle.read(upToCount: 8 << 20), !chunk.isEmpty { hash.update(data: chunk) }
             return hash.finalize()
         }
-        afterCopy?(copy)
-        guard try digest(photo) == digest(copy) else {
-            try? FileManager.default.removeItem(at: copy)
+        afterCopy?(part)
+        guard try digest(photo) == digest(part) else {
             throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 String(localized: "The copy of “\(photo.lastPathComponent)” didn’t match the original. Check the card and the drive, then import again.")])
         }
+        guard renamex_np(part.path, copy.path, UInt32(RENAME_EXCL)) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: copy.path])
+        }
     }
 
-    nonisolated private static func sameFile(_ a: URL, _ b: URL) -> Bool {
+    /// "Set the Real Time": the minute picked, the camera's own seconds kept.
+    nonisolated static func offset(realTime picked: Date, cameraTime mine: Date, calendar cal: Calendar = .current) -> TimeInterval {
+        let base = picked.addingTimeInterval(Double(cal.component(.second, from: mine) - cal.component(.second, from: picked)))
+        return base.timeIntervalSince(mine).rounded()
+    }
+
+    nonisolated static func sameFile(_ a: URL, _ b: URL) -> Bool {
         guard let one = try? a.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               let two = try? b.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
         // (Same size alone isn't enough: two cards' IMG_0001.JPG can be.)

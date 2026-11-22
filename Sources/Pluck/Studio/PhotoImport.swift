@@ -58,7 +58,8 @@ struct PhotoImportSheet: View {
                 }
             }
             fromSide
-            if !cameraList.isEmpty { clocks }
+            // (Used where they are, nothing is copied, so a clock offset would change nothing.)
+            if copy && !cameraList.isEmpty { clocks }
             StudioSegmented(ground: Design.Studio.backdrop,
                             options: [(true, "Copy to a Folder"), (false, "Use Where They Are")], selection: $copy, fill: true)
             if copy { toSide }
@@ -279,13 +280,7 @@ struct PhotoImportSheet: View {
                             Text("Real time of this photo").font(.caption).foregroundStyle(.secondary)
                             DatePicker("", selection: $settingDate, displayedComponents: [.date, .hourAndMinute]).labelsHidden()
                             Button("Set") {
-                                if let mine = sampleDates[cam.key] {
-                                    // (To the minute: the camera's own seconds stay.)
-                                    let cal = Calendar.current
-                                    let seconds = cal.component(.second, from: mine)
-                                    let base = cal.date(bySetting: .second, value: seconds, of: settingDate) ?? settingDate
-                                    offsets[cam.key] = (base.timeIntervalSince(mine)).rounded()
-                                }
+                                if let mine = sampleDates[cam.key] { offsets[cam.key] = PhotoImporter.offset(realTime: settingDate, cameraTime: mine) }
                                 setting = nil
                             }
                             .keyboardShortcut(.defaultAction)
@@ -338,15 +333,23 @@ struct PhotoImportSheet: View {
         if panel.runModal() == .OK, let url = panel.url, cam.photos.contains(url) { setSample(cam, url) }
     }
 
-    /// After a card's copy: safe to format only when every photo is in every copy and read back identical.
+    /// After a card's copy: safe to format only when every photo is in every copy and read back identical,
+    /// and nothing else is on the card. Photos all in but other files left: no shield, and what stays is named.
     private func safety(_ report: PhotoImporter.Report) -> some View {
-        let colour = report.safe ? Design.Studio.good : Design.Studio.bad
+        let photosIn = report.total > 0 && report.copied == report.total && report.failed.isEmpty
+        let colour = report.safe ? Design.Studio.good : photosIn ? Design.Studio.warn : Design.Studio.bad
         return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: report.safe ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+            Image(systemName: report.safe ? "checkmark.shield.fill" : photosIn ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 16)).foregroundStyle(colour).frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
-                Text(report.safe ? "Safe to format" : "Not safe to format").font(Design.Studio.body.weight(.semibold)).foregroundStyle(colour)
-                if report.safe {
+                Text(report.safe ? "Safe to format" : photosIn ? "Photos copied and checked" : "Not safe to format")
+                    .font(Design.Studio.body.weight(.semibold)).foregroundStyle(colour)
+                if photosIn && !report.left.isEmpty {
+                    Text(AttributedString(localized: "Not safe to format: ^[\(report.left.count) other file](inflect: true) only on the card"))
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    Text(verbatim: report.left.prefix(5).joined(separator: "\n") + (report.left.count > 5 ? "\n…" : ""))
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(6).truncationMode(.middle)
+                } else if report.safe {
                     Text(report.copies == 2 ? AttributedString(localized: "^[\(report.copied) photo](inflect: true) in 2 checked copies")
                          : AttributedString(localized: "^[\(report.copied) photo](inflect: true) in 1 checked copy"))
                         .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
@@ -455,12 +458,15 @@ struct PhotoImportSheet: View {
         progress = 0
         let list = items, folder = self.folder, backup = self.backup, byDate = self.byDate, rename = self.rename, offsets = self.offsets
         let fromCard = sources.contains(where: cards.contains) || (ScreenshotMode.scene == "photo" && UserDefaults.standard.bool(forKey: "PluckScreenshotImportGo"))
+        let cardSources = sources.filter(cards.contains)
         Task {
             var imported: [String] = []
             var pairs: [(source: URL, path: String)] = []
             var summary = PhotoImporter.Report(total: list.count, copies: backup == nil ? 1 : 2)
             // In the order they were taken, each camera's clock shifted by its offset.
             let planned = await Task.detached(priority: .userInitiated) { PhotoImporter.plan(list, offsets: offsets) }.value
+            // Only photos are copied: whatever else is on the card stays, and keeps it from being safe to format.
+            summary.left = await Task.detached(priority: .userInitiated) { PhotoImporter.leftOnCards(cardSources, items: list) }.value
             // Tests: -PluckScreenshotImportHold YES stops halfway, to picture the progress.
             let hold = ScreenshotMode.scene == "photo" && UserDefaults.standard.bool(forKey: "PluckScreenshotImportHold")
             for photo in planned {

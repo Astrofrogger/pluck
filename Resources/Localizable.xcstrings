@@ -374858,6 +374858,180 @@
           }
         }
       }
+    },
+    "Photos copied and checked" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotos kopiert und geprüft"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotos copiadas y comprobadas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photos copiées et vérifiées"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Foto copiate e verificate"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真をコピーして検証しました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사진 복사 및 검증 완료"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Foto’s gekopieerd en gecontroleerd"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotos copiadas e verificadas"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片已拷贝并校验"
+          }
+        }
+      }
+    },
+    "Not safe to format: ^[%lld other file](inflect: true) only on the card" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht sicher zum Formatieren: ^[%lld andere Datei](inflect: true) nur auf der Karte"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No es seguro formatear: ^[%lld archivo más](inflect: true) solo en la tarjeta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formatage non sûr : ^[%lld autre fichier](inflect: true) seulement sur la carte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non sicuro da formattare: ^[%lld altro file](inflect: true) solo sulla scheda"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォーマットは安全ではありません：カードにしかないファイルが%lld個あります"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "포맷하면 안 됨: 카드에만 있는 다른 파일 %lld개"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niet veilig om te formatteren: %lld ander(e) bestand(en) alleen op de kaart"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não é seguro formatar: ^[%lld outro arquivo](inflect: true) só no cartão"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂不可格式化：还有 %lld 个其他文件只在存储卡上"
+          }
+        }
+      }
+    },
+    "On a camera card: nothing is saved there. Offload it first to keep the sync and its report." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf einer Kamerakarte: Dort wird nichts gespeichert. Erst mit Offload kopieren, um die Synchronisierung und ihren Bericht zu behalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En una tarjeta de cámara: no se guarda nada allí. Descárgala primero para conservar la sincronización y su informe."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur une carte de caméra : rien n’y est enregistré. Déchargez-la d’abord pour garder la synchro et son rapport."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su una scheda della videocamera: lì non si salva nulla. Scaricala prima per tenere la sincronizzazione e il suo report."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カメラのカード上：そこには何も保存しません。同期とレポートを残すには先にオフロードしてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "카메라 카드: 그곳에는 아무것도 저장하지 않습니다. 동기화와 보고서를 남기려면 먼저 오프로드하세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Op een camerakaart: daar wordt niets bewaard. Offload hem eerst om de sync en het rapport te houden."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Num cartão de câmera: nada é salvo ali. Descarregue-o antes para manter a sincronização e o relatório."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在相机存储卡上：不会在那里保存任何内容。请先卸载素材，以保留同步和报告。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
