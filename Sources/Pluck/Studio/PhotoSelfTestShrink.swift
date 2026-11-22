@@ -11,6 +11,10 @@ import os
 /// laid out every which way.
 extension PhotoSelfTest {
     static func shrinkTest() async {
+        // (Second copies off unless a test turns them on: a default target left in this test app's settings makes runs wait for it.)
+        let ownDecide = ShrinkFolders.decide
+        ShrinkFolders.decide = ownDecide ?? { _ in .none }
+        defer { ShrinkFolders.decide = ownDecide }
         typealias S = ShrinkFolders
         let fm = FileManager.default
         let made = fm.temporaryDirectory.appendingPathComponent("pluck-shrink-\(UUID().uuidString)", isDirectory: true)

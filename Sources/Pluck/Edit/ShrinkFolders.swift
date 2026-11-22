@@ -1162,6 +1162,9 @@ enum ShrinkFolders {
         let source = reference ?? ProjectArchive.reference(original, ffprobe: ffprobe, count: false, open: open)
         if let source {
             problems += keptProblems(master: made, original: source, name: (original as NSString).lastPathComponent)
+        } else if ProjectArchive.rawMasterKinds.contains((original as NSString).pathExtension.lowercased()) {
+            // (No RAW support here: never safe from this Mac, said so.)
+            problems.append(String(localized: "This Mac can’t read the RAW original: check on a Mac with RAW support"))
         } else {
             problems.append(String(localized: "The original can’t be read"))
         }
@@ -1525,27 +1528,26 @@ final class ShrinkCenter {
         if let r = runs.firstIndex(where: { $0.id == id }), runs[r].paused != nil { runs[r].paused = nil; save() }
         // (Each project looked at once a go: edited within the age limit since the survey, it's left.)
         var edited: [String: Bool] = [:]
-        // (And its .pluck-project.json, shared by every Mac: on hold it's never touched; closed, its originals stay until their day.)
-        var gates: [String: (reason: String?, ripe: Bool)] = [:]
+        // (And its .pluck-project.json, shared by every Mac, read for each file and again right before its original moves:
+        // held (on hold, or a file that can't be read) it's never touched; closed, its originals stay until their day.)
         let keep = ShrinkFolders.Rules.load().keep ?? [:]
         while !stopping, let r = runs.firstIndex(where: { $0.id == id }), let f = next(runs[r]) {
             let run = runs[r], settings = run.settings, quiet = quiet, freeSpace = freeSpace, capacity = capacity, mac = claimName
             let destination = run.destination.map { URL(fileURLWithPath: $0) }
             var file = run.files[f]
-            let gateFolder = file.project.isEmpty ? file.folder : file.project
+            let gateFolder = file.project.isEmpty ? file.folder : file.project, months = keep[file.client]
+            let gateNow = { await Task.detached(priority: .utility) { ArchiveProject.gate(ArchiveProject.read(gateFolder), months: months) }.value }
+            var gate: (reason: String?, ripe: Bool) = (nil, false)
             if file.state == .pending {
-                if gates[gateFolder] == nil {
-                    let months = keep[file.client]
-                    gates[gateFolder] = await Task.detached(priority: .utility) { ArchiveProject.gate(ArchiveProject.read(gateFolder), months: months) }.value
-                }
-                if let why = gates[gateFolder]?.reason {
+                gate = await gateNow()
+                if let why = gate.reason {
                     file.state = .skipped
                     file.note = why
                     set(file, in: id)
                     continue
                 }
             }
-            if file.state == .pending, gates[gateFolder]?.ripe != true, let months = run.months, months > 0 {
+            if file.state == .pending, !gate.ripe, let months = run.months, months > 0 {
                 let project = file.project.isEmpty ? file.folder : file.project
                 if edited[project] == nil { edited[project] = await Task.detached(priority: .utility) { ShrinkFolders.editedSince(project, months: months) }.value }
                 if edited[project] == true {
@@ -1637,8 +1639,16 @@ final class ShrinkCenter {
                     if stopping { break }
                     continue
                 }
+                let before = file
                 file = made
-                if file.state == .working {
+                if file.state == .working, let why = await gateNow().reason {
+                    // Held (or closed) from any Mac while its master was made: the original isn't moved, the hidden master dropped.
+                    try? FileManager.default.removeItem(atPath: temp)
+                    file = before
+                    file.temp = nil
+                    file.state = .skipped
+                    file.note = why
+                } else if file.state == .working {
                     // Saved before anything moves, so a quit in between is picked up again.
                     set(file, in: id)
                     file = await Task.detached { ShrinkFolders.finish(file, settings: settings, inventory: destination, stillOurs: stillOurs) }.value
@@ -1722,8 +1732,8 @@ final class ShrinkCenter {
         let projects = Set(runs[r].files.filter { $0.state == .done && $0.moved != nil }.map(\.project))
         let kinds = ProjectArchive.videoKinds.union(ProjectArchive.rawMasterKinds)
         for project in projects {
-            // (On hold: never touched.)
-            if ArchiveProject.read(project)?.hold == true { continue }
+            // (Held: never touched.)
+            if ArchiveProject.heldNow(project) != nil { continue }
             let clips = runs[r].files.filter { $0.project == project }
             let proxyFolders = runs[r].proxyFolders[project] ?? []
             // Every video of the project now (its proxy folders aside): a proxy named like one that isn't a checked master stays.
@@ -1792,13 +1802,21 @@ final class ShrinkCenter {
         }
     }
 
-    /// Masters made into another folder whose originals are still where they were.
+    /// Masters made into another folder whose originals are still where they were (never a held project's: read from the drive).
     nonisolated func readyToDelete(_ run: ShrinkFolders.Run) -> [ShrinkFolders.File] {
-        run.destination == nil ? [] : run.files.filter { $0.state == .done && $0.moved == nil && FileManager.default.fileExists(atPath: $0.path) }
+        guard run.destination != nil else { return [] }
+        var held: [String: Bool] = [:]
+        return run.files.filter { file in
+            guard file.state == .done, file.moved == nil, FileManager.default.fileExists(atPath: file.path) else { return false }
+            let project = file.project.isEmpty ? file.folder : file.project
+            if held[project] == nil { held[project] = ArchiveProject.heldNow(project) != nil }
+            return held[project] == false
+        }
     }
 
+    /// (Never while second copies or a restore run: they read the originals where they are.)
     func putBack(_ id: UUID) async {
-        guard active == nil, let run = run(id) else { return }
+        guard active == nil, copying == nil, let run = run(id) else { return }
         active = id
         defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReportLater(run) } }
         let settings = run.settings, inventory = run.destination.map { URL(fileURLWithPath: $0) }, trash = trash
@@ -1828,7 +1846,7 @@ final class ShrinkCenter {
     /// once its master is there and passes Check Before Deleting.
     @discardableResult
     func moveOriginals(_ id: UUID, ffmpeg: String, ffprobe: String) async -> [String] {
-        guard active == nil, let run = run(id) else { return [] }
+        guard active == nil, copying == nil, let run = run(id) else { return [] }
         active = id
         defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReportLater(run) } }
         var problems: [String] = []
@@ -1843,6 +1861,9 @@ final class ShrinkCenter {
                 file.masterStamp = checked.stamp
                 if file.masterHash == nil, found.isEmpty { file.masterHash = checked.hash }
                 guard found.isEmpty else { file.note = found.joined(separator: ", "); return file }
+                // Right before it moves: its project not held (on hold from any Mac, or a file that can't be read).
+                let project = file.project.isEmpty ? file.folder : file.project
+                if let why = ArchiveProject.heldNow(project) { file.note = why; return file }
                 if let why = ShrinkFolders.moveOriginal(&file, to: ShrinkFolders.movedPath(file.path, holding: holding)) { file.note = why }
                 else { ShrinkFolders.record(file, settings: settings, check: "checked, original moved") }
                 return file
@@ -1859,7 +1880,7 @@ final class ShrinkCenter {
     /// (`onlyNew`: also those checked over a week ago or whose master changed since.) Gives what stopped it (nil: done).
     @discardableResult
     func check(_ id: UUID, holding: URL? = nil, onlyNew: Bool = false, ffmpeg: String, ffprobe: String) async -> String? {
-        guard checking == nil, run(id) != nil else { return nil }
+        guard checking == nil, copying == nil, run(id) != nil else { return nil }
         guard mounted(id), let run = run(id) else { return self.run(id)?.paused }
         checking = id
         defer { checking = nil; if let run = self.run(id) { ShrinkFolders.writeReportLater(run) } }

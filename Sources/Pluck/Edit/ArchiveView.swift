@@ -435,7 +435,7 @@ struct ArchiveView: View {
                 .menuStyle(.button).buttonStyle(.plain).fixedSize().help("This project’s size")
             }
             if let label = ArchiveProject.label(model.projectInfo[project.folder]) {
-                StudioChip(text: Text(verbatim: label), colour: model.projectInfo[project.folder]?.hold == true ? Design.Studio.warn : Design.Studio.textQuiet, tinted: true)
+                StudioChip(text: Text(verbatim: label), colour: model.projectInfo[project.folder]?.held == true ? Design.Studio.warn : Design.Studio.textQuiet, tinted: true)
             }
             if let dim = row.dim, dim != ArchiveProject.label(model.projectInfo[project.folder]) { Text(verbatim: dim).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
             Text(verbatim: bytes(project.total)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).frame(width: 72, alignment: .trailing)
@@ -462,8 +462,8 @@ struct ArchiveView: View {
             sizeMenu([project])
             Divider()
             let info = model.projectInfo[project.folder]
-            Toggle("Closed", isOn: Binding(get: { info?.isClosed == true }, set: { model.close(project, $0) })).disabled(info?.hold == true)
-            Toggle("Hold", isOn: Binding(get: { info?.hold == true }, set: { model.hold(project, $0) }))
+            Toggle("Closed", isOn: Binding(get: { info?.isClosed == true }, set: { model.close(project, $0) })).disabled(info?.held == true)
+            Toggle("Hold", isOn: Binding(get: { info?.held == true }, set: { model.hold(project, $0) })).disabled(info?.unreadable == true)
             Menu("Second Copy") {
                 Button(model.copyTarget.map { String(localized: "To \(($0 as NSString).lastPathComponent)") } ?? String(localized: "Default")) { model.setCopy(project.folder, share: project.share, nil) }
                 Button("Another Folder…") { if let folder = pickFolder() { model.setCopy(project.folder, share: project.share, folder.path) } }
@@ -609,7 +609,7 @@ struct ArchiveView: View {
                 if !center.running {
                     if center.unfinished(run) { Button("Resume") { model.resume(run) }.buttonStyle(.link) }
                     if !ready.isEmpty {
-                        Button("Move Originals") { model.moveOriginals(run) }.buttonStyle(.link)
+                        Button("Move Originals") { model.moveOriginals(run) }.buttonStyle(.link).disabled(center.copying != nil)
                             .help("Moves the checked originals into “Pluck · Originals to delete” on their share")
                     }
                     if run.files.contains(where: { $0.state == .done }) {
@@ -620,12 +620,12 @@ struct ArchiveView: View {
                         if center.checking == run.id {
                             Text("Checking…").foregroundStyle(Design.Studio.textQuiet)
                         } else {
-                            Button("Check Before Deleting") { model.check(run) }.buttonStyle(.link).disabled(center.checking != nil)
+                            Button("Check Before Deleting") { model.check(run) }.buttonStyle(.link).disabled(center.checking != nil || center.copying != nil)
                                 .help("Reads every master again from the drive and looks at its original before you delete anything")
                         }
                     }
                     if info.canPutBack {
-                        Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link).disabled(center.checking != nil)
+                        Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link).disabled(center.checking != nil || center.copying != nil)
                             .help(run.destination == nil ? "Masters to the Trash, originals back in their place" : "The masters of this run to the Trash")
                     }
                 }
@@ -644,7 +644,7 @@ struct ArchiveView: View {
             ForEach(run.proxyNotes.map { Array($0.values).sorted() } ?? [], id: \.self) { note in
                 Text(verbatim: note).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
             }
-            ForEach(model.checks(run).filter { $0.checked > 0 || !$0.problems.isEmpty }) { project in
+            ForEach(info.checks.filter { $0.checked > 0 || !$0.problems.isEmpty }) { project in
                 if project.safe {
                     HStack(spacing: 8) {
                         Text("\(project.title) · \(project.masters) masters checked · safe to delete").font(Design.Studio.hint).foregroundStyle(Design.Studio.good)

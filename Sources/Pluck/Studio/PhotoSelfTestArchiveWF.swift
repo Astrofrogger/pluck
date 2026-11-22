@@ -6,6 +6,8 @@ import Foundation
 /// Restore Originals, and the metadata Check Before Deleting compares.
 extension PhotoSelfTest {
     static func archiveWFTest() async {
+        // (The review round's fixes first: PhotoSelfTestArchiveFix.)
+        await archiveFixTest()
         typealias S = ShrinkFolders
         let fm = FileManager.default
         let made = fm.temporaryDirectory.appendingPathComponent("pluck-archivewf-\(UUID().uuidString)", isDirectory: true)

@@ -42,11 +42,14 @@ enum ArchiveCatalog {
     static func folder(_ project: String) -> URL { URL(fileURLWithPath: project).appendingPathComponent(folderName, isDirectory: true) }
     static func manifest(_ project: String) -> URL { folder(project).appendingPathComponent("manifest.json") }
 
-    static func read(_ project: String) -> [Clip] {
-        guard let data = try? Data(contentsOf: manifest(project)) else { return [] }
+    static func read(_ project: String) -> [Clip] { load(project) ?? [] }
+
+    /// The project's manifest ([]: none yet; nil: one is there but can't be read, so it's never written anew).
+    static func load(_ project: String) -> [Clip]? {
+        guard let data = try? Data(contentsOf: manifest(project)) else { return FileManager.default.fileExists(atPath: manifest(project).path) ? nil : [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([Clip].self, from: data)) ?? []
+        return try? decoder.decode([Clip].self, from: data)
     }
 
     /// Where an original is now (looked at on the drive).
@@ -63,14 +66,14 @@ enum ArchiveCatalog {
     }
 
     /// Each project's manifest with these files (done or put back) written anew, the entries of other runs and Macs kept;
-    /// a thumbnail made from each master that hasn't one. A project on hold, or one not mounted, is left.
+    /// a thumbnail made from each master that hasn't one. A project held, one not mounted, or one whose manifest can't be read is left.
     static func update(_ files: [ShrinkFolders.File], ffmpeg: String?) {
         let fm = FileManager.default
         for (project, list) in Dictionary(grouping: files.filter { [.done, .restored].contains($0.state) }, by: { $0.project.isEmpty ? $0.folder : $0.project }) {
-            guard fm.fileExists(atPath: project), ArchiveProject.read(project)?.hold != true else { continue }
+            guard fm.fileExists(atPath: project), ArchiveProject.heldNow(project) == nil, let known = load(project) else { continue }
             let place = folder(project)
             try? fm.createDirectory(at: place, withIntermediateDirectories: true)
-            var clips = Dictionary(read(project).map { ($0.original, $0) }, uniquingKeysWith: { $1 })
+            var clips = Dictionary(known.map { ($0.original, $0) }, uniquingKeysWith: { $1 })
             var changed = !fm.fileExists(atPath: manifest(project).path)
             for file in list {
                 let thumb = thumbName(file.path)

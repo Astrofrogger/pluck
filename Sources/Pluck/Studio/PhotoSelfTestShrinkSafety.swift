@@ -7,6 +7,10 @@ import Foundation
 /// clip has tracks a master can't keep.
 extension PhotoSelfTest {
     static func shrinkSafetyTest() async {
+        // (Second copies off unless a test turns them on: a default target left in this test app's settings makes runs wait for it.)
+        let ownDecide = ShrinkFolders.decide
+        ShrinkFolders.decide = ownDecide ?? { _ in .none }
+        defer { ShrinkFolders.decide = ownDecide }
         typealias S = ShrinkFolders
         let fm = FileManager.default
         let made = fm.temporaryDirectory.appendingPathComponent("pluck-shrinksafe-\(UUID().uuidString)", isDirectory: true)
