@@ -91,6 +91,17 @@ extension PhotoSelfTest {
         struct Old: Decodable { var title: String; var scope: Deliver.Scope }
         let old = (try? Deliver.encoder.encode(now!)).flatMap { try? Deliver.decoder.decode(Old.self, from: $0) }
         check("portal: an older Mac decodes it", old?.title == "Northwind" && old?.scope == .assets([], project: mine.id))
+        // An archived link leaves the page (as the host's `live` refuses it).
+        store.updateLink(open.id) { $0.archived = .now }
+        check("portal: an archived link isn't listed", DeliverClientPage.members(store.link(page.id)!, store: store).map(\.id) == [later.id])
+        // The page outlives the project it was made in: it moves to the client's other project, and goes with the last one.
+        store.updateLink(page.id) { $0.portal?.projects = [mine.id, other.id] }
+        store.deleteProject(mine.id)
+        let moved = store.link(page.id)
+        check("portal: deleting its first project keeps the page", moved?.revoked == nil && moved?.project == other.id && moved?.portal?.projects == [other.id],
+              "\(String(describing: moved))")
+        store.deleteProject(other.id)
+        check("portal: with its last project it goes", store.link(page.id) == nil || store.link(page.id)?.revoked != nil)
         for link in store.links { store.revoke(link.id) }
         await hostWatchChecks()
     }
@@ -123,5 +134,14 @@ extension PhotoSelfTest {
         quiet.tell = { host, _, _ in none.append(host.name) }
         for minutes in [0.0, 11, 30] { await quiet.check([nas], now: t0 + minutes * 60) }
         check("host watch: this Mac offline says nothing", none.isEmpty && quiet.since.isEmpty)
+        check("host watch: only no connection is down (not a refused key or a certificate to confirm)", DeliverHostWatch.unreachable(Deliver.Failure("internal"))
+              && DeliverHostWatch.unreachable(POSIXError(.ECONNREFUSED)) && !DeliverHostWatch.unreachable(Deliver.Failure("auth"))
+              && !DeliverHostWatch.unreachable(Deliver.Failure("removed")) && !DeliverHostWatch.unreachable(ReviewHostClient.Unconfirmed(fingerprint: "")))
+        let seen = DeliverServer.date(t0 - 3600), old = DeliverServer.date(t0 - 9 * 86400)
+        let devices: [[String: Any]] = [["id": "a", "role": "mac", "access": "admin", "lastSeen": old], ["id": "b", "role": "mac", "access": "admin", "lastSeen": seen],
+                                        ["id": "0", "role": "mac", "access": "editor", "lastSeen": seen], ["id": "c", "role": "mac", "access": "admin", "lastSeen": seen],
+                                        ["id": "00", "role": "backup", "lastSeen": seen]]
+        check("host watch: one admin Mac posts (the lowest id seen lately)", DeliverHostWatch.poster(devices, now: t0) == "b"
+              && DeliverHostWatch.poster(Array(devices.prefix(1)), now: t0) == "a")
     }
 }

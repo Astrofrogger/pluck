@@ -675,7 +675,16 @@ final class DeliverHostWatch {
     private(set) var since: [UUID: Date] = [:]
     private(set) var warned: Set<UUID> = []
     /// Tests stand in for these: the host's answer, this Mac's own network, what the team is told.
-    var probe: (Deliver.Host) async -> Bool = { (try? await ReviewHostClient.ask($0, ["op": "status"])) != nil }
+    /// (Only no connection counts as down: a refused key, an unconfirmed certificate or a captive portal's page means
+    /// something answered, and isn't an outage to tell the team about.)
+    var probe: (Deliver.Host) async -> Bool = { host in
+        do { _ = try await ReviewHostClient.ask(host, ["op": "status"]); return true } catch { return !DeliverHostWatch.unreachable(error) }
+    }
+    nonisolated static func unreachable(_ error: Error) -> Bool {
+        if error is NWError || error is POSIXError || error is URLError { return true }
+        // internal: a connect or answer timed out (HostSession); closed: cut before TLS; offline: the tunnel isn't up.
+        return ["internal", "closed", "offline", "unreachable"].contains((error as? Deliver.Failure)?.code ?? "")
+    }
     var online: () -> Bool = { DeliverHostWatch.path.currentPath.status == .satisfied }
     var tell: (Deliver.Host, _ back: Bool, _ since: Date) -> Void = { DeliverHostWatch.warn($0, back: $1, since: $2) }
     private static let path: NWPathMonitor = { let m = NWPathMonitor(); m.start(queue: .global(qos: .utility)); return m }()
@@ -716,8 +725,20 @@ final class DeliverHostWatch {
         hooksAsked[host.id] = now
         guard let hooks = (try? await ReviewHostClient.ask(host, ["op": "mail-state"]))?["hooks"] as? [String: [String: Any]] else { return }
         UserDefaults.standard.set(Array(Set(hooks.values.compactMap { $0["url"] as? String })).sorted(), forKey: Self.hooksKey + host.id.uuidString)
+        // Which admin Mac posts when it's down (one, not each): kept now, as it can't be asked then.
+        if let devices = (try? await ReviewHostClient.ask(host, ["op": "devices"]))?["devices"] as? [[String: Any]], let poster = Self.poster(devices, now: now) {
+            UserDefaults.standard.set(poster, forKey: Self.posterKey + host.id.uuidString)
+        }
     }
-    static let hooksKey = "reviewHostHooks."
+    static let hooksKey = "reviewHostHooks.", posterKey = "reviewHostPoster."
+
+    /// The admin Mac that posts the webhook: the lowest device id among admin Macs seen in the last day (all admin Macs
+    /// when none was). Every Mac's own notification still shows.
+    nonisolated static func poster(_ devices: [[String: Any]], now: Date) -> String? {
+        let admins = devices.filter { $0["role"] as? String == "mac" && ($0["access"] as? String ?? "admin") == "admin" }
+        let recent = admins.filter { ($0["lastSeen"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }.map { now.timeIntervalSince($0) < 86400 } == true }
+        return (recent.isEmpty ? admins : recent).compactMap { $0["id"] as? String }.min()
+    }
 
     static func warn(_ host: Deliver.Host, back: Bool, since: Date) {
         guard ScreenshotMode.scene == nil else { return }
@@ -729,6 +750,7 @@ final class DeliverHostWatch {
         content.body = body
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-host-" + host.id.uuidString, content: content, trigger: nil))
         guard DeliverPeople.isAdmin(host) else { return }
+        if let poster = UserDefaults.standard.string(forKey: posterKey + host.id.uuidString), let me = host.device, poster != me { return }
         // `text` first, as the host's own webhook posts (a Slack incoming webhook shows it). No signature: the secret stays on the NAS.
         let event: [String: Any] = ["text": "\(title). \(body)", "event": back ? "host-online" : "host-offline", "host": host.name,
                                     "since": DeliverServer.date(since)]
