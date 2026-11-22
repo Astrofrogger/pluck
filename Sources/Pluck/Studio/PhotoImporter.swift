@@ -162,8 +162,10 @@ enum PhotoImporter {
 
     // MARK: - Copying
 
-    /// What's on the cards that the import doesn't copy (not hidden files, not what macOS leaves): their
-    /// paths on the card. A folder that can't be read is named too, as it could hold anything.
+    /// What's on the cards that the import doesn't copy and a format would lose: footage and other media (by type:
+    /// movies, sound, pictures, RAW), or anything over 5 MB. The camera's own bookkeeping (CANONMSC, MISC, a clip's
+    /// small .XML/.THM/.CTG/.dat beside it), hidden files and what macOS leaves don't count. Their paths on the card;
+    /// a folder that can't be read is named too, as it could hold anything.
     nonisolated static func leftOnCards(_ cards: [URL], items: [Item]) -> [String] {
         var brought = Set<String>()
         for member in items.flatMap(\.members) {
@@ -172,7 +174,11 @@ enum PhotoImporter {
         }
         return cards.flatMap { card -> [String] in
             let found = OffloadCenter.scan(card)
-            let visible = found.files.map(\.path).filter { !$0.split(separator: "/").contains { $0.hasPrefix(".") } }
+            let visible = found.files.filter { file in
+                guard !file.path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else { return false }
+                let type = UTType(filenameExtension: (file.path as NSString).pathExtension)
+                return file.size > 5 << 20 || [.audiovisualContent, .movie, .audio, .image].contains { type?.conforms(to: $0) == true }
+            }.map(\.path)
             return found.unreadable.map { $0.isEmpty ? card.lastPathComponent : $0 }
                 + visible.filter { !brought.contains(card.appendingPathComponent($0).standardizedFileURL.path) }
         }

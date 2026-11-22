@@ -193,6 +193,20 @@ extension PhotoSelfTest {
               "the clip and the sound left, not safe; got \(left) \(mixedReport)")
         try? fm.removeItem(at: hybrid.appendingPathComponent("PRIVATE"))
         try? fm.removeItem(at: shots.appendingPathComponent("IMG_5.WAV"))
+        // A Canon-like card: photos and the camera's bookkeeping only (formatted in camera, it writes them again): safe.
+        try? fm.createDirectory(at: hybrid.appendingPathComponent("DCIM/CANONMSC"), withIntermediateDirectories: true)
+        try? fm.createDirectory(at: hybrid.appendingPathComponent("MISC"), withIntermediateDirectories: true)
+        try? Data("ctg".utf8).write(to: hybrid.appendingPathComponent("DCIM/CANONMSC/M0100.CTG"))
+        try? Data("dat".utf8).write(to: hybrid.appendingPathComponent("MISC/AUTPRINT.dat"))
+        let canon = PhotoImporter.leftOnCards([hybrid], items: hybridItems)
+        check("import a Canon-like card with its bookkeeping is safe", canon.isEmpty, "nothing; got \(canon)")
+        // A Sony-like card: a clip and its small XML under PRIVATE: the clip counts, its XML doesn't.
+        try? fm.createDirectory(at: hybrid.appendingPathComponent("PRIVATE/M4ROOT/CLIP"), withIntermediateDirectories: true)
+        try? Data("clip".utf8).write(to: hybrid.appendingPathComponent("PRIVATE/M4ROOT/CLIP/C0001.MP4"))
+        try? Data("<xml/>".utf8).write(to: hybrid.appendingPathComponent("PRIVATE/M4ROOT/CLIP/C0001M01.XML"))
+        let sony = PhotoImporter.leftOnCards([hybrid], items: hybridItems)
+        check("import a Sony-like card's clip is not safe", sony == ["PRIVATE/M4ROOT/CLIP/C0001.MP4"], "the clip only; got \(sony)")
+        try? fm.removeItem(at: hybrid.appendingPathComponent("PRIVATE"))
         check("import a photo-only card has nothing left", PhotoImporter.leftOnCards([hybrid], items: hybridItems).isEmpty,
               "nothing; got \(PhotoImporter.leftOnCards([hybrid], items: hybridItems))")
 
