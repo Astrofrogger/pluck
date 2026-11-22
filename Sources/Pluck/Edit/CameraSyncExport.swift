@@ -91,22 +91,16 @@ enum CameraSyncExport {
 
     // MARK: - Sets
 
-    /// The synced cameras in sets, one timeline each: a new set after a gap over `gap` seconds (3 h), or
-    /// after any gap where the clips' day changes (by their dates). Clips not synced are left out.
+    /// The synced cameras in sets, one timeline each: a new set after a gap over `gap` seconds (3 h). Only the gap
+    /// counts, not the clips' dates: a show past midnight, or a camera whose clock has the wrong day, stays one set
+    /// (the day only names it, see `setNames`). Clips not synced are left out.
     static func sets(_ cameras: [SyncCamera], gap: Double = 3 * 3600) -> [[SyncCamera]] {
         let placed = cameras.flatMap(\.clips).filter { $0.start != nil }.sorted { $0.start! < $1.start! }
-        var groups: [Set<UUID>] = [], end = -Double.infinity, day: Date?
-        let calendar = Calendar.current
+        var groups: [Set<UUID>] = [], end = -Double.infinity
         for clip in placed {
-            let own = clip.created.map { calendar.startOfDay(for: $0) }
-            let apart = clip.start! - end
-            if groups.isEmpty || apart > gap || (apart > 0 && own != nil && day != nil && own != day) {
-                groups.append([])
-                day = nil
-            }
+            if groups.isEmpty || clip.start! - end > gap { groups.append([]) }
             groups[groups.count - 1].insert(clip.id)
             end = max(end, clip.end!)
-            day = day ?? own
         }
         return groups.map { ids in
             cameras.compactMap { camera in
@@ -320,10 +314,12 @@ if action == "syncTimeline":
     def sub(parent, name):
         return next((f for f in parent.GetSubFolderList() or [] if f.GetName() == name), None) or pool.AddSubFolder(parent, name)
     top = next((f for f in pool.GetRootFolder().GetSubFolderList() or [] if f.GetName() == cmd.get("bin")), None)
+    # Only clips in the sync's own bin (what it imported): the editor's own clips of the same files stay where they're sorted.
+    mine = {c.GetClipProperty("File Path"): c for c in clips_in(top)} if top else {}
     moves = {}
     for path, day, camera in cmd.get("bins", []):
-        if top and path in known:
-            moves.setdefault((day, camera), []).append(known[path])
+        if path in mine:
+            moves.setdefault((day, camera), []).append(mine[path])
     for (day, camera), clips in moves.items():
         try:
             pool.MoveClips(clips, sub(sub(top, day), camera))
