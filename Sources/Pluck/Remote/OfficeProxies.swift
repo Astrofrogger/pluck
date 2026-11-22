@@ -626,7 +626,8 @@ final class OfficeProxies {
     /// next to its final name (a name of its own) and moved there when it's complete.
     nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look setting: OfficeLook = .off,
                                            progress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        await Task.detached {
+        // (Detached, so Stop is handed on: it ends ffmpeg.)
+        let job = Task.detached {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             if RemoteEditHost.isRawClip(source, directory: RemoteEditHost.isDirectory(source)) {
                 return encodeRaw(source, to: target, format: format, progress: progress)
@@ -656,7 +657,7 @@ final class OfficeProxies {
                 [["-c:v", "prores_videotoolbox", "-profile:v", "proxy", "-c:a", "pcm_s16le"],
                  ["-c:v", "prores_ks", "-profile:v", "0", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le"]]
             }
-            for attempt in attempts {
+            for attempt in attempts where !Task.isCancelled {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: ffmpeg)
                 process.arguments = common + attempt + ["-f", "mov", partial.path]
@@ -670,9 +671,9 @@ final class OfficeProxies {
                     }
                 }
                 guard (try? process.run()) != nil else { continue }
-                process.waitUntilExit()
+                await withTaskCancellationHandler { process.waitUntilExit() } onCancel: { process.terminate() }
                 pipe.fileHandleForReading.readabilityHandler = nil
-                if process.terminationStatus == 0 {
+                if process.terminationStatus == 0 && !Task.isCancelled {
                     // Resolve links a proxy to its original by frame rate, timecode, picture shape and audio channels:
                     // a proxy that differs fails loudly instead of linking wrong.
                     if let problem = attachProblem(source, partial, ffprobe: ffprobe) {
@@ -680,13 +681,16 @@ final class OfficeProxies {
                         try? FileManager.default.removeItem(at: partial)
                         return false
                     }
-                    try? FileManager.default.removeItem(at: target)
-                    if (try? FileManager.default.moveItem(at: partial, to: target)) != nil { return true }
+                    // Into place only if nothing is there: one Resolve or another Mac wrote meanwhile is kept.
+                    if renamex_np(partial.path, target.path, UInt32(RENAME_EXCL)) == 0 { return true }
+                    try? FileManager.default.removeItem(at: partial)
+                    return FileManager.default.fileExists(atPath: target.path)
                 }
                 try? FileManager.default.removeItem(at: partial)
             }
             return false
-        }.value
+        }
+        return await withTaskCancellationHandler { await job.value } onCancel: { job.cancel() }
     }
 
     /// Why a proxy made last didn't match its original (by the proxy's path), for the request's problem.
@@ -754,7 +758,7 @@ final class OfficeProxies {
             try? FileManager.default.removeItem(at: partial)
             return false
         }
-        guard rename(partial.path, target.path) == 0 else {
+        guard renamex_np(partial.path, target.path, UInt32(RENAME_EXCL)) == 0 else {
             try? FileManager.default.removeItem(at: partial)
             return FileManager.default.fileExists(atPath: target.path)
         }

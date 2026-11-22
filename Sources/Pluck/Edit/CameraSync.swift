@@ -92,13 +92,6 @@ enum CameraSync {
     /// and the later files of a split RED take left out).
     static func files(in urls: [URL]) -> [(file: URL, root: URL)] {
         var found: [(URL, URL)] = []
-        func wanted(_ url: URL) -> Bool {
-            let kind = url.pathExtension.lowercased()
-            guard videoExtensions.contains(kind) || audioExtensions.contains(kind) else { return false }
-            // A RED camera's own .wav sits in the take's folder: it's the take's sound, not a recorder.
-            if audioExtensions.contains(kind), url.deletingLastPathComponent().pathExtension.lowercased() == "rdc" { return false }
-            return RawFormats.spanned(url) == nil
-        }
         for url in urls {
             if url.hasDirectoryPath, let walk = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
                 for case let file as URL in walk where wanted(file) { found.append((file, url)) }
@@ -107,6 +100,15 @@ enum CameraSync {
             }
         }
         return found.sorted { $0.0.path.localizedStandardCompare($1.0.path) == .orderedAscending }
+    }
+
+    /// A clip to sync: picture or sound, not a RED take's own .wav, not a later file of a split RED take.
+    static func wanted(_ url: URL) -> Bool {
+        let kind = url.pathExtension.lowercased()
+        guard videoExtensions.contains(kind) || audioExtensions.contains(kind) else { return false }
+        // A RED camera's own .wav sits in the take's folder: it's the take's sound, not a recorder.
+        if audioExtensions.contains(kind), url.deletingLastPathComponent().pathExtension.lowercased() == "rdc" { return false }
+        return RawFormats.spanned(url) == nil
     }
 
     struct Probe: Sendable {

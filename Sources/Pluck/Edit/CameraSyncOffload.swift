@@ -12,9 +12,7 @@ extension CameraSync {
         let root = card.deletingLastPathComponent()
         let items = job.files.filter { $0.problem == nil && !$0.done.isEmpty && !$0.done.contains(false) }.compactMap { file -> (file: URL, root: URL)? in
             let url = card.appendingPathComponent(job.destination(of: file.path))
-            let kind = url.pathExtension.lowercased()
-            guard videoExtensions.contains(kind) || audioExtensions.contains(kind), !url.lastPathComponent.hasPrefix("._"),
-                  RawFormats.spanned(url) == nil, fm.fileExists(atPath: url.path) else { return nil }
+            guard wanted(url), !url.lastPathComponent.hasPrefix("._"), fm.fileExists(atPath: url.path) else { return nil }
             return (url, root)
         }
         let name = job.card ?? (job.name.isEmpty ? job.sourceVolume : job.displayName)

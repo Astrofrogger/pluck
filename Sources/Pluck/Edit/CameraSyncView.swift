@@ -386,6 +386,9 @@ final class CameraSyncModel {
                 done = String(localized: "In DaVinci Resolve: \(result.timelines.formatted(.list(type: .and))), \(result.placed) of \(result.asked) placed")
                 // The report beside the media (where the sync is saved).
                 if let folder = CameraSync.saveFolder(cameras) { writeReport(cameras, beside: folder.appendingPathComponent(name)) }
+                else if cameras.flatMap(\.clips).contains(where: { CameraSync.onCard($0.file.deletingLastPathComponent()) }) {
+                    done = [done, String(localized: "On a camera card: nothing is saved there. Offload it first to keep the sync and its report.")].compactMap { $0 }.joined(separator: "\n")
+                }
             } catch {
                 problem = error.localizedDescription
             }
@@ -419,7 +422,7 @@ final class CameraSyncModel {
     // MARK: Proxies
 
     /// Synced picture clips with no proxy here.
-    var needProxies: [SyncClip] { clips.filter { $0.start != nil && $0.hasVideo && !$0.isProxy && $0.proxy == nil } }
+    var needProxies: [SyncClip] { clips.filter { $0.start != nil && $0.hasVideo && !$0.isProxy && $0.proxy == nil && !CameraSync.onCard($0.file.deletingLastPathComponent()) } }
 
     /// Where a clip's proxy goes: a "Proxy" folder beside it, the original's name (where Resolve looks for proxies by itself).
     static func proxyFile(_ clip: SyncClip) -> URL {

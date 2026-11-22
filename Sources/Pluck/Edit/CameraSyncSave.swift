@@ -24,7 +24,21 @@ extension CameraSync {
             shared = Array(shared.prefix(n))
         }
         guard shared.count >= 3 || (shared.count == 2 && shared[1] != "Volumes") else { return nil }
-        return URL(fileURLWithPath: NSString.path(withComponents: shared), isDirectory: true)
+        let folder = URL(fileURLWithPath: NSString.path(withComponents: shared), isDirectory: true)
+        // (Never on a camera card: no sync, report or proxies written there.)
+        return onCard(folder) ? nil : folder
+    }
+
+    /// Tests only: folders taken as being on a camera card.
+    nonisolated(unsafe) static var testCards: [String] = []
+
+    /// Whether a folder is on a camera card (removable, with what cameras write on it), where Pluck writes nothing.
+    static func onCard(_ folder: URL) -> Bool {
+        let path = folder.standardizedFileURL.path
+        if testCards.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return true }
+        guard let values = try? folder.resourceValues(forKeys: [.volumeURLKey, .volumeIsRemovableKey, .volumeIsInternalKey]),
+              let volume = values.volume, values.volumeIsRemovable == true, values.volumeIsInternal != true else { return false }
+        return OffloadCenter.isCameraCard(volume)
     }
 
     static func save(_ save: SyncSave) throws {

@@ -46,6 +46,13 @@ extension PhotoSelfTest {
         try? fm.removeItem(atPath: paths[2])
         let fewer = CameraSync.load(base)
         check("sync save: a clip that's gone is left out", fewer?.cameras.flatMap(\.clips).map(\.path) == [paths[0], paths[1]] && fewer?.cameras.first?.clips.first?.proxy == nil)
+        // Clips on a camera card: nothing written there (no sync, report or proxies).
+        CameraSync.testCards = [base.standardizedFileURL.path]
+        let onCard = CameraSync.saveFolder(cameras) == nil && CameraSync.onCard(base.appendingPathComponent("Cam1"))
+        try? fm.removeItem(at: file)
+        try? CameraSync.save(SyncSave(cameras: cameras, audioFirst: true, shownTimecode: nil))
+        CameraSync.testCards = []
+        check("sync save: never on a camera card", onCard && !fm.fileExists(atPath: file.path))
         check("sync save: clips on two drives aren't saved", CameraSync.saveFolder([SyncCamera(name: "", key: "", clips: [clip("/Volumes/X/a.mov", start: 0), clip("/Volumes/Y/b.mov", start: 0)])]) == nil)
         // Sync after cards were added: only the new ones move.
         let c = clip(paths[2], start: nil)
@@ -80,7 +87,7 @@ extension PhotoSelfTest {
               && report.contains(String(localized: "Not synced")) && report.contains("Set &amp; Show") && report.contains("class=\"check\""))
     }
 
-    /// One timeline per set: a gap over 3 h, or a gap where the day changes; clips that overlap stay together.
+    /// One timeline per set: a gap over 3 h; the day changing (past midnight, a camera's wrong-day clock) doesn't split.
     private static func syncSetsTest() {
         let day1 = Date(timeIntervalSince1970: 1_777_600_000), day2 = day1.addingTimeInterval(86400)
         let cameras = [SyncCamera(name: "A", key: "a", clips: [clip("/m/1.mov", start: 0, created: day1), clip("/m/2.mov", start: 30, created: day2),
@@ -89,11 +96,15 @@ extension PhotoSelfTest {
                        SyncCamera(name: "B", key: "b", clips: [clip("/m/6.mov", start: 120, created: day2)])]
         let sets = CameraSyncExport.sets(cameras)
         let names = sets.map { $0.flatMap(\.clips).map(\.name).joined(separator: "+") }
-        check("sync sets: split on a day change and on a long gap, overlap kept together", names == ["1.mov+2.mov", "3.mov+6.mov", "4.mov"]
-              && sets[0].count == 1 && sets[1].map(\.name) == ["A", "B"], names.joined(separator: " | "))
+        check("sync sets: split on a long gap only, a day change kept together", names == ["1.mov+2.mov+3.mov+6.mov", "4.mov"]
+              && sets[0].map(\.name) == ["A", "B"], names.joined(separator: " | "))
         let labels = CameraSyncExport.setNames(sets)
-        check("sync sets: named by day, else numbered", labels.count == 3 && labels[0].count == 10 && labels[1] != labels[0] && labels[2] == String(localized: "Set \(3)"),
+        check("sync sets: named by day, else numbered", labels.count == 2 && labels[0].count == 10 && labels[1] == String(localized: "Set \(2)"),
               labels.joined(separator: ", "))
+        // A show past midnight: clips a few minutes apart either side of it stay one set, named by its first day.
+        let late = Date(timeIntervalSince1970: 1_777_679_400)  // (any time; the next clip's date is the next day)
+        let night = [SyncCamera(name: "A", key: "a", clips: [clip("/m/n1.mov", start: 0, created: late), clip("/m/n2.mov", start: 300, created: late.addingTimeInterval(86400))])]
+        check("sync sets: a set past midnight stays one", CameraSyncExport.sets(night).count == 1)
         check("sync sets: one set when nothing's apart", CameraSyncExport.sets([cameras[1]]).count == 1 && CameraSyncExport.sets([]).isEmpty)
     }
 
@@ -147,6 +158,13 @@ extension PhotoSelfTest {
         let proxy = base.appendingPathComponent("CamA/Proxy/one.mov")
         check("sync proxies: made with the proxy maker, used for playback", fm.fileExists(atPath: proxy.path) && model.clips.first { $0.name == "one.mov" }?.proxy == proxy.path
               && model.needProxies.isEmpty && model.proxyLine == nil, "\(model.done ?? "-") \(model.problem ?? "")")
+        // A proxy written meanwhile (by Resolve, another Mac) is kept, not replaced.
+        let theirs = base.appendingPathComponent("CamB/Proxy/two.mov")
+        try? fm.createDirectory(at: theirs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("theirs".utf8).write(to: theirs)
+        let kept = await OfficeProxies.encode(two, to: theirs, format: .light, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { _ in })
+        check("sync proxies: one already there is kept", kept && (try? Data(contentsOf: theirs)) == Data("theirs".utf8)
+              && ((try? fm.contentsOfDirectory(atPath: theirs.deletingLastPathComponent().path)) ?? []) == ["two.mov"])
         let pair = CameraSync.probe(proxy, root: base, ffprobe: ffprobe).map { [reopened!, $0.clip] }
         check("sync proxies: read as a proxy of its original next time", pair.map { CameraSync.proxies($0).count } == 1)
     }
@@ -155,8 +173,8 @@ extension PhotoSelfTest {
     private static func syncOffloadTest(_ base: URL) {
         let fm = FileManager.default
         let drive = base.appendingPathComponent("Drive", isDirectory: true), card = drive.appendingPathComponent("2026-05-01 A004", isDirectory: true)
-        let names = ["A004C001.mov", "A004C002.mov", "A004C003.mov", "A004C004.mov", "notes.txt", "A004C005.mov"]
-        try? fm.createDirectory(at: card.appendingPathComponent("CLIPS"), withIntermediateDirectories: true)
+        let names = ["A004C001.mov", "A004C002.mov", "A004C003.mov", "A004C004.mov", "notes.txt", "A004C005.mov", "A004_C006.RDC/A004_C006.wav"]
+        try? fm.createDirectory(at: card.appendingPathComponent("CLIPS/A004_C006.RDC"), withIntermediateDirectories: true)
         for name in names { fm.createFile(atPath: card.appendingPathComponent("CLIPS/" + name).path, contents: Data([1])) }
         // C005 was given another name in the copy (another card's C005 was there).
         try? fm.moveItem(at: card.appendingPathComponent("CLIPS/A004C005.mov"), to: card.appendingPathComponent("CLIPS/A004C005 2.mov"))
@@ -167,7 +185,9 @@ extension PhotoSelfTest {
                              roots: ["/Volumes/Gone-\(UUID().uuidString)", drive.path], rootVolumes: ["Gone", "Drive"],
                              files: [file("A004C001.mov", done: [true, true]), file("A004C002.mov", done: [true, false]),
                                      file("A004C003.mov", done: [true, true], problem: "Checksum didn’t match"), file("A004C004.mov", done: [true, true]),
-                                     file("notes.txt", done: [true, true]), file("A004C005.mov", done: [true, true])])
+                                     file("notes.txt", done: [true, true]), file("A004C005.mov", done: [true, true]),
+                                     // A RED take's own sound: not a sound recorder.
+                                     file("A004_C006.RDC/A004_C006.wav", done: [true, true])])
         job.renames = ["CLIPS/A004C005.mov": "A004C005 2.mov"]
         job.card = "A004"
         let (items, cards) = CameraSync.offloadItems(job)
