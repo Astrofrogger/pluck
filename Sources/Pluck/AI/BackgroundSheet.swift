@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct BackgroundSheet: View {
     @Environment(AIStudio.self) private var studio
     @Environment(\.dismiss) private var dismiss
-    let item: DownloadItem
+    let items: [DownloadItem]
     @AppStorage("backgroundKind") private var kind: Background.Kind = .blur
     @AppStorage("backgroundColor") private var color = "1C1C1E"
     @AppStorage("backgroundKeep") private var keep: Background.Keep = .automatic
@@ -13,7 +13,7 @@ struct BackgroundSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "person.and.background.dotted", title: Text("New Background"), subtitle: Text(item.title))
+            SheetHeader(symbol: "person.and.background.dotted", title: Text("New Background"), subtitle: Text(AIStudio.Batch(items).title))
 
             Form {
                 Picker(selection: $keep) {
@@ -73,7 +73,9 @@ struct BackgroundSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Replace") {
-                    studio.replaceBackground(item, options: Background.Options(kind: kind, keep: keep, color: color, image: picture))
+                    for item in items {
+                        studio.replaceBackground(item, options: Background.Options(kind: kind, keep: keep, color: color, image: picture))
+                    }
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -101,4 +103,8 @@ struct BackgroundSheet: View {
         panel.prompt = String(localized: "Choose")
         if panel.runModal() == .OK { picture = panel.url }
     }
+}
+
+extension BackgroundSheet {
+    init(item: DownloadItem) { self.init(items: [item]) }
 }

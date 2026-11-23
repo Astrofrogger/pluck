@@ -320,12 +320,13 @@ extension AIStudio {
                 item.aiProgress = nil
                 let output = Converting.outputURL(folder: file.deletingLastPathComponent().path,
                                                   name: file.deletingPathExtension().lastPathComponent + String(localized: " (enhanced)"),
-                                                  fileExtension: "mp4")
+                                                  fileExtension: file.pathExtension.lowercased() == "mov" ? "mov" : "mp4")
                 // The original sound with the new picture; slow motion has no sound.
                 var args = ["-y", "-v", "error", "-i", picture.path]
                 if options.motion.stretch == 1 { args += ["-i", file.path, "-map", "0:v", "-map", "1:a?", "-c:a", "copy", "-shortest"] }
                 else { args += ["-map", "0:v", "-an"] }
-                args += ["-c:v", "copy", "-tag:v", "hvc1", "-map_metadata", "-1", "-movflags", "+faststart", output.path]
+                args += await FrameRewriter.keepingSource(file, input: 1, ffprobe: toolPath("ffprobe"))
+                args += ["-c:v", "copy", "-tag:v", "hvc1", "-movflags", "+faststart", output.path]
                 try await ffmpeg(args, failure: Enhance.Failure.noVideo)
                 finishJob(item)
                 notify(title: String(localized: "“\(item.title)” is enhanced"),

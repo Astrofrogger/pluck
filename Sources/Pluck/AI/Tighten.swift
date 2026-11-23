@@ -53,6 +53,8 @@ enum Tighten {
         var language: Locale?
         /// Also save an edit list for video editors (videos only).
         var editList = false
+        /// Also build the tightened timeline in the project open in DaVinci Resolve (videos only).
+        var resolveTimeline = false
     }
 
     // MARK: - Finding what to cut
@@ -201,18 +203,26 @@ enum Tighten {
 
     /// A CMX 3600 edit list with one event per kept part, for importing into DaVinci Resolve
     /// (File › Import › Timeline) or Premiere Pro (File › Import), then linking to the original.
-    static func edl(keeps: [ClosedRange<Double>], title: String, clipName: String, fps: Double, startTimecode: String?) -> String {
-        let base = max(Int(fps.rounded()), 1)
-        let sourceStart = startTimecode.flatMap { frames(fromTimecode: $0, base: base) } ?? 0
-        var record = 3600 * base   // 01:00:00:00, where editors start their timelines
-        var lines = ["TITLE: \(title)", "FCM: NON-DROP FRAME", ""]
+    /// Drop-frame when the source's timecode is (29.97/59.94 DF), so a long clip doesn't drift.
+    /// The reel is the source's own (how Resolve relinks), else the file name's first 8 characters.
+    static func edl(keeps: [ClosedRange<Double>], title: String, clipName: String, fps: Double, startTimecode: String?, reel: String? = nil) -> String {
+        let reel = (reel ?? String((clipName as NSString).deletingPathExtension.prefix(8))).replacingOccurrences(of: " ", with: "_")
+        let base = DropFrame.base(fps)
+        // 23.976 and 29.97 exactly, not as rounded by the probe.
+        let fps = abs(fps - Double(base) * 1000 / 1001) < 0.01 ? Double(base) * 1000 / 1001 : fps
+        let drop = DropFrame.canDrop(fps) && (startTimecode.map(DropFrame.isDrop) ?? false)
+        func tc(_ frames: Int) -> String { DropFrame.string(frames, base: base, drop: drop) }
+        let sourceStart = startTimecode.flatMap { DropFrame.frames($0, base: base, drop: drop) } ?? 0
+        // 01:00:00:00, where editors start their timelines.
+        var record = DropFrame.frames("01:00:00:00", base: base, drop: drop) ?? 3600 * base
+        var lines = ["TITLE: \(title)", drop ? "FCM: DROP FRAME" : "FCM: NON-DROP FRAME", ""]
         for (index, keep) in keeps.enumerated() {
             let sourceIn = sourceStart + Int((keep.lowerBound * fps).rounded())
             let sourceOut = sourceStart + Int((keep.upperBound * fps).rounded())
             guard sourceOut > sourceIn else { continue }
             let length = sourceOut - sourceIn
             let event = String(format: "%03d", index + 1)
-            lines.append("\(event)  AX       AA/V  C        \(timecode(sourceIn, base: base)) \(timecode(sourceOut, base: base)) \(timecode(record, base: base)) \(timecode(record + length, base: base))")
+            lines.append("\(event)  \(reel.padding(toLength: max(8, reel.count), withPad: " ", startingAt: 0)) AA/V  C        \(tc(sourceIn)) \(tc(sourceOut)) \(tc(record)) \(tc(record + length))")
             lines.append("* FROM CLIP NAME: \(clipName)")
             lines.append("")
             record += length
@@ -220,23 +230,34 @@ enum Tighten {
         return lines.joined(separator: "\n")
     }
 
-    static func timecode(_ frames: Int, base: Int) -> String {
-        let f = frames % base, s = frames / base
-        return String(format: "%02d:%02d:%02d:%02d", s / 3600 % 24, s / 60 % 60, s % 60, f)
-    }
-
-    static func frames(fromTimecode text: String, base: Int) -> Int? {
-        let parts = text.split(whereSeparator: { $0 == ":" || $0 == ";" || $0 == "." }).compactMap { Int($0) }
-        guard parts.count == 4 else { return nil }
-        return ((parts[0] * 60 + parts[1]) * 60 + parts[2]) * base + parts[3]
-    }
-
     /// The timecode the file starts at (cameras often start at 01:00:00:00 or time of day).
     static func startTimecode(of file: URL, ffprobe: String) async -> String? {
         let output = await ToolOutput.run(ffprobe, ["-v", "error", "-show_entries", "format_tags=timecode:stream_tags=timecode",
                                                     "-of", "default=noprint_wrappers=1:nokey=1", file.path])
-        return output.split(separator: "\n").map(String.init).first { frames(fromTimecode: $0, base: 30) != nil }
+        return output.split(separator: "\n").map(String.init).first { DropFrame.frames($0, base: 1000, drop: false) != nil }
     }
+}
+
+extension Tighten {
+    /// Sets a timeline's drop-frame timecode (a timeline setting only counts with its own settings on).
+    /// A pure function, tested on its own with a stand-in timeline.
+    static let setDropFrame = #"""
+def set_drop_frame(timeline, drop):
+    timeline.SetSetting("useCustomSettings", "1")
+    return bool(timeline.SetSetting("timelineDropFrameTimecode", "1" if drop else "0"))
+"""#
+
+    /// The timeline named in the instruction, in the open project, set to drop-frame or not.
+    static let dropFrameScript = ResolveBridge.preamble + "\n" + setDropFrame + "\n" + #"""
+project = pm.GetCurrentProject()
+if project is None:
+    out({"error": "No project is open in DaVinci Resolve."})
+for index in range(1, project.GetTimelineCount() + 1):
+    timeline = project.GetTimelineByIndex(index)
+    if timeline and timeline.GetName() == cmd["timeline"]:
+        out({"set": set_drop_frame(timeline, cmd["drop"])})
+out({"error": "noTimeline"})
+"""#
 }
 
 /// Runs a helper tool and returns everything it printed (ffmpeg's measurements go to stderr).
@@ -316,15 +337,42 @@ extension AIStudio {
                 try await ffmpeg(args, failure: Tighten.Failure.noSound, duration: kept, item: item)
 
                 var files = [output]
+                let timecode = if let ffprobe, video { await Tighten.startTimecode(of: file, ffprobe: ffprobe) } else { String?.none }
                 if options.editList, video {
-                    let timecode = if let ffprobe { await Tighten.startTimecode(of: file, ffprobe: ffprobe) } else { String?.none }
+                    let reel = if let ffprobe {
+                        FrameRewriter.sourceTags(await ToolOutput.run(ffprobe, ["-v", "error", "-show_entries", "format_tags=reel_name:stream_tags=reel_name",
+                                                                               "-of", "json", file.path])).reel
+                    } else { String?.none }
                     let edl = output.deletingPathExtension().appendingPathExtension("edl")
                     try Tighten.edl(keeps: keeps, title: output.deletingPathExtension().lastPathComponent, clipName: file.lastPathComponent,
-                                    fps: info?.fps ?? 25, startTimecode: timecode)
+                                    fps: info?.fps ?? 25, startTimecode: timecode, reel: reel)
                         .write(to: edl, atomically: true, encoding: .utf8)
                     files.append(edl)
                 }
+                // The cuts on the original clip in Resolve: a failure there still leaves the copy.
+                var resolveProblem: Error?
+                if options.resolveTimeline, video {
+                    item.aiStatus = String(localized: "Sending to DaVinci Resolve…")
+                    item.aiProgress = nil
+                    do {
+                        let timeline = try await MarkedTimeline.buildCuts(name: output.deletingPathExtension().lastPathComponent, bin: "Pluck",
+                                                                          cuts: keeps.map { MarkedTimeline.Cut(file: file, start: $0.lowerBound, end: $0.upperBound) })
+                        // Its timecode counted like the source's: drop-frame for 29.97/59.94 DF footage.
+                        let drop = DropFrame.canDrop(info?.fps ?? 0) && (timecode.map(DropFrame.isDrop) ?? false)
+                        _ = try await ResolveBridge.run(["action": "dropFrame", "timeline": timeline, "drop": drop], script: Tighten.dropFrameScript)
+                        _ = try? await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/DaVinci Resolve/DaVinci Resolve.app"),
+                                                                          configuration: NSWorkspace.OpenConfiguration())
+                    } catch {
+                        resolveProblem = error
+                    }
+                }
                 finishJob(item)
+                if let resolveProblem {
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "Couldn’t send to DaVinci Resolve")
+                    alert.informativeText = resolveProblem.localizedDescription
+                    alert.runModal()
+                }
                 let removed = Format.duration(duration - kept)
                 notify(title: String(localized: "“\(item.title)” is tightened"),
                        body: fillerCount > 0 ? String(localized: "Removed \(removed) of pauses and \(fillerCount) filler words.")

@@ -60,12 +60,14 @@ final class AIStudio {
     var tightenBatch: Batch?
     /// A file waiting for Clean Up Audio options.
     var cleanupBatch: Batch?
-    /// A video waiting for Upscale & Smooth options.
-    var enhanceItem: DownloadItem?
-    /// A video waiting for New Background options.
-    var backgroundItem: DownloadItem?
+    /// Videos waiting for Upscale & Smooth options.
+    var enhanceBatch: Batch?
+    /// Videos waiting for New Background options.
+    var backgroundBatch: Batch?
     /// A video waiting for Privacy Blur options.
     var blurItem: DownloadItem?
+    /// Several videos waiting for Privacy Blur options (every face blurred in each).
+    var blurBatch: Batch?
     /// Search, as a pop-up over the main window.
     var searchShown = false
     @ObservationIgnored let search = TranscriptSearch()

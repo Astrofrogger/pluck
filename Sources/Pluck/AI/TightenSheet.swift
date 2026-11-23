@@ -10,6 +10,7 @@ struct TightenSheet: View {
     @AppStorage("tightenPace") private var pace: Tighten.Pace = .natural
     @AppStorage("tightenFillers") private var fillers = true
     @AppStorage("tightenEditList") private var editList = false
+    @AppStorage("tightenResolve") private var resolveTimeline = false
     @State private var languages: [Locale] = []
     @State private var language: Locale?
 
@@ -46,6 +47,12 @@ struct TightenSheet: View {
                         Text("Also save an edit list")
                         Text("An EDL with the same cuts, to import into DaVinci Resolve or Premiere Pro.")
                     }
+                    if Resolve.isInstalled {
+                        Toggle(isOn: $resolveTimeline) {
+                            Text("Send to DaVinci Resolve")
+                            Text("The cut timeline on the original clip, in the open project.")
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -66,6 +73,7 @@ struct TightenSheet: View {
                     options.fillers = removesFillers
                     options.language = language
                     options.editList = editList && isVideo
+                    options.resolveTimeline = resolveTimeline && isVideo && Resolve.isInstalled
                     for item in items { studio.tighten(item, options: options) }
                     dismiss()
                 }

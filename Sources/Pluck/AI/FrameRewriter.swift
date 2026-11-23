@@ -116,3 +116,31 @@ final class FrameRewriter: @unchecked Sendable {
         }
     }
 }
+
+extension FrameRewriter {
+    /// ffmpeg output arguments that keep the source's (input `index`) start timecode, reel name and
+    /// tags (creation date, camera) on a remade copy, so DaVinci Resolve can conform and relink it.
+    /// Where it was filmed is left out. A .mov keeps the reel name too; an .mp4 the timecode only.
+    static func keepingSource(_ file: URL, input index: Int, ffprobe: String?) async -> [String] {
+        var args = ["-map_metadata", "\(index)"]
+        for key in ["location", "location-eng", "com.apple.quicktime.location.ISO6709"] { args += ["-metadata", "\(key)="] }
+        guard let ffprobe else { return args }
+        let tags = sourceTags(await ToolOutput.run(ffprobe, ["-v", "error", "-show_entries", "format_tags=timecode,reel_name:stream_tags=timecode,reel_name",
+                                                             "-of", "json", file.path]))
+        if let timecode = tags.timecode { args += ["-timecode", timecode] }
+        if let reel = tags.reel { args += ["-metadata:s:v:0", "reel_name=\(reel)"] }
+        return args
+    }
+
+    /// The first start timecode and reel name in ffprobe's JSON (the container's, or a stream's:
+    /// QuickTime keeps them on the timecode track).
+    static func sourceTags(_ json: String) -> (timecode: String?, reel: String?) {
+        guard let open = json.firstIndex(of: "{"),
+              let root = try? JSONSerialization.jsonObject(with: Data(json[open...].utf8)) as? [String: Any] else { return (nil, nil) }
+        let all = [(root["format"] as? [String: Any])?["tags"] as? [String: Any]]
+            + (root["streams"] as? [[String: Any]] ?? []).map { $0["tags"] as? [String: Any] }
+        let timecode = all.lazy.compactMap { $0?["timecode"] as? String }.first { DropFrame.frames($0, base: 1000, drop: false) != nil }
+        let reel = all.lazy.compactMap { ($0?["reel_name"] as? String)?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return (timecode, reel)
+    }
+}

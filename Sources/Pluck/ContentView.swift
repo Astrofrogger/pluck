@@ -880,16 +880,20 @@ private struct AISheets: ViewModifier {
                 SpokenLanguageSheet(ask: ask)
                     .environment(ai)
             }
-            .sheet(item: Binding(get: { ai.backgroundItem }, set: { ai.backgroundItem = $0 })) { item in
-                BackgroundSheet(item: item)
+            .sheet(item: Binding(get: { ai.backgroundBatch }, set: { ai.backgroundBatch = $0 })) { batch in
+                BackgroundSheet(items: batch.items)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.blurBatch }, set: { ai.blurBatch = $0 })) { batch in
+                BlurBatchSheet(items: batch.items)
                     .environment(ai)
             }
             .sheet(item: Binding(get: { ai.blurItem }, set: { ai.blurItem = $0 })) { item in
                 PrivacyBlurSheet(item: item)
                     .environment(ai)
             }
-            .sheet(item: Binding(get: { ai.enhanceItem }, set: { ai.enhanceItem = $0 })) { item in
-                EnhanceSheet(item: item)
+            .sheet(item: Binding(get: { ai.enhanceBatch }, set: { ai.enhanceBatch = $0 })) { batch in
+                EnhanceSheet(items: batch.items)
                     .environment(ai)
             }
             .sheet(item: Binding(get: { ai.cleanupBatch }, set: { ai.cleanupBatch = $0 })) { batch in
