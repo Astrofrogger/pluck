@@ -22,6 +22,12 @@ struct RemoteResolvePane: View {
 
     private var project: RemoteResolve.HostProject? { model.projects.first { $0.id == projectID } }
 
+    /// `pending`: a pre-flight shown from the start (the screenshot scene "missingplan").
+    init(host: String, pending: RemoteMissing.Plan? = nil) {
+        self.host = host
+        _pending = State(initialValue: pending)
+    }
+
     var body: some View {
         HStack {
             Text("DaVinci Resolve").font(Design.Studio.sectionTitle)
@@ -150,13 +156,16 @@ struct RemoteResolvePane: View {
     private func missing(_ plan: RemoteMissing.Plan) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Divider().overlay(Design.Studio.line)
-            if !plan.send.isEmpty {
-                line(String(localized: "Only on this Mac: \(RemoteMissing.summary(plan.send))"))
+            if !plan.sending.isEmpty {
+                line(String(localized: "Only on this Mac: \(RemoteMissing.summary(plan.sending))"))
                 if !plan.takesFiles { hint(String(localized: "The office Mac needs a newer Pluck to receive them.")) }
             }
             if !plan.stuck.isEmpty {
                 line(String(localized: "Read by Fusion or a grade, only on this Mac: \(plan.stuck.prefix(4).map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))"))
                 hint(String(localized: "Copy them into a share and relink them in DaVinci Resolve."))
+            }
+            if !plan.different.isEmpty {
+                line(String(localized: "Different on the office Mac, kept there: \(plan.different.prefix(4).map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))"))
             }
             ForEach(plan.fonts, id: \.self) { line(RemoteMissing.problem($0)) }
             ForEach(plan.effects, id: \.self) { line(RemoteMissing.problem($0)) }

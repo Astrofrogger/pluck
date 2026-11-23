@@ -347,16 +347,11 @@ final class RemoteResolve {
                                             proxies: Set(plan.proxies.map(\.file)), shares: shares, builtIn: RemoteResolveProject.builtInRoots) { path in
             RemoteDriveWriteHost.stamp(of: URL(fileURLWithPath: path))?.size
         }
-        (plan.files, plan.send, plan.stuck) = sorted
+        (plan.files, plan.send, plan.stuck) = (sorted.files, sorted.send, sorted.stuck)
         try? await refresh()
         plan.takesFiles = takesFiles
         if takesFiles {
-            let fonts = RemoteMissing.fonts(found), effects = RemoteMissing.effects(found)
-            if !fonts.isEmpty || !effects.isEmpty {
-                let answer = try await client.ask("resolveMissing", ["fonts": fonts.map(\.dictionary), "effects": effects.map(\.dictionary)], timeout: 120)
-                plan.fonts = (answer["fonts"] as? [[String: Any]] ?? []).compactMap(RemoteMissing.Font.init)
-                plan.effects = (answer["effects"] as? [[String: Any]] ?? []).compactMap(RemoteMissing.Effect.init)
-            }
+            try await RemoteMissing.check(&plan, luts: sorted.luts, fonts: RemoteMissing.fonts(found), effects: RemoteMissing.effects(found), client: client)
         }
         return plan
     }
@@ -372,14 +367,19 @@ final class RemoteResolve {
         var files = plan?.files ?? []
         let firstShare = plan?.canSend == true && project?.share == nil ? (try? await client.shares())?.first?.id : nil
         if let plan, plan.canSend {
-            let mac = Host.current().localizedName ?? "Mac"
-            guard let target = RemoteMissing.target(proxies: proxies, share: project?.share ?? firstShare, mac: mac) else {
-                throw OfficeLink.Failure.office(String(localized: "There’s no share on the office Mac to send the files to."))
-            }
             defer { step = nil }
-            files += try await RemoteMissing.send(plan.send, to: target, client: client) { name, fraction in
+            let progress: (String, Double) -> Void = { name, fraction in
                 Task { @MainActor in self.step = String(localized: "Sending \(name)… \(Int(fraction * 100))%") }
             }
+            if !plan.send.isEmpty {
+                let mac = Host.current().localizedName ?? "Mac"
+                guard let target = RemoteMissing.target(proxies: proxies, share: project?.share ?? firstShare, mac: mac) else {
+                    throw OfficeLink.Failure.office(String(localized: "There’s no share on the office Mac to send the files to."))
+                }
+                files += try await RemoteMissing.send(plan.send, to: target, client: client, progress: progress)
+            }
+            // (LUTs and comp files at their own paths: nothing in the path map, the grade and comp read them as they are.)
+            try await RemoteMissing.send(plan.placed, hashes: plan.hashes, client: client, progress: progress)
         }
         let made = try await checkIn(project, keep: true)
         step = String(localized: "Adding to the queue…")

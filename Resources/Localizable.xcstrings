@@ -376064,6 +376064,180 @@
           }
         }
       }
+    },
+    "Another file with that name is on the office Mac. It wasn’t replaced." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem Büro-Mac liegt eine andere Datei mit diesem Namen. Sie wurde nicht ersetzt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En el Mac de la oficina hay otro archivo con ese nombre. No se ha sustituido."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un autre fichier portant ce nom se trouve sur le Mac du bureau. Il n’a pas été remplacé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sul Mac dell’ufficio c’è un altro file con quel nome. Non è stato sostituito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフィスの Mac に同じ名前の別のファイルがあります。置き換えていません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사무실 Mac에 같은 이름의 다른 파일이 있습니다. 바꾸지 않았습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Op de kantoor-Mac staat een ander bestand met die naam. Het is niet vervangen."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Há outro arquivo com esse nome no Mac do escritório. Ele não foi substituído."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 上有另一个同名文件。未替换它。"
+          }
+        }
+      }
+    },
+    "Another file named “%@” is on the office Mac. It wasn’t replaced." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem Büro-Mac liegt eine andere Datei namens „%@“. Sie wurde nicht ersetzt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En el Mac de la oficina hay otro archivo llamado «%@». No se ha sustituido."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un autre fichier nommé « %@ » se trouve sur le Mac du bureau. Il n’a pas été remplacé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sul Mac dell’ufficio c’è un altro file chiamato “%@”. Non è stato sostituito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフィスの Mac に「%@」という別のファイルがあります。置き換えていません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사무실 Mac에 ‘%@’(이)라는 다른 파일이 있습니다. 바꾸지 않았습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Op de kantoor-Mac staat een ander bestand met de naam ‘%@’. Het is niet vervangen."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Há outro arquivo chamado “%@” no Mac do escritório. Ele não foi substituído."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 上有另一个名为“%@”的文件。未替换它。"
+          }
+        }
+      }
+    },
+    "Different on the office Mac, kept there: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem Büro-Mac anders, dort behalten: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Distintos en el Mac de la oficina, se mantienen allí: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Différents sur le Mac du bureau, conservés là-bas : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diversi sul Mac dell’ufficio, mantenuti lì: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフィスの Mac では内容が異なるため、そちらを保持：%@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사무실 Mac에서 내용이 달라 그대로 둠: %@"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anders op de kantoor-Mac, daar behouden: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diferentes no Mac do escritório, mantidos lá: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 上的不同，保留那边的：%@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -590,6 +590,21 @@ enum ScreenshotMode {
                 window.title = "Going Home"
                 window.identifier = NSUserInterfaceItemIdentifier("goinghome")
                 window.makeKeyAndOrderFront(nil)
+            case "missingplan":
+                // The Resolve pane's pre-flight with a sample plan: files, a LUT and a comp file to send, a different
+                // LUT kept on the office, a comp file to copy by hand, a font missing (gx-missing).
+                var plan = RemoteMissing.Plan(send: [.init(path: "/Volumes/Edit/Sound/Whoosh.wav", size: 4_200_000)],
+                                              stuck: ["/Users/Shared/Desktop/Logo.png"], fonts: [.init(family: "Brand Sans", style: "Bold")])
+                plan.placed = [.init(file: .init(path: "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/Look/Day.cube", size: 1_100_000), path: "Look/Day.cube"),
+                               .init(file: .init(path: "/Volumes/Edit/GFX/Title.png", size: 800_000), share: "s", path: "GFX/Title.png")]
+                plan.different = ["Look/Night.cube"]
+                plan.takesFiles = true
+                let window = NSWindow(contentViewController: NSHostingController(rootView: VStack(alignment: .leading, spacing: 12) {
+                    RemoteResolvePane(host: "Office", pending: plan)
+                }.padding(20).frame(width: 900)))
+                window.title = "Resolve"
+                window.identifier = NSUserInterfaceItemIdentifier("missingplan")
+                window.makeKeyAndOrderFront(nil)
             case "anywherehome":
                 // Edit Anywhere › Use another Mac, not paired (a clean test home).
                 UserDefaults.standard.set("home", forKey: "officeRenderSide")
