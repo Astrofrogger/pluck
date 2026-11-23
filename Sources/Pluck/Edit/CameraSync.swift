@@ -1185,8 +1185,9 @@ enum CameraSync {
                     let from = spot == 0 ? 0 : (Double(spot) - 0.25) / clip.fps
                     guard let first = frames(clip.file, from: from, count: 1, ffmpeg: ffmpeg).first, let read = readTimecode(first) else { continue }
                     guard !thorough || readings.isEmpty else { readings.append((spot, read.tc, read.drop)); continue }
-                    // A dozen frames where a timecode shows first: its readings, and the slate's rate from its highest frame number.
-                    for (k, image) in frames(clip.file, from: from, count: 12, ffmpeg: ffmpeg).enumerated() {
+                    // A dozen frames where a timecode shows (a second's worth at the first: every frame number, or one shown twice):
+                    // its readings, and the slate's rate from its highest frame number.
+                    for (k, image) in frames(clip.file, from: from, count: readings.isEmpty ? 26 : 12, ffmpeg: ffmpeg).enumerated() {
                         if let read = readTimecode(image) { readings.append((spot + k, read.tc, read.drop)) }
                     }
                 }
@@ -1197,7 +1198,11 @@ enum CameraSync {
             let own = clip.fps.rounded(), ntsc = abs(clip.fps - own) > 0.01
             // (A 50p camera filming a 25 slate shows each frame twice and never frame 25 or more: at 50 it'd be up to half a second off.)
             var rates: [Double] = []
-            for rate in [own, own / 2, 24, 25, 30, 50, 60, 120] where rate == rate.rounded() && Double(most) < rate && !rates.contains(rate) { rates.append(rate) }
+            // (One timecode on two frames in a row: a slate slower than the camera, a 24 or 23.976 one at 25p, never 25.)
+            let seen = Dictionary(readings.map { ($0.frame, $0.tc) }, uniquingKeysWith: { a, _ in a })
+            let slower = readings.contains { seen[$0.frame - 1] == $0.tc }
+            for rate in [own, own / 2, 24, 25, 30, 50, 60, 120] where rate == rate.rounded() && Double(most) < rate && !rates.contains(rate)
+                && (!slower || rate < clip.fps - 0.01) { rates.append(rate) }
             // A slate on a 29.97/59.94 camera counts frames 1001/1000 longer, drop frame or not: whichever more readings agree on
             // (a ; is often read as a :), drop frame on a tie where one showed a ; or .
             let shownDrop = readings.contains(where: \.drop)

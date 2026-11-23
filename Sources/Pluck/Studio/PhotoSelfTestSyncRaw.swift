@@ -66,6 +66,7 @@ extension PhotoSelfTest {
         }
         func proxy(_ name: String, _ format: OfficeProxies.Format, channels: Int, sound: URL?, timecode: String?) -> (made: Bool, facts: (fps: String, timecode: String?, aspect: Double?, audio: [Int]), reel: String?, target: URL) {
             let target = base.appendingPathComponent("Proxies/\(name).mov")
+            try? fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             let made = OfficeProxies.encodeRaw(base.appendingPathComponent("\(name).braw"), to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe,
                                                open: { _ in try StandInRaw(picture, info: rawInfo(channels, timecode: timecode), sound: sound) }, progress: { _ in })
             return (made, OfficeProxies.attachFacts(target, ffprobe: ffprobe), OfficeProxies.probe(target, ffprobe: ffprobe).3, target)
@@ -75,10 +76,10 @@ extension PhotoSelfTest {
               many.made && many.facts.audio == [16] && many.facts.timecode == "10:00:00:00" && many.reel == "A001" && many.facts.fps == "25/1",
               "\(many.made) \(many.facts) \(many.reel ?? "-")")
         let stereo = proxy("Stereo", .stream, channels: 2, sound: two, timecode: "01:00:00:00")
-        let prores = proxy("Pro", .prores, channels: 2, sound: two, timecode: "01:00:00;00")
-        check("sync raw: stereo (stream, ProRes) and drop frame timecode kept",
+        let prores = proxy("Pro", .prores, channels: 2, sound: two, timecode: "02:00:00:00")
+        check("sync raw: stereo kept (stream as AAC, ProRes as PCM)",
               stereo.made && stereo.facts.audio == [2] && stereo.facts.timecode == "01:00:00:00" && prores.made && prores.facts.audio == [2]
-              && prores.facts.timecode?.replacingOccurrences(of: ";", with: ":") == "01:00:00:00",
+              && prores.facts.timecode == "02:00:00:00",
               "\(stereo.facts) \(prores.facts)")
         let silent = proxy("Silent", .light, channels: 0, sound: nil, timecode: nil)
         check("sync raw: a raw clip without sound makes a proxy without sound", silent.made && silent.facts.audio.isEmpty, "\(silent.facts)")
@@ -133,8 +134,8 @@ extension PhotoSelfTest {
               let filmLong = make("film120.mov", burn("24", seconds: 120, then: ",fps=25")) else { return check("sync raw: slate clips made", false) }
         // Each stand-in raw clip is the movie of the same name.
         CameraSync.openRaw = { url in try StandInRaw(base.appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".mov"), info: { var i = $0; i.format = "r3d"; return i }) }
-        func clip(_ movie: URL, seconds: Double) -> SyncClip {
-            var clip = SyncClip(path: movie.deletingPathExtension().appendingPathExtension("R3D").path)
+        func clip(_ movie: URL, seconds: Double, raw: Bool = true) -> SyncClip {
+            var clip = SyncClip(path: raw ? movie.deletingPathExtension().appendingPathExtension("R3D").path : movie.path)
             (clip.fps, clip.duration, clip.hasVideo) = (25, seconds, true)
             return clip
         }
@@ -148,17 +149,17 @@ extension PhotoSelfTest {
               peaks(fromRaw) == [20, 60] && peaks(fromMovie) == [20, 60], "\(peaks(fromRaw)) \(peaks(fromMovie))")
 
         // 6. 23.976 or 24 on a 25p camera (10:00:00:00: 36036 s at 23.976, 36000 at 24).
-        let short = await CameraSync.slate(clip(ntscShort, seconds: 30), ffmpeg: ffmpeg)
-        let ntsc = await CameraSync.slate(clip(ntscLong, seconds: 120), ffmpeg: ffmpeg)
-        let film = await CameraSync.slate(clip(filmLong, seconds: 120), ffmpeg: ffmpeg)
+        let short = await CameraSync.slate(clip(ntscShort, seconds: 30, raw: false), ffmpeg: ffmpeg)
+        let ntsc = await CameraSync.slate(clip(ntscLong, seconds: 120, raw: false), ffmpeg: ffmpeg, thorough: true)
+        let film = await CameraSync.slate(clip(filmLong, seconds: 120, raw: false), ffmpeg: ffmpeg, thorough: true)
         let half = 0.5 / 24
         check("sync raw: a 23.976 slate at 25p reads as 23.976 (not 36 s off), 24 kept as the other reading",
               short.map { abs($0.value - half - 36036) < 0.05 && $0.other.map { abs($0 - half - 36000) < 0.05 } == true && $0.ntsc == true } ?? false,
-              "\(short.map { "\($0.value) \($0.other ?? -1) \($0.ntsc ?? false)" } ?? "none")")
+              "\(short.map { "\($0.value) \($0.other ?? -1) \($0.ntsc ?? false) \($0.shown.map { "\($0.frame) \($0.text)" })" } ?? "none")")
         check("sync raw: over two minutes the slate's own count tells 23.976 from 24",
               ntsc.map { abs($0.value - half - 36036) < 0.05 && $0.other == nil && $0.ntsc == true } ?? false
               && film.map { abs($0.value - half - 36000) < 0.05 && $0.other == nil && $0.ntsc == false } ?? false,
-              "\(ntsc.map { "\($0.value) \($0.other ?? -1)" } ?? "none") \(film.map { "\($0.value) \($0.other ?? -1)" } ?? "none")")
+              "\(ntsc.map { "\($0.value) \($0.other ?? -1)" } ?? "none") \(film.map { "\($0.value) \($0.other ?? -1) \($0.shown.map { "\($0.frame) \($0.text) \($0.agrees)" })" } ?? "none")")
 
         // 7. A short clip's reading by other evidence (synthetic).
         func synced(_ name: String, slate: Double?, other: Double? = nil, ntsc: Bool? = nil, heard: Double? = nil) -> SyncClip {
