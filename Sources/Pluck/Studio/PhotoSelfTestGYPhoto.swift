@@ -82,9 +82,11 @@ extension PhotoSelfTest {
         PhotoCatalog.sidecarRetry = .milliseconds(400)
         try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
         let catalog = PhotoCatalog.shared
+        // (Earlier tests' sidecars written or let go first.)
+        try? await Task.sleep(for: .seconds(2))
         catalog.sidecarProblem = nil
         catalog.update([photo.path]) { $0.rating = 3 }
-        try? await Task.sleep(for: .seconds(1.6))
+        for _ in 0..<20 where catalog.sidecarProblem != folder.path { try? await Task.sleep(for: .milliseconds(200)) }
         let sidecar = PhotoXMP.sidecars(for: photo.path)[0]
         check("sidecars: a folder that can't be written is told, the edit kept", catalog.sidecarProblem == folder.path
               && catalog.sidecarsFailed.contains(photo.path) && catalog.record(photo.path).rating == 3 && !fm.fileExists(atPath: sidecar.path),
