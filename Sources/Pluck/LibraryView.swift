@@ -61,6 +61,8 @@ struct LibraryView: View {
     @State private var viewport: CGFloat = 0
     /// A Markdown file read large (Space), instead of Quick Look.
     @State private var reading: URL?
+    /// An AI action on Library items waiting for its options.
+    @State private var aiRun: LibraryAIRun?
     #endif
     /// The cards' smallest width: Studio's header has a slider for it.
     /// Studio keeps its own size (Basic Pluck's grid is bigger).
@@ -294,6 +296,10 @@ struct LibraryView: View {
                     Button("Show Duplicates", systemImage: "square.on.square") { collection = .duplicates }
                     Button("Show Missing Files", systemImage: "questionmark.folder") { collection = .missing }
                     Divider()
+                    #if STUDIO
+                    Button("Find Missing Files in Folder…") { findMissing(library.entries.filter { missing.contains($0.path) }) }
+                        .disabled(missing.isEmpty)
+                    #endif
                     RemoveMissingCommand()
                 } label: {
                     Label("Tidy Up", systemImage: "wand.and.sparkles")
@@ -370,6 +376,9 @@ struct LibraryView: View {
         #endif
         .quickLookPreview($preview)
         .sheet(isPresented: $addingSubscription) { SubscribeSheet() }
+        #if STUDIO
+        .modifier(LibraryAISheets(run: $aiRun))
+        #endif
         .sheet(item: $sending) { entry in
             SendToPhoneView(entry: entry)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sending = nil } } }
@@ -457,6 +466,10 @@ struct LibraryView: View {
                 Divider()
                 Button("Show Duplicates", systemImage: "square.on.square") { collection = .duplicates }
                 Button("Show Missing Files", systemImage: "questionmark.folder") { collection = .missing }
+                #if STUDIO
+                Button("Find Missing Files in Folder…") { findMissing(library.entries.filter { missing.contains($0.path) }) }
+                    .disabled(missing.isEmpty)
+                #endif
                 RemoveMissingCommand()
                 Divider()
                 Button("Share on This Network…", systemImage: "antenna.radiowaves.left.and.right") { sharing = true }
@@ -824,6 +837,13 @@ struct LibraryView: View {
         #if STUDIO
         Button("Copy") { FinderFiles.copyToPasteboard(present.map(\.file)) }.disabled(present.isEmpty)
         Button("Duplicate") { duplicate(present) }.disabled(present.isEmpty)
+        if Resolve.isInstalled {
+            let sendable = present.filter { $0.kind != .other }
+            Button("Send to DaVinci") { Resolve.sendAndShow(sendable.map(\.file)) }.disabled(sendable.isEmpty)
+        }
+        LibraryAIMenu(files: present.map(\.file), run: $aiRun)
+        let gone = chosen.filter { missing.contains($0.path) }
+        if !gone.isEmpty { Button("Find in Folder…") { findMissing(gone) } }
         #endif
         Divider()
         Button("Remove \(chosen.count) Items from Library") { removeFromLibrary(chosen) }
@@ -849,6 +869,8 @@ struct LibraryView: View {
         if Resolve.isInstalled, entry.kind != .other {
             Button("Send to DaVinci") { Resolve.sendAndShow([entry.file]) }.disabled(!exists)
         }
+        if exists { LibraryAIMenu(files: [entry.file], run: $aiRun) }
+        else { Button("Locate…") { LibraryRelink.locate(entry) { checkFiles() } } }
         #endif
         if let source = entry.source, let url = URL(string: source) {
             Button("Open Page in Browser") { NSWorkspace.shared.open(url) }
@@ -974,6 +996,10 @@ struct LibraryView: View {
         }
         #endif
     }
+
+    #if STUDIO
+    private func findMissing(_ entries: [LibraryStore.Entry]) { LibraryRelink.findInFolder(entries) { checkFiles() } }
+    #endif
 
     private func checkFiles() {
         #if STUDIO

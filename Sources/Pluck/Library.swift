@@ -147,12 +147,19 @@ final class LibraryStore {
     func relocate(from old: String, to new: String) {
         guard old != new else { return }
         var list = entries, moved = Set<Int>()
+        var pairs: [(String, String)] = []
         for index in list.indices {
             let path = list[index].path
             if path == old { list[index].path = new; moved.insert(index) }
             else if path.hasPrefix(old + "/") { list[index].path = new + path.dropFirst(old.count); moved.insert(index) }
+            else { continue }
+            pairs.append((path, list[index].path))
         }
         guard !moved.isEmpty else { return }
+        #if STUDIO
+        // (A transcript is matched by its file's path: it goes where the file went.)
+        for (from, to) in pairs { TranscriptStore.move(from: from, to: to); AppDelegate.shared?.manager.fileMoved(from: from, to: to) }
+        #endif
         // (An entry already where they went gives way: never two for one file.)
         let arrived = Set(moved.map { list[$0].path })
         entries = list.enumerated().filter { moved.contains($0.offset) || !arrived.contains($0.element.path) }.map(\.element)
