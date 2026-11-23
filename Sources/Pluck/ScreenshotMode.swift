@@ -947,7 +947,7 @@ enum Offscreen {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             let windows = NSApp.windows.filter { $0.canBecomeMain && $0.contentView != nil }
             // The settings and whatsnew scenes draw their own window, not the main one behind it.
-            let own = ["settings", "whatsnew", "goinghome"].first { $0 == ScreenshotMode.scene }
+            let own = ["settings", "whatsnew", "goinghome", "missingplan"].first { $0 == ScreenshotMode.scene }
             // A sheet open on the window (the Photo import) is what's pictured.
             let sheet: NSWindow? = windows.compactMap { $0.attachedSheet }.first
             let named: NSWindow? = own.flatMap { own in windows.first { $0.identifier?.rawValue.hasPrefix(own) == true } }
