@@ -376064,6 +376064,64 @@
           }
         }
       }
+    },
+    "A client’s upload waits on the always-on Mac: it couldn’t be saved on this Mac." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Kunden-Datei wartet auf dem dauerhaft laufenden Mac: Sie konnte auf diesem Mac nicht gesichert werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un archivo de un cliente espera en el Mac siempre encendido: no se pudo guardar en este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier d’un client attend sur le Mac toujours allumé : il n’a pas pu être enregistré sur ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un file di un cliente attende sul Mac sempre acceso: non è stato possibile salvarlo su questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クライアントのアップロードが常時稼働の Macで待機中です：このMacに保存できませんでした。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클라이언트의 업로드가 항상 켜진 Mac에서 대기 중입니다: 이 Mac에 저장할 수 없었습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Een upload van een klant wacht op de altijd-aan-Mac: hij kon niet op deze Mac worden bewaard."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um envio de um cliente aguarda no Mac sempre ligado: não foi possível salvá-lo neste Mac."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一位客户的上传文件在常开的 Mac 上等待：无法存储到这台 Mac。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

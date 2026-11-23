@@ -103,6 +103,11 @@ final class ReviewPublish {
     @ObservationIgnored private var seqs: [String: Int] = [:]
     /// The owner's own comment changes still to append on hosts, per data folder.
     @ObservationIgnored private var outbox: [String: [[String: Any]]] = [:]
+    /// Per link, a Mac host's uploads not fetched yet (that Mac was away, needs a newer Pluck, or there was no room here),
+    /// kept in the support folder: tried again at the next pull, one with a lasting problem once an hour ("retryAfter").
+    private var waitingFile: URL { store.root.appendingPathComponent("waiting-uploads.json") }
+    /// (A test sets the clock for retries.)
+    @ObservationIgnored var uploadsNow: () -> Date = { .now }
     @ObservationIgnored private var merging = false
     @ObservationIgnored private var puller: Task<Void, Never>?
     /// Per project, the link state hosts were last sent (see linkState), and the update on its way.
@@ -899,7 +904,7 @@ final class ReviewPublish {
                 }
                 outbox[name] = Array((outbox[name] ?? []).dropFirst(outgoing.count))
                 merge(answer["entries"] as? [[String: Any]] ?? [], project: project)
-                if host.kind == .nas { await importUploads(answer["entries"] as? [[String: Any]] ?? [], project: project, host: host) }
+                await importUploads(answer["entries"] as? [[String: Any]] ?? [], project: project, host: host)
                 if let seq = answer["seq"] as? Int { seqs[name] = seq }
                 online[host.id] = true
                 for index in publications.indices where publications[index].host == host.id && publications[index].scope.project == project {
@@ -912,45 +917,85 @@ final class ReviewPublish {
         save()
     }
 
-    /// Clients' uploads on a NAS (kept apart there): fetched with `get`, added to the project, then deleted on the host.
-    /// shortcut: a Mac host's uploads stay on the office Mac (no file op through Edit Anywhere yet).
+    /// Clients' uploads on a NAS (kept apart there) or an always-on Mac (in the data folder it hosts): fetched (a NAS's `get`,
+    /// the Mac's ReviewHostUploads through Edit Anywhere), added to the project, then deleted on the host.
     func importUploads(_ entries: [[String: Any]], project: UUID, host: Deliver.Host) async {
         RemoteAskFiles.shared.arrived(entries, host: host)
         // (Ask for Files uploads go to their NAS folder, never into the project: RemoteAskFiles.)
-        let uploads = entries.compactMap { $0["upload"] as? [String: Any] }.filter { $0["into"] == nil }
+        var uploads = entries.compactMap { $0["upload"] as? [String: Any] }.filter { $0["into"] == nil && $0["for"] as? String != "attachment" } // (a comment's attachment stays with its comment)
+        if host.kind == .mac {
+            var waiting = (try? Data(contentsOf: waitingFile)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: [[String: Any]]] } ?? [:]
+            let earlier = store.links.filter { $0.project == project }.flatMap { waiting.removeValue(forKey: $0.id.uuidString) ?? [] }
+            let now = uploadsNow().timeIntervalSince1970
+            var left = earlier.filter { $0["retryAfter"] as? Double ?? 0 > now }
+            uploads = earlier.filter { $0["retryAfter"] as? Double ?? 0 <= now } + uploads
+            guard !uploads.isEmpty else { return }
+            let bundle = Self.dataName(host: host.id, project: project)
+            for (index, upload) in uploads.enumerated() {
+                do {
+                    try await importUpload(upload, project: project, host: host,
+                                           get: { try await ReviewHostUploads.fetch(bundle: bundle, path: $0, to: $1, expected: $2) },
+                                           delete: { await ReviewHostUploads.delete(bundle: bundle, path: $0) })
+                } catch is ReviewHostUploads.Gone {
+                } catch let error as OfficeLink.Failure { // (that Mac away, or the copy damaged on the way: the next pull)
+                    left.append(upload)
+                    if ReviewHostUploads.needsUpdate(error) { problem = ShrinkRemote.reason(error); left += uploads.dropFirst(index + 1); break }
+                } catch {
+                    // A lasting problem here (no room, can't be saved): said once, then tried once an hour.
+                    var upload = upload
+                    if upload["problem"] == nil { problem = String(localized: "A client’s upload waits on the always-on Mac: it couldn’t be saved on this Mac.") }
+                    upload["problem"] = "\(error)"
+                    upload["retryAfter"] = now + 3600
+                    left.append(upload)
+                }
+            }
+            guard !left.isEmpty || !earlier.isEmpty else { return }
+            for upload in left { waiting[upload["link"] as? String ?? "", default: []].append(upload) }
+            try? FileManager.default.createDirectory(at: store.root, withIntermediateDirectories: true)
+            if let data = try? JSONSerialization.data(withJSONObject: waiting) { try? data.write(to: waitingFile, options: .atomic) }
+            return
+        }
         guard !uploads.isEmpty else { return }
         try? await ReviewHostClient.session(host) { session in
-            for upload in uploads where upload["for"] as? String != "attachment" { // (a comment's attachment stays with its comment)
-                // A client's file from an outage, now in the server's uploads folder (§13.25): added where it is, by reference.
-                if upload["root"] as? Bool == true, let path = upload["path"] as? String, !path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
-                   let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project {
-                    let name = DeliverServer.safeName(upload["name"] as? String ?? "")
-                    let file = URL(fileURLWithPath: name)
-                    let reference = Self.nasPath(host: host.id, path: path)
-                    guard !name.isEmpty, !self.store.content(project).assets.contains(where: { $0.versions.contains { $0.path == reference } }) else { continue }
-                    if let made = self.store.addReferences([(name: file.deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(file), path: reference,
-                                                             size: (upload["size"] as? NSNumber)?.int64Value ?? 0)], to: project).first {
-                        if let folder = link.uploads?.folder { self.store.move(asset: made.id, to: folder) }
-                        self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
-                    }
-                    continue
-                }
-                guard let path = upload["path"] as? String, path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
-                      let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project,
-                      let raw = upload["name"] as? String else { continue }
-                let name = DeliverServer.safeName(raw)
-                guard !name.isEmpty else { continue }
-                let target = DeliverServer.unique(self.store.root.appendingPathComponent("Uploads/\(link.id.uuidString)/\(name)"))
-                try await session.get(path, to: target, expected: (upload["size"] as? NSNumber)?.int64Value ?? 0)
-                let folders = self.store.content(project).folders
-                var folder: UUID? = link.uploads?.folder.flatMap { id in folders.contains { $0.id == id } ? id : nil }
-                if folder == nil, case .folder(let id, _) = link.scope { folder = id }
-                if let made = try? self.store.add([target], to: project, folder: folder).first {
-                    self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
-                }
-                _ = try? await session.ask(["op": "delete", "path": path])
+            for upload in uploads {
+                try await self.importUpload(upload, project: project, host: host,
+                                            get: { try await session.get($0, to: $1, expected: $2) },
+                                            delete: { _ = try? await session.ask(["op": "delete", "path": $0]) })
             }
         }
+    }
+
+    /// One client upload: fetched with `get` (path, target, size) into this Mac's store, added, then `delete`d on the host.
+    private func importUpload(_ upload: [String: Any], project: UUID, host: Deliver.Host,
+                              get: (String, URL, Int64) async throws -> Void, delete: (String) async -> Void) async throws {
+        // A client's file from an outage, now in the server's uploads folder (§13.25): added where it is, by reference.
+        if host.kind == .nas, upload["root"] as? Bool == true, let path = upload["path"] as? String, !path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
+           let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project {
+            let name = DeliverServer.safeName(upload["name"] as? String ?? "")
+            let file = URL(fileURLWithPath: name)
+            let reference = Self.nasPath(host: host.id, path: path)
+            guard !name.isEmpty, !self.store.content(project).assets.contains(where: { $0.versions.contains { $0.path == reference } }) else { return }
+            if let made = self.store.addReferences([(name: file.deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(file), path: reference,
+                                                     size: (upload["size"] as? NSNumber)?.int64Value ?? 0)], to: project).first {
+                if let folder = link.uploads?.folder { self.store.move(asset: made.id, to: folder) }
+                self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
+            }
+            return
+        }
+        guard let path = upload["path"] as? String, path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
+              let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project,
+              let raw = upload["name"] as? String else { return }
+        let name = DeliverServer.safeName(raw)
+        guard !name.isEmpty else { return }
+        let target = DeliverServer.unique(self.store.root.appendingPathComponent("Uploads/\(link.id.uuidString)/\(name)"))
+        try await get(path, target, (upload["size"] as? NSNumber)?.int64Value ?? 0)
+        let folders = self.store.content(project).folders
+        var folder: UUID? = link.uploads?.folder.flatMap { id in folders.contains { $0.id == id } ? id : nil }
+        if folder == nil, case .folder(let id, _) = link.scope { folder = id }
+        if let made = try? self.store.add([target], to: project, folder: folder).first {
+            self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
+        }
+        await delete(path)
     }
 
     /// A data host's clients' uploads (§13.25; it holds the review data, so nothing comes to this Mac): each becomes an asset
@@ -1252,7 +1297,7 @@ final class ReviewHosting {
     }
 
     /// The data folder in the sending Mac's own inbox folder (only plain names).
-    private func folder(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) throws -> URL {
+    func folder(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) throws -> URL {
         let name = try OfficeActions.text(arguments["bundle"], 80)
         guard name.hasPrefix("Pluck Review "), !name.contains("/") else { throw OfficeActions.incomplete() }
         return try OfficeInbox.shared.target(name, from: OfficeInbox.folderName(device.name, id: device.id))
