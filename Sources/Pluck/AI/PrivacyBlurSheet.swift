@@ -159,7 +159,8 @@ struct PrivacyBlurSheet: View {
                         drawing = nil
                     })
             }
-            .aspectRatio(previewAspect, contentMode: .fit)
+            // (A set size: in a sheet a GeometryReader would otherwise be squeezed to nothing.)
+            .frame(width: 512, height: 512 / previewAspect)
             .clipShape(.rect(cornerRadius: Design.Radius.thumbnail))
             .disabled(following)
             HStack(spacing: 8) {
@@ -252,7 +253,7 @@ struct PrivacyBlurSheet: View {
                         }
                     }
                 }
-                .frame(maxHeight: 120)
+                .frame(height: 112)
             }
         }
     }
