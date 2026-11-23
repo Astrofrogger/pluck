@@ -2973,9 +2973,14 @@ mod tests {
 
     const SEED: &str = "R85Juszx1tmPSUJlpjYA3DtFmqHJDUUU0Z1HyoU0Mb4"; // the contract vector's room seed
 
+    /// Host::new resets process-wide serving settings (FASTEST, CAP_BPS); a test that checks them holds this lock so
+    /// hosts made by tests running in parallel don't reset them under it.
+    static SERVING_GLOBALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn test_host() -> (Host, mpsc::UnboundedReceiver<Ev>) {
         let dir = std::env::temp_dir().join(format!("pluck-host-{}", uuid()));
         let (tx, rx) = mpsc::unbounded_channel();
+        let _globals = SERVING_GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         (Host::new(&dir, Arc::new(Roots(vec![])), tx, None), rx)
     }
 
@@ -4015,6 +4020,7 @@ mod tests {
     #[test]
     fn prefer_fastest_is_the_mains_setting() {
         let (mut h, _rx) = test_host();
+        let _globals = SERVING_GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(h.sync(&json!({"op": "prefer-fastest", "on": true})), json!({"ok": true, "preferFastest": true}));
         let f: Value = serde_json::from_slice(&std::fs::read(h.data.join("serving.json")).unwrap()).unwrap();
         assert_eq!(f, json!({"preferFastest": true}));
