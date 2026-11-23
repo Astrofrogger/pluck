@@ -130,24 +130,16 @@ enum RemoteReview {
     /// Any markers (seconds, a Resolve colour like ResolveColorRed, the note) in the same EDL layout.
     /// `start`: the timeline's start in seconds; nil is 01:00:00:00 (or 01:00:00;00).
     nonisolated static func markerEDL(_ markers: [(time: Double, colour: String, note: String)], title: String, fps: Double, start: Double? = nil, dropFrame: Bool = false) -> String {
-        let rate = max(1, Int(fps.rounded()))
-        // Drop-frame only exists at 29.97 / 59.94: it skips 2 (4) frame numbers each minute but every tenth.
-        let drop = dropFrame && (rate == 30 || rate == 60) && fps != Double(rate) ? rate / 15 : 0
-        let perMinute = rate * 60 - drop, perTenMinutes = rate * 600 - drop * 9
+        let rate = DropFrame.base(fps)
+        // Drop-frame only exists at 29.97 / 59.94.
+        let drop = dropFrame && (rate == 30 || rate == 60) && fps != Double(rate)
         func frames(_ seconds: Double) -> Int { Int((seconds * fps).rounded()) }
-        func timecode(_ count: Int) -> String {
-            var n = count
-            if drop > 0 {
-                let tens = n / perTenMinutes, rest = n % perTenMinutes
-                n += drop * 9 * tens + (rest < drop ? 0 : drop * ((rest - drop) / perMinute))
-            }
-            return String(format: "%02d:%02d:%02d%@%02d", n / (3600 * rate), n / (60 * rate) % 60, n / rate % 60, drop > 0 ? ";" : ":", n % rate)
-        }
-        let origin = start.map(frames) ?? rate * 3600 - drop * 54
+        func timecode(_ count: Int) -> String { DropFrame.string(count, base: rate, drop: drop) }
+        let origin = start.map(frames) ?? rate * 3600 - (drop ? rate / 15 * 54 : 0)
         func clean(_ text: String) -> String {
             text.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "|", with: "/")
         }
-        var lines = ["TITLE: \(clean(title))", drop > 0 ? "FCM: DROP FRAME" : "FCM: NON-DROP FRAME", ""]
+        var lines = ["TITLE: \(clean(title))", drop ? "FCM: DROP FRAME" : "FCM: NON-DROP FRAME", ""]
         for (index, marker) in markers.enumerated() {
             let inPoint = timecode(origin + frames(marker.time)), outPoint = timecode(origin + frames(marker.time) + 1)
             let number = String(format: "%03d", index + 1)

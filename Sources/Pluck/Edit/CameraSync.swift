@@ -296,7 +296,7 @@ enum CameraSync {
         return shownSeconds(parts, drop: isDropFrame(timecode), rate: base, fractional: abs(fps - base) > 0.01)
     }
 
-    static func isDropFrame(_ timecode: String) -> Bool { timecode.contains { ";.".contains($0) } }
+    static func isDropFrame(_ timecode: String) -> Bool { DropFrame.isDrop(timecode) }
 
     /// Clips into cameras: by serial number in the metadata, else the camera letter in RED and
     /// Blackmagic names, else the card's camera, else the card's folder (split by file name

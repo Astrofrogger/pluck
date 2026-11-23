@@ -48,18 +48,9 @@ enum CameraSyncExport {
 
     /// `drop`: the label drop frame shows for that many frames ("HH:MM:SS;FF", 29.97/59.94 only).
     static func timecode(_ frames: Int, rate: Double, drop: Bool = false) -> String {
-        let base = max(Int(rate.rounded()), 1)
-        var frames = frames
-        if drop, base % 30 == 0 {
-            // The frame numbers skipped (2 at 29.97, 4 at 59.94, each minute but every tenth) added back.
-            let skip = base / 15, tenMinutes = base * 600 - skip * 9, minute = base * 60 - skip, day = tenMinutes * 144
-            frames = (frames % day + day) % day
-            let tens = frames / tenMinutes, rest = frames % tenMinutes
-            frames += skip * 9 * tens + (rest > skip ? skip * ((rest - skip) / minute) : 0)
-        }
-        let total = ((frames % (base * 86400)) + base * 86400) % (base * 86400)
-        return String(format: "%02d:%02d:%02d", total / base / 3600, total / base / 60 % 60, total / base % 60) + (drop && base % 30 == 0 ? ";" : ":")
-            + String(format: "%02d", total % base)
+        let base = DropFrame.base(rate), drop = drop && base % 30 == 0
+        let day = drop ? (base * 600 - base / 15 * 9) * 144 : base * 86400
+        return DropFrame.string((frames % day + day) % day, base: base, drop: drop)
     }
 
     /// `recorderFirst`: a sound recorder's sound on the first audio tracks, the cameras' below it (see `muted`).
