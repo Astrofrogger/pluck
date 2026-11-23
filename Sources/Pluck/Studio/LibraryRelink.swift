@@ -132,3 +132,12 @@ extension TranscriptStore {
         save(transcript)
     }
 }
+
+extension DownloadManager {
+    /// The Downloads list follows a file that moved (its row no longer shows missing).
+    func fileMoved(from old: String, to new: String) {
+        var changed = false
+        for item in items where item.fileURL?.path == old { item.fileURL = URL(fileURLWithPath: new); changed = true }
+        if changed { saveHistory() }
+    }
+}

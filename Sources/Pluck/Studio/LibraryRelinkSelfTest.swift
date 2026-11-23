@@ -29,6 +29,7 @@ extension PhotoSelfTest {
         try? Data(count: 1234).write(to: now)
         defer {
             try? fm.removeItem(at: dir)
+            AppDelegate.shared?.manager.items.removeAll { $0.title == "clip" && $0.isLocalFile }
             library.remove(library.entries.filter { $0.path == old || $0.path == now.path })
             if let t = TranscriptStore.find(forFile: now.path) ?? TranscriptStore.find(forFile: old) { try? fm.removeItem(at: TranscriptStore.url(for: t.id)) }
         }
@@ -41,13 +42,17 @@ extension PhotoSelfTest {
         let transcript = Transcript(id: UUID().uuidString, title: "Clip", filePath: old, sourceURL: nil, language: "en-US", duration: 1,
                                     created: .now, words: [])
         TranscriptStore.save(transcript)
+        let row = AppDelegate.shared?.manager.addLocalFiles([now])  // a Downloads row for the file's old place
+        row?.first?.fileURL = URL(fileURLWithPath: old)
         let before = undo.undoStack.count
         R.apply([(old, now.path)])
         let moved = library.entries.first { $0.path == now.path }
         check("relink: entry and tags follow the file", moved?.tags == ["keep"] && !library.entries.contains { $0.path == old })
         check("relink: transcript follows the file", TranscriptStore.find(forFile: now.path)?.id == transcript.id && TranscriptStore.find(forFile: old) == nil)
         check("relink: one undo", undo.undoStack.count == before + 1 && undo.undoName == String(localized: "Locate Files"))
+        check("relink: Downloads row follows the file", row?.first?.fileURL?.path == now.path, row?.first?.fileURL?.path ?? "nil")
         _ = undo.undo()
+        check("relink: undo puts the Downloads row back", row?.first?.fileURL?.path == old)
         check("relink: undo puts entry and transcript back", library.entries.contains { $0.path == old && $0.tags == ["keep"] }
               && TranscriptStore.find(forFile: old)?.id == transcript.id && TranscriptStore.find(forFile: now.path) == nil)
     }

@@ -158,7 +158,7 @@ final class LibraryStore {
         guard !moved.isEmpty else { return }
         #if STUDIO
         // (A transcript is matched by its file's path: it goes where the file went.)
-        for (from, to) in pairs { TranscriptStore.move(from: from, to: to) }
+        for (from, to) in pairs { TranscriptStore.move(from: from, to: to); AppDelegate.shared?.manager.fileMoved(from: from, to: to) }
         #endif
         // (An entry already where they went gives way: never two for one file.)
         let arrived = Set(moved.map { list[$0].path })
