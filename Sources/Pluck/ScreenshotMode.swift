@@ -590,6 +590,12 @@ enum ScreenshotMode {
                 window.title = "Going Home"
                 window.identifier = NSUserInterfaceItemIdentifier("goinghome")
                 window.makeKeyAndOrderFront(nil)
+            case "relaysheet":
+                // Macs › Connection › Your own relay with "Other DNS provider" filled with stand-ins.
+                let window = NSWindow(contentViewController: NSHostingController(rootView: RelaySetupSheet(use: { _ in }, sample: true)))
+                window.title = "Relay"
+                window.identifier = NSUserInterfaceItemIdentifier("relaysheet")
+                window.makeKeyAndOrderFront(nil)
             case "anywherehome":
                 // Edit Anywhere › Use another Mac, not paired (a clean test home).
                 UserDefaults.standard.set("home", forKey: "officeRenderSide")
@@ -932,7 +938,7 @@ enum Offscreen {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             let windows = NSApp.windows.filter { $0.canBecomeMain && $0.contentView != nil }
             // The settings and whatsnew scenes draw their own window, not the main one behind it.
-            let own = ["settings", "whatsnew", "goinghome"].first { $0 == ScreenshotMode.scene }
+            let own = ["settings", "whatsnew", "goinghome", "relaysheet"].first { $0 == ScreenshotMode.scene }
             // A sheet open on the window (the Photo import) is what's pictured.
             let sheet: NSWindow? = windows.compactMap { $0.attachedSheet }.first
             let named: NSWindow? = own.flatMap { own in windows.first { $0.identifier?.rawValue.hasPrefix(own) == true } }

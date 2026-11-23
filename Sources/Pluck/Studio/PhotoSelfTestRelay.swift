@@ -58,6 +58,23 @@ extension PhotoSelfTest {
         } else {
             note("SKIP relay: the Proxmox script (no source tree here)")
         }
+        // Another DNS provider: the record to make by hand, and the check (stand-in resolver, no network).
+        let host = "relay.example.com"
+        let fake: [String: Set<String>] = [host: ["203.0.113.7"], "wrong.example.com": ["198.51.100.1"], "office.example.net": ["203.0.113.7"]]
+        func resolver(_ name: String) -> Set<String> { fake[name] ?? [] }
+        check("relay: DNS records by hand (A, AAAA, CNAME; none for bad input)",
+              RelaySetup.dnsRecords(hostname: "Relay.Example.com", target: "203.0.113.7") == [.init(type: "A", name: host, value: "203.0.113.7")]
+              && RelaySetup.dnsRecords(hostname: host, target: "2001:db8::1") == [.init(type: "AAAA", name: host, value: "2001:db8::1")]
+              && RelaySetup.dnsRecords(hostname: host, target: "office.example.net") == [.init(type: "CNAME", name: host, value: "office.example.net")]
+              && RelaySetup.dnsRecords(hostname: "bad host", target: "203.0.113.7").isEmpty && RelaySetup.dnsRecords(hostname: host, target: "").isEmpty
+              && RelaySetup.dnsRecords(hostname: host, target: "999.1.1.1 x").isEmpty)
+        check("relay: DNS check says right, wrong or missing",
+              RelaySetup.dnsCheck(hostname: host, target: "203.0.113.7", resolve: resolver) == .ok
+              && RelaySetup.dnsCheck(hostname: host, target: "office.example.net", resolve: resolver) == .ok
+              && RelaySetup.dnsCheck(hostname: "wrong.example.com", target: "203.0.113.7", resolve: resolver) == .wrong(["198.51.100.1"])
+              && RelaySetup.dnsCheck(hostname: "none.example.com", target: "203.0.113.7", resolve: resolver) == .missing
+              && RelaySetup.dnsCheck(hostname: host, target: "nonsense target", resolve: resolver) == .missing
+              && RelaySetup.lookup("127.0.0.1") == ["127.0.0.1"])
         check("relay: the allowlist holds only node ids", RelaySetup.allowlist().allSatisfy(PrivateNetwork.isNodeID))
         let testIDs = (try? RelaySetup.testKeys().map(\.id)) ?? []
         check("relay: the test's two kept keys are in the allowlist (same ids each time)", testIDs.count == 2 && testIDs.allSatisfy(PrivateNetwork.isNodeID)

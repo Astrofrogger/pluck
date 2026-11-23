@@ -6,6 +6,8 @@ import SwiftUI
 struct RelaySetupSheet: View {
     /// Called with the relay's address when the owner uses it.
     let use: (String) -> Void
+    /// Off-screen snapshots only: the "Other DNS provider" choice filled with stand-ins.
+    var sample = false
     @Environment(\.dismiss) private var dismiss
     @State private var kind = RelaySetup.saved?.kind ?? .truenas
     @State private var hostname = RelaySetup.saved?.hostname ?? ""
@@ -14,6 +16,11 @@ struct RelaySetupSheet: View {
     @State private var address = RelaySetup.saved?.address ?? ""
     @State private var apiKey = ""
     @State private var dnsToken = ""
+    /// "Other DNS provider": the automatic certificate, and the domain's record made by hand.
+    @State private var otherDNS = false
+    @State private var officeAddress = ""
+    @State private var dnsResult: RelaySetup.DNSCheck?
+    @State private var checking = false
     @State private var fingerprint: String?
     @State private var working = false
     @State private var message: String?
@@ -45,11 +52,14 @@ struct RelaySetupSheet: View {
             field("Domain", $hostname, prompt: "relay.example.com")
             field("E-mail", $contact, prompt: "you@example.com")
                 .help("For the free certificate from Let’s Encrypt")
-            Picker("Certificate", selection: $certificate) {
-                Text("Automatic (port 443)").tag(RelaySetup.Certificate.automatic)
-                Text(verbatim: "DNS (Cloudflare)").tag(RelaySetup.Certificate.dns)
+            Picker("Certificate", selection: Binding(get: { otherDNS ? 2 : certificate == .dns ? 1 : 0 },
+                                                     set: { otherDNS = $0 == 2; certificate = $0 == 1 ? .dns : .automatic; dnsResult = nil })) {
+                Text("Automatic (port 443)").tag(0)
+                Text(verbatim: "DNS (Cloudflare)").tag(1)
+                Text("Other DNS provider").tag(2)
             }
             .font(Design.Studio.body)
+            if otherDNS { dnsRecord }
             if kind == .truenas { truenas } else { proxmox }
             if let message {
                 Text(message).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -71,6 +81,10 @@ struct RelaySetupSheet: View {
         .padding(Design.Spacing.sheet)
         .frame(width: 520)
         .background(Design.Studio.panel)
+        .onAppear {
+            guard sample else { return }
+            otherDNS = true; hostname = "relay.example.com"; contact = "you@example.com"; officeAddress = "203.0.113.7"; dnsResult = .wrong(["198.51.100.1"])
+        }
     }
 
     private func field(_ label: LocalizedStringKey, _ text: Binding<String>, prompt: String, secure: Bool = false) -> some View {
@@ -79,6 +93,49 @@ struct RelaySetupSheet: View {
                 if secure { SecureField(label, text: text, prompt: Text(verbatim: prompt)) } else { TextField(label, text: text, prompt: Text(verbatim: prompt)) }
             }
             .textFieldStyle(.plain).font(Design.Studio.body).anywhereInput()
+        }
+    }
+
+    private var records: [RelaySetup.DNSRecord] { RelaySetup.dnsRecords(hostname: setup.hostname, target: officeAddress) }
+
+    @ViewBuilder
+    private var dnsRecord: some View {
+        field("Office address", $officeAddress, prompt: "203.0.113.7")
+            .help("The office’s public IP, or its dynamic DNS name")
+        if let record = records.first {
+            Text("Create this record at your DNS provider:").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 2) {
+                GridRow {
+                    Text("Type"); Text("Name"); Text("Value")
+                }
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                GridRow {
+                    Text(verbatim: record.type); Text(verbatim: record.name); Text(verbatim: record.value)
+                }
+                .font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+            }
+            .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius))
+            HStack {
+                Button("Check") { checkDNS(record) }
+                    .buttonStyle(StudioFlatButtonStyle(height: 28)).disabled(checking)
+                switch dnsResult {
+                case .ok: Text("The name points to your office.").foregroundStyle(Design.Studio.good)
+                case .wrong(let found): Text("The name points to \(found.joined(separator: ", ")) instead.").foregroundStyle(Design.Studio.warn)
+                case .missing: Text("The name doesn’t resolve yet. DNS can take a while.").foregroundStyle(Design.Studio.warn)
+                case nil: EmptyView()
+                }
+            }
+            .font(Design.Studio.hint).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func checkDNS(_ record: RelaySetup.DNSRecord) {
+        checking = true
+        dnsResult = nil
+        Task {
+            let host = setup.hostname, target = officeAddress
+            dnsResult = await Task.detached { RelaySetup.dnsCheck(hostname: host, target: target) }.value
+            checking = false
         }
     }
 
