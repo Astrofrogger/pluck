@@ -541,7 +541,7 @@ struct DeliveryCheckView: View {
     }
 
     private func open(_ urls: [URL], append: Bool = false) {
-        guard running == nil else { return }
+        guard running == nil || append else { return }
         store.open(urls, append: append, manager: manager)
         show(current)
     }

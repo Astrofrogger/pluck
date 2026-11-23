@@ -771,9 +771,17 @@ enum ScreenshotMode {
                 Task { await DeliveryCheck.selfTest(defaults: defaults) }
             case "delivery":
                 // -PluckScreenshotFile <video> is checked.
-                let video = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                // (More files, "a|b|c": they join the queue, the last with its own spec, Social.)
+                let paths = (defaults.string(forKey: "PluckScreenshotFile") ?? "").split(separator: "|").map { URL(fileURLWithPath: String($0)) }
+                let video = paths.first
                 DeliveryCheckView.openFile = video
                 StudioNavigator.shared.open(windowID: "deliveryCheck")
+                if paths.count > 1 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        for url in paths.dropFirst() { NotificationCenter.default.post(name: DeliveryCheckView.openNotification, object: url) }
+                        if let last = DeliveryCheckStore.shared.items.last { DeliveryCheckStore.shared.setSpec("social", for: last.id, manager: AppDelegate.shared?.manager) }
+                    }
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if DeliveryCheckView.openFile != nil, let video {
                         NotificationCenter.default.post(name: DeliveryCheckView.openNotification, object: video)

@@ -46,7 +46,8 @@ final class DeliveryCheckStore {
 
     /// The queue is these files (checked now), or they join it.
     func open(_ urls: [URL], append: Bool = false, manager: DownloadManager?) {
-        guard running == nil else { return }
+        // (A running check takes only more files, which are checked when it's done.)
+        guard running == nil || append else { return }
         var added: [Item] = []
         if append {
             // A file already queued is checked again, at the end.
@@ -62,7 +63,7 @@ final class DeliveryCheckStore {
             added = items
         }
         problem = nil
-        current = added.first?.id
+        if running == nil { current = added.first?.id }
         save()
         check(all: false, manager: manager)
     }
@@ -103,7 +104,13 @@ final class DeliveryCheckStore {
         // (Items are found by id after each wait: the queue can change while a file is checked.)
         let queue = items.filter { all || $0.report == nil }.map { ($0, spec(of: $0)) }
         running = Task {
-            defer { running = nil; save() }
+            defer {
+                let stopped = Task.isCancelled
+                running = nil
+                save()
+                // Files that joined while it ran.
+                if !stopped, items.contains(where: { $0.report == nil && $0.failed == nil }) { check(all: false, manager: manager) }
+            }
             for (item, spec) in queue {
                 guard !Task.isCancelled else { break }
                 let id = item.id, file = item.file
