@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ReviewHosting.shared.update()
         ReviewPublish.shared.pullRegularly()
         DeliverClientPage.watch()
+        PhotoClientShare.watch() // clients' picks onto the photos, whatever page is open
         DeliverHostWatch.shared.start()
         ShareRootNames.start() // which mounted shares are which NAS root, without its API key
         // Proxies still to fetch from the host Mac carry on in the background.

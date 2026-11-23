@@ -4,6 +4,10 @@ extension PhotoSelfTest {
     /// gy-photo (gap round 2026-11-23): Share with Client (Deliver gallery, picks back), sidecar failures told and retried,
     /// edits on the picture synced to the selection as one step.
     static func gyPhotoTest() async {
+        // (Short retries from the start: a retry already waiting its minute would hold the sidecar test's back.)
+        let retry = PhotoCatalog.sidecarRetry
+        PhotoCatalog.sidecarRetry = .milliseconds(400)
+        defer { PhotoCatalog.sidecarRetry = retry }
         await clientShareTest()
         await sidecarFailureTest()
         pictureSyncTest()
@@ -63,6 +67,26 @@ extension PhotoSelfTest {
         store.setStatus(.needsChanges, of: id0, by: "Client")
         _ = PhotoClientShare.pullDecisions(store: store)
         check("client share: a new decision comes back", catalog.record(keys[0]).label == "red")
+        // Without the Photo page: a decision comes back through the store's events (as a host's pull brings it), once.
+        PhotoClientShare.watch(store)
+        catalog.update([keys[1]]) { $0 = PhotoRecord() }
+        store.setStatus(.approved, of: id1, by: "Client")
+        try? await Task.sleep(for: .seconds(1.2))
+        check("client share: a decision comes back without the Photo page", catalog.record(keys[1]).flag == .pick)
+        catalog.undo()
+        check("client share: ...as one step", catalog.record(keys[1]).flag == .none && PhotoClientShare.pullDecisions(store: store) == 0)
+        // An asset deleted in Deliver: its export out of the way, the photo's mapping dropped.
+        let savedDiscard = PhotoClientShare.discard
+        var discarded: [String] = []
+        PhotoClientShare.discard = { discarded.append($0.path); try? fm.removeItem(at: $0) }
+        defer { PhotoClientShare.discard = savedDiscard }
+        let files = PhotoClientShare.entries[keys[0]]?.first?.files ?? []
+        store.remove(asset: id0)
+        try? await Task.sleep(for: .seconds(1.2))
+        check("client share: a deleted asset's exports go, its mapping too", files.count == 2 && Set(discarded) == Set(files)
+              && files.allSatisfy { !fm.fileExists(atPath: $0) } && PhotoClientShare.entries[keys[0]] == nil && PhotoClientShare.entries[keys[2]] != nil,
+              "\(files.count) \(discarded.count)")
+        store.listeners.removeAll()
         for key in keys { catalog.update([key]) { $0 = PhotoRecord() } }
     }
 
@@ -72,14 +96,13 @@ extension PhotoSelfTest {
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let photo = folder.appendingPathComponent("IMG_0001.jpg")
         fm.createFile(atPath: photo.path, contents: Data("x".utf8))
-        let defaults = UserDefaults.standard, wrote = defaults.bool(forKey: "photoWriteXMP"), retry = PhotoCatalog.sidecarRetry
+        let defaults = UserDefaults.standard, wrote = defaults.bool(forKey: "photoWriteXMP")
         defer {
             try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
             try? fm.removeItem(at: folder)
-            defaults.set(wrote, forKey: "photoWriteXMP"); PhotoCatalog.sidecarRetry = retry
+            defaults.set(wrote, forKey: "photoWriteXMP")
         }
         defaults.set(true, forKey: "photoWriteXMP")
-        PhotoCatalog.sidecarRetry = .milliseconds(400)
         try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
         let catalog = PhotoCatalog.shared
         // (Earlier tests' sidecars written or let go first.)

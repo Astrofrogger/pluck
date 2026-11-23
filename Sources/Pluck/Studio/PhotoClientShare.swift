@@ -11,7 +11,34 @@ enum PhotoClientShare {
     struct Entry: Codable, Hashable {
         var asset: UUID
         var seen: String?
+        /// Its exports in Client Shares (Pluck's own JPEGs): to the Trash when the asset is deleted in Deliver.
+        var files: [String]?
     }
+
+    /// How an export of a deleted asset goes (tests: their own).
+    static var discard: (URL) -> Void = { try? FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+
+    /// Decisions come back whatever page is open: after any change to an asset's status, fields or versions (a host's
+    /// pull included), a moment later, once.
+    static func watch(_ store: DeliverStore? = nil) {
+        let store = store ?? .shared
+        store.listeners.append { event in
+            switch event {
+            case .status, .field, .assetChanged: break
+            default: return
+            }
+            MainActor.assumeIsolated {
+                guard !pullScheduled else { return }
+                pullScheduled = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    pullScheduled = false
+                    pullDecisions(store: store)
+                }
+            }
+        }
+    }
+    private static var pullScheduled = false
 
     struct Gallery: Hashable {
         var project: UUID, folder: UUID, isNew: Bool
@@ -65,6 +92,17 @@ enum PhotoClientShare {
     static func pullDecisions(store: DeliverStore? = nil) -> Int {
         let store = store ?? .shared, catalog = PhotoCatalog.shared
         var found: [(key: String, asset: Deliver.Asset, seen: String?)] = []
+        // Assets deleted in Deliver (or their project): their exports out of the way, the photo no longer shared there.
+        var dropped = false
+        for (key, list) in entries {
+            let gone = list.filter { store.find($0.asset) == nil }
+            guard !gone.isEmpty else { continue }
+            for file in gone.flatMap({ $0.files ?? [] }) where FileManager.default.fileExists(atPath: file) { discard(URL(fileURLWithPath: file)) }
+            let kept = list.filter { store.find($0.asset) != nil }
+            entries[key] = kept.isEmpty ? nil : kept
+            dropped = true
+        }
+        if dropped { save() }
         for (key, list) in entries {
             for (index, entry) in list.enumerated() {
                 guard let asset = store.find(entry.asset)?.asset else { continue }
@@ -117,10 +155,12 @@ enum PhotoClientShare {
                 if let index = entries[key]?.firstIndex(where: { store.find($0.asset)?.asset.folder == gallery.folder }),
                    let asset = entries[key]?[index].asset {
                     try store.addVersion(url, to: asset)
+                    let files = entries[key]?[index].files ?? []
+                    entries[key]?[index].files = files + [url.path]
                     shared += 1
                 } else {
                     guard let asset = try store.add([url], to: gallery.project, folder: gallery.folder).first else { continue }
-                    entries[key, default: []].append(Entry(asset: asset.id, seen: state(asset)))
+                    entries[key, default: []].append(Entry(asset: asset.id, seen: state(asset), files: [url.path]))
                     shared += 1
                 }
             } catch {
