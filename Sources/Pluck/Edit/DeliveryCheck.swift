@@ -66,18 +66,18 @@ enum DeliveryCheck {
         }
     }
 
-    struct Issue: Identifiable {
-        enum Severity: Int, Comparable {
+    struct Issue: Identifiable, Codable {
+        enum Severity: Int, Comparable, Codable {
             case problem, warning, note
             static func < (a: Severity, b: Severity) -> Bool { a.rawValue < b.rawValue }
         }
 
         /// What part of the check found it (for grouping, and marking it intended).
-        enum Kind: String {
+        enum Kind: String, Codable {
             case other, transition, picture, sound, text, file, compare
         }
 
-        let id = UUID()
+        var id = UUID()
         var severity: Severity
         /// Seconds into the video, if it's at a moment.
         var time: Double?
@@ -261,9 +261,11 @@ enum DeliveryCheck {
         // As a plain string: numbers inside localized text get thousands separators (1.920).
         let size = "\(probe.width)×\(probe.height)"
         if probe.hasVideo, probe.height > 0 {
-            if let aspect = spec.aspect, abs(Double(probe.width) / Double(probe.height) - aspect) > 0.02 {
+            let shape = Double(probe.width) / Double(probe.height)
+            let shapes = spec.allowedAspects
+            if !shapes.isEmpty, !shapes.contains(where: { abs(shape - $0) <= 0.02 }) {
                 add(.problem, String(localized: "Wrong picture shape"),
-                    String(localized: "It’s \(size); \(spec.title) expects \(Spec.aspectText(aspect))."))
+                    String(localized: "It’s \(size); \(spec.title) expects \(shapes.map(Spec.aspectText).joined(separator: ", "))."))
             }
             if let width = spec.width, let height = spec.height, probe.width != width || probe.height != height {
                 add(.problem, String(localized: "Wrong size"), String(localized: "It’s \(size); \(spec.title) expects \("\(width)×\(height)")."))

@@ -319,8 +319,13 @@ struct BrandProfileEditor: View {
             LogoKitFold(Text("More"), key: "brandRuleFoldMore", open: false) {
                 tags($profile.fonts, new: $newFont, prompt: "Fonts")
                 StudioField(label: "Delivery spec") {
-                    textBox(Binding(get: { profile.deliverySpec ?? "" }, set: { profile.deliverySpec = $0.isEmpty ? nil : $0 }), prompt: "None")
-                        .frame(width: 160)
+                    // (Older free text that names a spec shows as that spec.)
+                    Picker("Delivery spec", selection: Binding(get: { DeliveryCheck.specID(matching: profile.deliverySpec) ?? "" },
+                                                               set: { profile.deliverySpec = $0.isEmpty ? nil : $0 })) {
+                        Text("None").tag("")
+                        ForEach(DeliveryCheck.specs) { Text($0.title).tag($0.id) }
+                    }
+                    .labelsHidden().fixedSize()
                 }
             }
         }

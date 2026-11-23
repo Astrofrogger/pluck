@@ -72,9 +72,12 @@ struct EditorExportPanel: View {
                 if !exports.finished.isEmpty {
                     SidebarSection(title: Text("Exported")) {
                         ForEach(exports.finished, id: \.self) { file in
-                            DoneLabel(text: Text(file.lastPathComponent), file: file)
-                                .font(.caption)
-                                .padding(.horizontal, 8)
+                            VStack(alignment: .leading, spacing: 2) {
+                                DoneLabel(text: Text(file.lastPathComponent), file: file)
+                                if Converting.isVideo(file) { Button("Check Delivery") { DeliveryCheckView.check(file) }.buttonStyle(.link) }
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 8)
                         }
                     }
                 }
