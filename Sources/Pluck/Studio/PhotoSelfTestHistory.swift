@@ -30,9 +30,9 @@ extension PhotoSelfTest {
         catalog.saveNow()
         catalog.reloadHistory()
         let again = catalog.history(of: path)
-        let folder = URL(fileURLWithPath: UserDefaults.standard.string(forKey: "PluckScreenshotCatalog") ?? "/tmp/x").deletingLastPathComponent()
-        check("history: kept compressed", FileManager.default.fileExists(atPath: folder.appendingPathComponent("History.lzfse").path)
-              && !FileManager.default.fileExists(atPath: folder.appendingPathComponent("History.json").path))
+        let folder = PhotoCatalog.historyFile.deletingLastPathComponent()
+        check("history: kept compressed", FileManager.default.fileExists(atPath: PhotoCatalog.historyFile.path)
+              && !FileManager.default.fileExists(atPath: folder.appendingPathComponent("History.json").path), folder.path)
         // A photo's previews of earlier edits go when a newer one is saved; another photo's stay.
         do {
             var a = PhotoRecord(); a.adjust.exposure = 0.1

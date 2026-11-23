@@ -301,7 +301,7 @@ final class PhotoCatalog {
     nonisolated static let historyKept = 40
 
     /// Compressed (LZFSE): a step keeps the whole record before and after, which repeats a lot (about 14 times smaller).
-    nonisolated private static var historyFile: URL { file.deletingLastPathComponent().appendingPathComponent("History.lzfse") }
+    nonisolated static var historyFile: URL { file.deletingLastPathComponent().appendingPathComponent("History.lzfse") }
     /// At most this much history in all (before compressing); the photos edited longest ago lose theirs first.
     nonisolated static let historyBudget = 16_000_000
 
