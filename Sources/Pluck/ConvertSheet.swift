@@ -174,7 +174,9 @@ struct ConvertSheet: View {
             // After this sheet has closed, so the next one can open.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 switch action {
-                case .shorts: ai.shortsItem = item
+                case .shorts:
+                    let videos = items.filter { $0.existingFile.map(Converting.isVideo) ?? false }
+                    ai.shortsBatch = AIStudio.Batch(videos.isEmpty ? [item] : videos)
                 case .deliverables: ai.deliverablesItem = item
                 case .tighten: ai.tightenBatch = AIStudio.Batch(items)
                 case .cleanup: ai.cleanupBatch = AIStudio.Batch(items)

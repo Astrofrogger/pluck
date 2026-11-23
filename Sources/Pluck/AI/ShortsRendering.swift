@@ -2,8 +2,14 @@ import AppKit
 import Foundation
 
 extension AIStudio {
-    /// Makes vertical shorts from a video into a "(shorts)" folder next to it.
-    func makeShorts(_ item: DownloadItem, options: Shorts.Options) {
+    /// Shorts from several videos, one after the other, each with the moments chosen for it.
+    func makeShorts(_ items: [DownloadItem], options: Shorts.Options) {
+        for item in items { makeShorts(item, options: options) }
+    }
+
+    /// Makes vertical shorts from a video into a "(shorts)" folder next to it: of `reviewed`
+    /// moments when the user went through them, otherwise of the best ones found.
+    func makeShorts(_ item: DownloadItem, options: Shorts.Options, reviewed: [Shorts.Moment]? = nil) {
         guard #available(macOS 26, *), let file = item.existingFile, item.aiStatus == nil else { return }
         enqueue(item) { [self] in
             item.aiStatus = String(localized: "Preparing…")
@@ -12,7 +18,8 @@ extension AIStudio {
                 let transcript = try await existingOrNewTranscript(for: item, file: file, language: options.language)
                 item.aiStatus = String(localized: "Choosing the best moments…")
                 item.aiProgress = nil
-                let moments = await Shorts.moments(in: transcript, options: options)
+                var moments = reviewed ?? []
+                if reviewed == nil { moments = await Shorts.moments(in: transcript, options: options) }
                 guard !moments.isEmpty else { throw LocalAI.Failure.noSpeech }
                 guard let size = await videoSize(file) else { throw Converting.Failure.noVideo }
 

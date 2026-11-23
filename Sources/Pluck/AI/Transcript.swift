@@ -237,6 +237,36 @@ struct Transcript: Codable, Identifiable, Sendable {
     }
 }
 
+extension Transcript {
+    /// The words in `range` corrected to `text` (a misheard word, a name): the stretch keeps its
+    /// timing, so captions burned in from it (Shorts, Cutdowns) stay in sync. The same number of
+    /// words keep their own timings; otherwise the stretch is shared out by length.
+    func correctingWords(_ range: ClosedRange<Int>, to text: String) -> Transcript {
+        let tokens = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty, range.lowerBound >= 0, range.upperBound < words.count else { return self }
+        let old = Array(words[range])
+        let lead = String(old[0].t.prefix { $0.isWhitespace })
+        var new: [Word] = []
+        if tokens.count == old.count {
+            new = zip(old, tokens).enumerated().map { i, pair in
+                Word(s: pair.0.s, e: pair.0.e, t: (i == 0 ? lead : String(pair.0.t.prefix { $0.isWhitespace })) + pair.1)
+            }
+        } else {
+            let start = old[0].s, end = old[old.count - 1].e
+            let total = Double(tokens.reduce(0) { $0 + $1.count })
+            var at = start
+            for (i, token) in tokens.enumerated() {
+                let next = i == tokens.count - 1 ? end : at + (end - start) * Double(token.count) / total
+                new.append(Word(s: at, e: next, t: (i == 0 ? lead : " ") + token))
+                at = next
+            }
+        }
+        var corrected = self
+        corrected.words.replaceSubrange(range, with: new)
+        return corrected
+    }
+}
+
 /// Transcripts on disk.
 enum TranscriptStore {
     static var folder: URL {

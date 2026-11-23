@@ -500,7 +500,7 @@ enum ScreenshotMode {
             case "enhance": ai.enhanceItem = item
             case "background": ai.backgroundItem = item
             case "blur": ai.blurItem = item
-            case "shorts": ai.shortsItem = item
+            case "shorts": ai.shortsBatch = batch
             case "summarize": if let item { ai.languageAsk = AIStudio.LanguageAsk(item: item, action: .summarize) { _ in } }
             case "live":
                 // -PluckScreenshotLink <stream> records it; -PluckScreenshotFile <path> analyses a file.
