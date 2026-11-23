@@ -165,6 +165,9 @@ struct DeliverAssetView: View {
                 if found.kind == .video {
                     Button("Send to Resolve Timeline…") { markers = true }
                     Button("Update from Resolve Timeline…") { pulling = true }
+                    if current.hostOriginal == nil, FileManager.default.fileExists(atPath: current.path) {
+                        Button("Check Delivery") { DeliveryCheckView.check(URL(fileURLWithPath: current.path), nav: nav) }
+                    }
                 }
                 if let approval = latestApproval(found) { Button("Approval Proof…") { saveProof(approval, found) } }
                 ForEach(ReviewPublish.shared.hosts.filter { $0.kind == .nas && $0.role != "backup" }) { host in

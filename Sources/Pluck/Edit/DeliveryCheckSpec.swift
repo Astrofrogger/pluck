@@ -35,6 +35,12 @@ extension DeliveryCheck {
         /// The area text should stay in (normalized, origin bottom left).
         var safeArea = CGRect(x: 0.035, y: 0.035, width: 0.93, height: 0.93)
 
+        /// The shapes that pass: Social takes whatever the file is meant for (9:16, 1:1, 4:5, 16:9), the rest their one shape.
+        // shortcut: only the Social preset follows the file; a saved copy of it keeps its one shape.
+        var allowedAspects: [Double] {
+            id == Destination.social.rawValue ? [9.0 / 16, 1, 4.0 / 5, 16.0 / 9] : aspect.map { [$0] } ?? []
+        }
+
         var builtIn: Bool { Destination(rawValue: id) != nil }
         /// The preset's own (translated) name, else the saved one.
         var title: String { Destination(rawValue: id)?.label ?? name }
@@ -57,6 +63,12 @@ extension DeliveryCheck {
         set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: specsKey) }
     }
 
+    /// The spec a brand profile's "delivery spec" names: its id, or (older free text) its name; nil if none fits.
+    static func specID(matching text: String?) -> String? {
+        guard let text = text?.trimmingCharacters(in: .whitespaces).lowercased(), !text.isEmpty else { return nil }
+        return specs.first { [$0.id, $0.title, $0.name, $0.shortTitle].contains { $0.lowercased() == text } }?.id
+    }
+
     static func spec(id: String) -> Spec { specs.first { $0.id == id } ?? Destination.online.spec }
 
     /// Saves a new or changed spec of one's own (a preset is saved as a copy).
@@ -75,7 +87,7 @@ extension DeliveryCheck {
 extension DeliveryCheck.Destination {
     /// The destination as a spec: what Delivery Check has always checked for it, plus colour for broadcast.
     var spec: DeliveryCheck.Spec {
-        var spec = DeliveryCheck.Spec(id: rawValue, name: shortLabel, aspect: aspect, minLongSide: aspect == nil ? nil : 1920)
+        var spec = DeliveryCheck.Spec(id: rawValue, name: shortLabel, aspect: aspect, minLongSide: aspect == nil ? nil : self == .social ? 1080 : 1920)
         if let loudness {
             spec.loudness = loudness.target
             spec.loudnessTolerance = loudness.tolerance

@@ -8,22 +8,37 @@ struct DeliveryCheckView: View {
     /// A video to check as soon as the window opens (screenshots).
     @MainActor static var openFile: URL?
     static let openNotification = Notification.Name("PluckDeliveryCheckOpen")
+
+    /// Sends a finished file to Delivery Check in Deliver (it joins the queue).
+    @MainActor static func check(_ url: URL, nav: StudioNavigator) {
+        openFile = url
+        nav.deliver = .deliveryCheck
+        NotificationCenter.default.post(name: openNotification, object: url)
+    }
     @Environment(DownloadManager.self) private var manager
     /// The spec's id (the destinations' raw values are the presets' ids, so older choices carry over).
     @AppStorage("deliveryCheckDestination") private var specID = DeliveryCheck.Destination.online.rawValue
     /// The client's brand profile checked along (logo placement, colours, texts), if any.
     @AppStorage("deliveryCheckBrand") private var brandID = ""
+    /// A brand that names a delivery spec sets it.
     private var brand: Binding<UUID?> {
-        Binding(get: { UUID(uuidString: brandID) }, set: { brandID = $0?.uuidString ?? "" })
+        Binding(get: { UUID(uuidString: brandID) }, set: {
+            brandID = $0?.uuidString ?? ""
+            if let id = DeliveryCheck.specID(matching: BrandProfiles.shared.profile($0)?.deliverySpec) { specID = id }
+        })
     }
-    @State private var items: [Item] = []
-    @State private var current: Item.ID?
-    @State private var running: Task<Void, Never>?
-    @State private var progress = 0.0
-    @State private var stage = ""
-    @State private var problem: String?
+    /// The queue lives in the store: it goes on when this page is left.
+    private let store = DeliveryCheckStore.shared
+    private var items: [Item] { get { store.items } nonmutating set { store.items = newValue } }
+    private var current: Item.ID? { get { store.current } nonmutating set { store.current = newValue } }
+    private var running: Task<Void, Never>? { store.running }
+    private var progress: Double { store.progress }
+    private var stage: String { store.stage }
+    private var problem: String? { get { store.problem } nonmutating set { store.problem = newValue } }
     @State private var selected: DeliveryCheck.Issue.ID?
     @State private var player = AVPlayer()
+    /// What the player has loaded.
+    @State private var shown: Item.ID?
     @State private var dropping = false
     @State private var filter: DeliveryCheck.Issue.Severity?
     @State private var showHidden = false
@@ -33,16 +48,9 @@ struct DeliveryCheckView: View {
     @State private var editingSpec: DeliveryCheck.Spec?
     @State private var specs = DeliveryCheck.specs
 
-    /// A file in the queue and what was found in it.
-    struct Item: Identifiable {
-        let id = UUID()
-        var file: URL
-        var report: DeliveryCheck.Report?
-        var failed: String?
-        /// The approved earlier version it was compared with.
-        var approved: URL?
-    }
+    typealias Item = DeliveryCheckStore.Item
 
+    /// The queue's spec; a file can have its own.
     private var spec: DeliveryCheck.Spec { specs.first { $0.id == specID } ?? DeliveryCheck.Destination.online.spec }
     private var item: Item? { items.first { $0.id == current } }
     private var report: DeliveryCheck.Report? { item?.report }
@@ -78,11 +86,17 @@ struct DeliveryCheckView: View {
         .onAppear {
             if let url = Self.openFile {
                 Self.openFile = nil
-                open([url])
+                open([url], append: true)
+            } else if current != nil {
+                show(current)
             }
         }
+        .onChange(of: store.revision) {
+            intended = report.map { DeliveryCheck.intended($0.fileKey) } ?? []
+            if selected == nil, let first = report?.issues.first { pick(first) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
-            if let url = note.object as? URL { Self.openFile = nil; open([url]) }
+            if let url = note.object as? URL { Self.openFile = nil; open([url], append: true) }
         }
         .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
             Task {
@@ -185,6 +199,9 @@ struct DeliveryCheckView: View {
                                 Image(systemName: "exclamationmark.triangle").foregroundStyle(Design.Studio.bad)
                             }
                             Text(item.file.lastPathComponent).lineLimit(1).truncationMode(.middle).frame(maxWidth: 180)
+                            if let own = item.specID {
+                                Text(DeliveryCheck.spec(id: own).shortTitle).foregroundStyle(Design.Studio.textQuiet)
+                            }
                             if let counts, counts.problems + counts.warnings > 0 {
                                 Text(verbatim: "\(counts.problems) · \(counts.warnings)").monospacedDigit().foregroundStyle(Design.Studio.textQuiet)
                             }
@@ -196,6 +213,13 @@ struct DeliveryCheckView: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Picker("Spec", selection: Binding(get: { item.specID }, set: { store.setSpec($0, for: item.id, manager: manager) })) {
+                            Text("Same as queue").tag(String?.none)
+                            ForEach(specs) { Text($0.title).tag(String?.some($0.id)) }
+                        }
+                        .pickerStyle(.inline)
+                    }
                     .help(item.file.path)
                 }
             }
@@ -222,7 +246,7 @@ struct DeliveryCheckView: View {
                 Text(stage).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
                 StudioProgress(share: progress)
             }
-            Button("Stop", systemImage: "stop.fill") { running?.cancel() } // (the task clears `running` once its ffmpeg has stopped)
+            Button("Stop", systemImage: "stop.fill") { store.running?.cancel() } // (the task clears `running` once its ffmpeg has stopped)
                 .buttonStyle(StudioFlatButtonStyle())
                 .help("Stop")
         }
@@ -516,16 +540,15 @@ struct DeliveryCheckView: View {
         if panel.runModal() == .OK, !panel.urls.isEmpty { open(panel.urls) }
     }
 
-    private func open(_ urls: [URL]) {
+    private func open(_ urls: [URL], append: Bool = false) {
         guard running == nil else { return }
-        items = urls.map { Item(file: $0) }
-        problem = nil
-        show(items.first?.id)
-        check(all: true)
+        store.open(urls, append: append, manager: manager)
+        show(current)
     }
 
     private func show(_ id: Item.ID?) {
-        guard id != current || player.currentItem == nil else { return }
+        guard id != shown || player.currentItem == nil else { return }
+        shown = id
         current = id
         selected = nil
         thumbnails = [:]
@@ -534,59 +557,7 @@ struct DeliveryCheckView: View {
         if let first = item?.report?.issues.first { pick(first) }
     }
 
-    /// Checks the queue one file after another (all of them, or only those not checked yet).
-    private func check(all: Bool) {
-        guard running == nil, !items.isEmpty else { return }
-        guard let ffmpeg = manager.tool("ffmpeg"), let ffprobe = manager.tool("ffprobe") else {
-            problem = Converting.Failure.noFFmpeg.localizedDescription
-            return
-        }
-        problem = nil
-        let spec = spec
-        let profile = BrandProfiles.shared.profile(UUID(uuidString: brandID))
-        // (Items are found by id after each wait: the queue can change while a file is checked.)
-        let queue = items.filter { all || $0.report == nil }.map { ($0.id, $0.file, $0.approved) }
-        running = Task {
-            defer { running = nil }
-            for (id, file, approved) in queue {
-                guard !Task.isCancelled else { break }
-                if items.count == 1 || current == nil { current = id }
-                progress = 0
-                var report: DeliveryCheck.Report?, failed: String?
-                do {
-                    var result = try await DeliveryCheck.run(file, spec: spec, ffmpeg: ffmpeg, ffprobe: ffprobe) { value, text in
-                        Task { @MainActor in
-                            progress = value
-                            if !text.isEmpty { stage = text }
-                        }
-                    }
-                    if let profile, !Task.isCancelled {
-                        result.issues += await BrandCheck.run(file: file, profile: profile, duration: result.duration) { value in
-                            Task { @MainActor in progress = value }
-                        }
-                        result.issues.sort { ($0.severity, $0.time ?? -1) < ($1.severity, $1.time ?? -1) }
-                    }
-                    if let approved, !Task.isCancelled, let old = try? await DeliveryCheck.run(approved, spec: spec, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { _, _ in }) {
-                        result.issues = DeliveryCheck.markNew(result.issues, approved: old) + DeliveryCheck.compare(result, approved: old)
-                    }
-                    report = result
-                } catch is CancellationError {
-                    break
-                } catch {
-                    failed = error.localizedDescription
-                }
-                // Stopped part way: what was measured isn't a whole report.
-                guard !Task.isCancelled else { break }
-                guard let index = items.firstIndex(where: { $0.id == id }) else { continue }
-                items[index].report = report
-                items[index].failed = failed
-                if id == current {
-                    intended = report.map { DeliveryCheck.intended($0.fileKey) } ?? []
-                    if let first = report?.issues.first { pick(first) }
-                }
-            }
-        }
-    }
+    private func check(all: Bool) { store.check(all: all, manager: manager) }
 
     /// Checks an approved earlier version too, and marks what changed since.
     private func compare() {
@@ -596,9 +567,7 @@ struct DeliveryCheckView: View {
         panel.prompt = String(localized: "Compare")
         panel.message = String(localized: "The approved earlier version")
         guard panel.runModal() == .OK, let url = panel.url, running == nil, items.indices.contains(index) else { return }
-        items[index].approved = url
-        items[index].report = nil
-        check(all: false)
+        store.setApproved(url, for: items[index].id, manager: manager)
     }
 
     private func pick(_ issue: DeliveryCheck.Issue) {
