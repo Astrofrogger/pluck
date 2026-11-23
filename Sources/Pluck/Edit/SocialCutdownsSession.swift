@@ -76,8 +76,9 @@ extension SocialCutdowns {
         }
 
         static func stamp(_ file: URL) -> (size: Int64, modified: Date) {
-            let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            return (Int64(values?.fileSize ?? -1), values?.contentModificationDate ?? .distantPast)
+            // Read from disk each time (a URL's resource values are cached).
+            let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+            return ((attributes?[.size] as? NSNumber)?.int64Value ?? -1, attributes?[.modificationDate] as? Date ?? .distantPast)
         }
 
         func write() {
