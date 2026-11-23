@@ -29,8 +29,8 @@ struct EnhanceSheet: View {
     private var sizeDetail: String? {
         guard items.count > 1 else {
             return sourceHeight.map { h in upscale.height.map { $0 <= h } ?? false
-                ? String(localized: "This video is already \(h)p.")
-                : String(localized: "Now \(h)p. Local AI adds real detail, not just bigger pixels.") }
+                ? String(localized: "This video is already \(String(h))p.")
+                : String(localized: "Now \(String(h))p. Local AI adds real detail, not just bigger pixels.") }
         }
         // (Plain digits: "1080p", never "1.080p".)
         guard let first = heights.first else { return nil }

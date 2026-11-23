@@ -196309,64 +196309,6 @@
         }
       }
     },
-    "Now %lldp. Local AI adds real detail, not just bigger pixels." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jetzt %lldp. Lokale KI ergänzt echte Details, nicht nur größere Pixel."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ahora %lldp. La IA local añade detalle real, no solo píxeles más grandes."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Actuellement %lldp. L’IA locale ajoute de vrais détails, pas seulement des pixels plus gros."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ora %lldp. L’IA locale aggiunge dettagli reali, non solo pixel più grandi."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在%lldp。ローカルAIが、単に拡大するのではなく本物のディテールを加えます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "현재 %lldp. 로컬 AI가 픽셀을 키우는 대신 실제 디테일을 더합니다."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nu %lldp. Lokale AI voegt echt detail toe, niet alleen grotere pixels."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agora %lldp. A IA local adiciona detalhes reais, não só pixels maiores."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前 %lldp。本地 AI 会补充真实细节，而不只是放大像素。"
-          }
-        }
-      }
-    },
     "Number" : {
       "localizations" : {
         "de" : {
@@ -321181,64 +321123,6 @@
         }
       }
     },
-    "This video is already %lldp." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Video hat bereits %lldp."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Este vídeo ya está en %lldp."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette vidéo est déjà en %lldp."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questo video è già %lldp."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この動画はすでに%lldpです。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 동영상은 이미 %lldp입니다."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deze video is al %lldp."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Este vídeo já está em %lldp."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此视频已是 %lldp。"
-          }
-        }
-      }
-    },
     "This video is already that size. Choose a larger size or smoother motion." : {
       "localizations" : {
         "de" : {
@@ -376757,6 +376641,122 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@p 到 %2$@p"
+          }
+        }
+      }
+    },
+    "This video is already %@p." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Video hat bereits %@p."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este vídeo ya está en %@p."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette vidéo est déjà en %@p."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo video è già %@p."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この動画はすでに%@pです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 동영상은 이미 %@p입니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deze video is al %@p."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este vídeo já está em %@p."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此视频已是 %@p。"
+          }
+        }
+      }
+    },
+    "Now %@p. Local AI adds real detail, not just bigger pixels." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt %@p. Lokale KI ergänzt echte Details, nicht nur größere Pixel."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ahora %@p. La IA local añade detalle real, no solo píxeles más grandes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actuellement %@p. L’IA locale ajoute de vrais détails, pas seulement des pixels plus gros."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ora %@p. L’IA locale aggiunge dettagli reali, non solo pixel più grandi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在%@p。ローカルAIが、単に拡大するのではなく本物のディテールを加えます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "현재 %@p. 로컬 AI가 픽셀을 키우는 대신 실제 디테일을 더합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nu %@p. Lokale AI voegt echt detail toe, niet alleen grotere pixels."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agora %@p. A IA local adiciona detalhes reais, não só pixels maiores."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前 %@p。本地 AI 会补充真实细节，而不只是放大像素。"
           }
         }
       }
