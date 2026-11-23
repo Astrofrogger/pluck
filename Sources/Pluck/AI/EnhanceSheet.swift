@@ -20,7 +20,24 @@ struct EnhanceSheet: View {
 
     private var options: Enhance.Options { Enhance.Options(upscale: upscale, motion: motion) }
 
-    private var upscales: Bool { upscale.height.map { $0 > (sourceHeight ?? 0) } ?? false }
+    /// Every selected video's short side.
+    private var heights: [Int] { infos.compactMap { info in info.width.flatMap { w in info.height.map { min(w, $0) } } } }
+    /// Any video smaller than the chosen size.
+    private var upscales: Bool { upscale.height.map { target in heights.contains { $0 < target } || (heights.isEmpty && target > (sourceHeight ?? 0)) } ?? false }
+
+    /// What the size does to the selection.
+    private var sizeDetail: String? {
+        guard items.count > 1 else {
+            return sourceHeight.map { h in upscale.height.map { $0 <= h } ?? false
+                ? String(localized: "This video is already \(h)p.")
+                : String(localized: "Now \(h)p. Local AI adds real detail, not just bigger pixels.") }
+        }
+        // (Plain digits: "1080p", never "1.080p".)
+        guard let first = heights.first else { return nil }
+        guard heights.allSatisfy({ $0 == first }) else { return String(localized: "Mixed sizes") }
+        guard let target = upscale.height, target > first else { return String(localized: "Already \(String(first))p.") }
+        return String(localized: "\(String(first))p to \(String(target))p")
+    }
     private var hasWork: Bool { upscales || motion != .off }
 
     private var estimate: String? {
@@ -46,11 +63,7 @@ struct EnhanceSheet: View {
                     }
                 } label: {
                     Text("Size")
-                    if let h = sourceHeight {
-                        Text(upscale.height.map { $0 <= h } ?? false
-                             ? String(localized: "This video is already \(h)p.")
-                             : String(localized: "Now \(h)p. Local AI adds real detail, not just bigger pixels."))
-                    }
+                    if let sizeDetail { Text(sizeDetail) }
                 }
                 Picker(selection: $motion) {
                     ForEach(Enhance.Motion.allCases) { Text($0.label).tag($0).disabled(!Enhance.canSmooth && $0 != .off) }

@@ -31,6 +31,27 @@ extension PhotoSelfTest {
         let nd30 = Tighten.edl(keeps: [0...2], title: "T", clipName: "c.mov", fps: 29.97, startTimecode: "10:00:00:00")
         check("ai: EDL 29.97 non-drop stays non-drop", nd30.contains("FCM: NON-DROP FRAME") && nd30.contains("10:00:00:00 10:00:02:00 01:00:00:00 01:00:02:00"), nd30)
 
+        // The reel: the source's own, else the file name's first 8 characters.
+        let reeled = Tighten.edl(keeps: [0...1], title: "T", clipName: "A001C003.mov", fps: 25, startTimecode: nil, reel: "A001C003_LONGREEL")
+        check("ai: EDL source reel", reeled.contains("001  A001C003_LONGREEL AA/V  C        00:00:00:00"), reeled)
+        let named = Tighten.edl(keeps: [0...1], title: "T", clipName: "Interview take 2.mov", fps: 25, startTimecode: nil)
+        check("ai: EDL reel from the file name", named.contains("001  Intervie AA/V  C        00:00:00:00") && named.contains("* FROM CLIP NAME: Interview take 2.mov"), named)
+
+        // Resolve's drop-frame setting: the function against a stand-in timeline, and the whole script parses.
+        let fake = Tighten.setDropFrame + "\n" + #"""
+class T:
+    def __init__(self): self.s = {}
+    def SetSetting(self, k, v): self.s[k] = v; return True
+a, b = T(), T()
+print(set_drop_frame(a, True), a.s, set_drop_frame(b, False), b.s)
+import ast, sys
+ast.parse(sys.argv[1])
+print("parsed")
+"""#
+        let python = await ToolOutput.run("/usr/bin/python3", ["-c", fake, Tighten.dropFrameScript])
+        check("ai: Resolve drop-frame script", python.contains("True {'useCustomSettings': '1', 'timelineDropFrameTimecode': '1'} True {'useCustomSettings': '1', 'timelineDropFrameTimecode': '0'}")
+              && python.contains("parsed") && Tighten.dropFrameScript.hasPrefix(ResolveBridge.preamble), python)
+
         // Timecode and reel from ffprobe's JSON (QuickTime keeps them on the timecode track).
         let tags = FrameRewriter.sourceTags(#"{"streams":[{"tags":{"handler_name":"x"}},{"tags":{"timecode":"01:02:03;04","reel_name":"A001C003"}}],"format":{"tags":{}}}"#)
         check("ai: source tags", tags.timecode == "01:02:03;04" && tags.reel == "A001C003", "\(tags)")
