@@ -10,16 +10,17 @@ struct SocialCutdownsView: View {
     /// A video to open when the page appears (screenshot mode).
     @MainActor static var openFile: URL?
 
-    @State private var source: URL?
-    @State private var analysis: SocialCutdowns.Analysis?
-    @State private var plans: [Format: [SocialCutdowns.ShotPlan]] = [:]
-    @State private var edits: [Double: SocialCutdowns.ShotEdit] = [:]
-    @State private var status: String?
-    @State private var share: Double?
-    @State private var problem: String?
-    @State private var player = AVPlayer()
-    @State private var observer: Any?
-    @State private var time = 0.0
+    @State private var session = CutdownSession.shared
+    // The work lives in the shared session (it outlasts the page); these read and write it.
+    private var source: URL? { get { session.source } nonmutating set { session.source = newValue } }
+    private var analysis: SocialCutdowns.Analysis? { get { session.analysis } nonmutating set { session.analysis = newValue } }
+    private var plans: [Format: [SocialCutdowns.ShotPlan]] { get { session.plans } nonmutating set { session.plans = newValue } }
+    private var edits: [Double: SocialCutdowns.ShotEdit] { get { session.edits } nonmutating set { session.edits = newValue } }
+    private var status: String? { get { session.status } nonmutating set { session.status = newValue } }
+    private var share: Double? { get { session.share } nonmutating set { session.share = newValue } }
+    private var problem: String? { get { session.problem } nonmutating set { session.problem = newValue } }
+    private var player: AVPlayer { session.player }
+    private var time: Double { get { session.time } nonmutating set { session.time = newValue } }
     @State private var playing = false
     @State private var editing: Format = .vertical
     @State private var picking = false
@@ -28,15 +29,17 @@ struct SocialCutdownsView: View {
     @State private var width: CGFloat = 1000
     @State private var showCaptions = false
     @State private var design = CaptionDesign.load(CaptionDesign.shortsKey)
-    @State private var cues: [Transcript.Cue]?
-    @State private var folder: URL?
+    private var cues: [Transcript.Cue]? { get { session.cues } nonmutating set { session.cues = newValue } }
+    private var folder: URL? { get { session.folder } nonmutating set { session.folder = newValue } }
     @State private var queue = CutdownQueue.shared
-    @State private var task: Task<Void, Never>?
+    private var task: Task<Void, Never>? { get { session.task } nonmutating set { session.task = newValue } }
     @AppStorage("cutdownsLeftOut") private var leftOut = ""
     @AppStorage("cutdownsCaptions") private var captionsOn = false
     @AppStorage("cutdownsPlatform") private var platform: SocialCutdowns.Platform = .tiktok
     @AppStorage("cutdownsBrand") private var brandID = ""
     @AppStorage("cutdownsReplaceLogo") private var replaceLogo = false
+    @AppStorage("cutdownsProRes") private var proRes = false
+    @Environment(DownloadManager.self) private var manager
 
     private var brand: BrandProfile? { BrandProfiles.shared.profile(UUID(uuidString: brandID)) }
     private var chosen: [Format] { SocialCutdowns.formats.filter { !leftOut.split(separator: ",").contains(Substring($0.rawValue)) } }
@@ -53,7 +56,7 @@ struct SocialCutdownsView: View {
                     .studioDropZone(targeted: dropping)
                     .onTapGesture(perform: choose)
             }
-            if let status { statusRow(Text(status)) }
+            if let status { statusRow(Text(session.item?.aiStatus ?? status)) }
             if let problem {
                 HStack(spacing: 12) {
                     StudioTile(symbol: "exclamationmark.triangle", colour: Design.Studio.bad, size: 32)
@@ -73,7 +76,7 @@ struct SocialCutdownsView: View {
         .studioPanel()
         .onAppear { if let url = Self.openFile { Self.openFile = nil; open(url) } }
         .onDisappear { player.pause() }
-        .onChange(of: edits) { replan() }
+        .onChange(of: edits) { replan(); session.saveSoon() }
         .onChange(of: replaceLogo) { replan() }
         .onChange(of: brandID) { findLogo() }
         .onChange(of: design) { design.save(CaptionDesign.shortsKey) }
@@ -135,6 +138,22 @@ struct SocialCutdownsView: View {
                 }
                 .menuStyle(.button).buttonStyle(.plain).fixedSize()
 
+                Menu {
+                    Picker("Format", selection: $proRes) {
+                        Text(verbatim: "H.264").tag(false)
+                        Text(verbatim: "ProRes 422 HQ").tag(true)
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    StudioMenuLabel(title: proRes ? "ProRes 422 HQ" : "H.264")
+                }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize()
+
+                Button(action: sendToResolve) { Label("Send to DaVinci Resolve", systemImage: "square.and.arrow.up.on.square") }
+                    .buttonStyle(StudioFlatButtonStyle())
+                    .disabled(chosen.isEmpty || task != nil)
+                    .help(Text("A timeline per format, the reframe as keyframes"))
+
                 Button("Render", action: render)
                     .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
                     .disabled(chosen.isEmpty || task != nil)
@@ -146,6 +165,14 @@ struct SocialCutdownsView: View {
     private var captionSettings: some View {
         Form {
             Toggle("Burn in captions", isOn: $captionsOn).disabled(!LocalAI.canTranscribe)
+            if captionsOn, LocalAI.canTranscribe, let item = session.item {
+                SpokenLanguagePicker(item: item, languages: $session.languages, language: Binding(get: { session.language }, set: { new in
+                    // Captions in another language: transcribed again when rendering.
+                    if session.language != nil, new != session.language { cues = nil; session.transcriptID = nil }
+                    session.language = new
+                    session.saveSoon()
+                }))
+            }
             if captionsOn { CaptionDesignEditor(design: $design, forShorts: false) }
             if !LocalAI.canTranscribe {
                 Text("Captions need Apple Intelligence’s speech recognition on this Mac.").font(.caption).foregroundStyle(.secondary)
@@ -154,6 +181,8 @@ struct SocialCutdownsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { if captionsOn { _ = fileItem() } }
+        .onChange(of: captionsOn) { if captionsOn { _ = fileItem() } }
         .frame(width: 380)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -410,6 +439,9 @@ struct SocialCutdownsView: View {
                     }
                     Spacer()
                     if case .done(let url) = job.state {
+                        Button("Check") { check(url) }
+                            .buttonStyle(StudioFlatButtonStyle())
+                            .help(Text("Open in Delivery Check"))
                         Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
                             .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet)
                             .help(Text("Show in Finder")).accessibilityLabel(Text("Show in Finder"))
@@ -451,20 +483,38 @@ struct SocialCutdownsView: View {
     }
 
     private func open(_ url: URL) {
+        // The same edit again (coming back to the page): keep what's there.
+        if url == source, analysis != nil || task != nil { return }
         task?.cancel()
         source = url
         analysis = nil
         plans = [:]
         edits = [:]
         cues = nil
+        session.transcriptID = nil
+        session.item = nil
+        session.languages = []
+        session.language = nil
         problem = nil
         player.pause()
         playing = false
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
-        if observer == nil {
-            observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { t in
-                MainActor.assumeIsolated { time = t.seconds.isFinite ? t.seconds : 0 }
+        if session.observer == nil {
+            session.observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { t in
+                MainActor.assumeIsolated { CutdownSession.shared.time = t.seconds.isFinite ? t.seconds : 0 }
             }
+        }
+        // Worked on before (and unchanged since): back as it was left.
+        if let saved = SocialCutdowns.Saved.load(url) {
+            analysis = saved.analysis
+            edits = saved.edits
+            session.language = saved.language.map(Locale.init(identifier:))
+            if let id = saved.transcriptID, let transcript = TranscriptStore.load(id), transcript.filePath == url.path {
+                session.transcriptID = id
+                cues = transcript.cues()
+            }
+            replan()
+            return
         }
         let ffmpeg = studio.toolPath("ffmpeg"), brand = brand
         task = Task {
@@ -472,11 +522,12 @@ struct SocialCutdownsView: View {
             share = 0
             do {
                 let result = try await SocialCutdowns.analyse(url, ffmpeg: ffmpeg, brand: brand) { value in
-                    Task { @MainActor in share = value }
+                    Task { @MainActor in CutdownSession.shared.share = value }
                 }
                 guard !Task.isCancelled else { return }
                 analysis = result
                 replan()
+                session.saveSoon()
             } catch {
                 if !Task.isCancelled { problem = error.localizedDescription }
             }
@@ -486,6 +537,38 @@ struct SocialCutdownsView: View {
             share = nil
             task = nil
         }
+    }
+
+    /// This edit as an item in Pluck's list (the transcript is kept with it).
+    private func fileItem() -> DownloadItem? {
+        if let item = session.item { return item }
+        guard let source else { return nil }
+        let found = manager.items.first { $0.existingFile?.path == source.path } ?? manager.addLocalFiles([source]).first
+        session.item = found
+        return found
+    }
+
+    private func sendToResolve() {
+        guard let analysis else { return }
+        let formats = chosen, plans = plans
+        let out = folder ?? analysis.file.deletingLastPathComponent()
+        task = Task {
+            status = String(localized: "Building the timeline in DaVinci Resolve…")
+            do {
+                let names = try await SocialCutdowns.sendToResolve(analysis, plans: plans, formats: formats, folder: out)
+                if names.isEmpty { problem = String(localized: "DaVinci Resolve couldn’t import the file.") }
+            } catch {
+                problem = error.localizedDescription
+            }
+            status = nil
+            task = nil
+        }
+    }
+
+    private func check(_ url: URL) {
+        DeliveryCheckView.openFile = url
+        NotificationCenter.default.post(name: DeliveryCheckView.openNotification, object: url)
+        StudioNavigator.shared.open(windowID: "deliveryCheck")
     }
 
     private func replan() {
@@ -537,7 +620,7 @@ struct SocialCutdownsView: View {
     private func render() {
         guard let analysis else { return }
         guard let ffmpeg = studio.toolPath("ffmpeg") else { problem = Converting.Failure.noFFmpeg.localizedDescription; return }
-        let formats = chosen, brand = brand, edits = edits, replace = replaceLogo
+        let formats = chosen, brand = brand, edits = edits, replace = replaceLogo, proRes = proRes
         let out = folder ?? analysis.file.deletingLastPathComponent()
         let look = SocialCutdowns.branded(design, brand)
         let name = analysis.file.deletingPathExtension().lastPathComponent
@@ -546,30 +629,32 @@ struct SocialCutdownsView: View {
             if captionsOn, LocalAI.canTranscribe {
                 if let cues {
                     lines = cues
-                } else if #available(macOS 26, *) {
+                } else if #available(macOS 26, *), let item = fileItem() {
                     status = String(localized: "Transcribing…")
                     do {
-                        lines = try await SocialCutdowns.transcribe(analysis.file, studio: studio) { text, value in
-                            Task { @MainActor in status = text; share = value }
-                        }
+                        // The saved transcript when it's in this language; else a new one, kept with the edit.
+                        let transcript = try await studio.existingOrNewTranscript(for: item, file: analysis.file, language: session.language)
+                        lines = transcript.cues()
                         cues = lines
+                        session.transcriptID = transcript.id
+                        session.saveSoon()
                     } catch {
                         // Asked for captions: nothing is rendered without them.
                         problem = error.localizedDescription
                         status = nil
-                        share = nil
                         task = nil
                         return
                     }
+                    item.aiStatus = nil
+                    item.aiProgress = nil
                     status = nil
-                    share = nil
                 }
             }
             for format in formats {
                 let logo = replace && analysis.logo != nil ? brand.flatMap { SocialCutdowns.logoPlacement($0, format: format) } : nil
                 let job = SocialCutdowns.Render(format: format,
                                                 plans: SocialCutdowns.plan(analysis, format: format, edits: edits, ignoreLogo: logo != nil),
-                                                cues: lines, design: look, logo: logo, folder: out)
+                                                cues: lines, design: look, logo: logo, folder: out, proRes: proRes)
                 queue.add("\(name) · \(format.tag.replacingOccurrences(of: "x", with: ":"))") { progress in
                     try await SocialCutdowns.render(analysis, job, ffmpeg: ffmpeg, progress: progress)
                 }

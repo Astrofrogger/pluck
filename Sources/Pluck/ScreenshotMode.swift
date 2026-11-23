@@ -552,6 +552,8 @@ enum ScreenshotMode {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 14) { CameraSyncModel.shared.selected = CameraSyncModel.shared.clips.first { $0.name == item }?.id }
                 }
             case "cutdowns": SocialCutdownsView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }; StudioNavigator.shared.open(windowID: "cutdowns")
+                // -PluckScreenshotJobs YES: a finished render in the list (its Check button).
+                if defaults.bool(forKey: "PluckScreenshotJobs"), let file = SocialCutdownsView.openFile { CutdownQueue.shared.add("\(file.deletingPathExtension().lastPathComponent) · 9:16") { _ in file } }
             case "musicfit":
                 // -PluckScreenshotFile <song> is chosen.
                 MusicFitView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }

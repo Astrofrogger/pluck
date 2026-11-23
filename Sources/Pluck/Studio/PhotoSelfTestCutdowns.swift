@@ -101,6 +101,58 @@ extension PhotoSelfTest {
         check("cutdowns: lock holds", locked[0].locked && locked[0].centres.allSatisfy { abs($0 - 0.3) < 1e-9 }, "")
         check("cutdowns: framing override", SocialCutdowns.plan(analysis, format: .square, edits: edits)[0].framing == .blur, "")
 
+        // Saved per source: back after a relaunch, unless the source changed since.
+        SocialCutdowns.Saved.folder = folder.appendingPathComponent("saves", isDirectory: true)
+        SocialCutdowns.Saved(analysis: analysis, edits: edits, transcriptID: "t1", language: "nl-BE").write()
+        let back = SocialCutdowns.Saved.load(clip)
+        check("cutdowns: work saved and read back", back?.edits == edits && back?.analysis.shots == analysis.shots
+              && back?.analysis.samples.count == analysis.samples.count && back?.analysis.samples.first?.subject == analysis.samples.first?.subject
+              && back?.transcriptID == "t1" && back?.language == "nl-BE",
+              "\(back?.edits.count ?? -1) edits, \(back?.analysis.shots.count ?? -1) shots")
+        let replanned = back.map { SocialCutdowns.plan($0.analysis, format: .vertical, edits: $0.edits) }
+        check("cutdowns: saved work plans the same", replanned?.map(\.centres) == locked.map(\.centres), "")
+        let changed = folder.appendingPathComponent("changed.mp4")
+        try? FileManager.default.copyItem(at: clip, to: changed)
+        var other = analysis
+        other.file = changed
+        SocialCutdowns.Saved(analysis: other, edits: edits, transcriptID: nil, language: nil).write()
+        let fresh = SocialCutdowns.Saved.load(changed) != nil
+        if let handle = try? FileHandle(forWritingTo: changed) { handle.seekToEndOfFile(); handle.write(Data([0])); try? handle.close() }
+        check("cutdowns: changed source not restored", fresh && SocialCutdowns.Saved.load(changed) == nil, "fresh \(fresh)")
+        check("cutdowns: other file has its own save", SocialCutdowns.Saved.load(clip)?.transcriptID == "t1", "")
+
+        // Resolve: per shot a clip at the format's size, the reframe as position keyframes (100 = frame height).
+        let followPlans = SocialCutdowns.plan(analysis, format: .vertical, edits: [:])
+        let keys = SocialCutdowns.keyframes(followPlans[0], analysis: analysis, fps: analysis.fps)
+        let wide = 1280.0 / 720 * 100
+        let keyErrors = keys.map { key in abs(key.x - (0.5 - (followPlans[0].centre(at: Double(key.frame) / 25))) * wide) }
+        check("cutdowns: moving shot keyed", keys.count > 2 && keys.count < followPlans[0].times.count && (keyErrors.max() ?? 1) < 1.5,
+              "\(keys.count) keys of \(followPlans[0].times.count), worst \(keyErrors.max() ?? -1)")
+        let held = SocialCutdowns.keyframes(locked[0], analysis: analysis, fps: analysis.fps)
+        check("cutdowns: locked shot one key", held.count == 1 && abs(held[0].x - 0.2 * wide) < 0.01, "\(held)")
+        let xml = SocialCutdowns.fcpxml(analysis, format: .vertical, plans: locked, name: "Edit 9:16", hasAudio: true)
+        let document = try? XMLDocument(xmlString: xml)
+        let clipsInXML = (try? document?.nodes(forXPath: "//spine/asset-clip"))??.count ?? 0
+        let format = (try? document?.nodes(forXPath: "//format[@id='r1']"))??.first as? XMLElement
+        let stillKeys = (try? document?.nodes(forXPath: "//spine/asset-clip[2]//keyframe"))??.count ?? 0
+        check("cutdowns: FCPXML timeline", document != nil && clipsInXML == analysis.shots.count
+              && format?.attribute(forName: "width")?.stringValue == "1080" && format?.attribute(forName: "height")?.stringValue == "1920"
+              && (try? document?.nodes(forXPath: "//spine/asset-clip[1]//keyframe"))??.count == 0 && stillKeys == 0
+              && xml.contains("<adjust-conform type=\"fill\"/>"), "\(clipsInXML) clips")
+        let movingXML = SocialCutdowns.fcpxml(analysis, format: .vertical, plans: followPlans, name: "Edit", hasAudio: true)
+        check("cutdowns: FCPXML keyframes", ((try? XMLDocument(xmlString: movingXML).nodes(forXPath: "//spine/asset-clip[1]//keyframe"))?.count ?? 0) == keys.count, "")
+        var sent: [String: Any] = [:]
+        let names = try? await SocialCutdowns.sendToResolve(analysis, plans: [.vertical: followPlans, .square: square], formats: [.vertical, .square],
+                                                            folder: folder) { instruction in
+            sent = instruction
+            return ["timelines": ["edit 9:16", "edit 1:1"]]
+        }
+        let timelines = sent["timelines"] as? [[String: Any]] ?? []
+        check("cutdowns: sent to Resolve", names?.count == 2 && sent["action"] as? String == "importTimelines" && timelines.count == 2
+              && timelines.allSatisfy { FileManager.default.fileExists(atPath: $0["path"] as? String ?? "") }, "\(timelines)")
+        check("cutdowns: ProRes arguments", SocialCutdowns.videoArguments(proRes: true).contains("prores_ks")
+              && SocialCutdowns.videoArguments(proRes: false).contains("libx264"), "")
+
         // Renders.
         let cue = Transcript.Cue(start: 1, end: 5, text: "HELLO WORLD", words: 0..<0)
         func render(_ format: SocialCutdowns.Format, captions: Bool, edits: [Double: SocialCutdowns.ShotEdit] = [:]) async -> URL? {
@@ -147,6 +199,18 @@ extension PhotoSelfTest {
                   "\(changed) of \(a.count) pixels changed")
         } else {
             check("cutdowns: captions burned in", false, "renders missing")
+        }
+        // ProRes for finishing: a .mov in ProRes 422 HQ, sound kept.
+        var prores = SocialCutdowns.Render(format: .square, plans: square, cues: nil, design: CaptionDesign(), logo: nil, folder: folder)
+        prores.proRes = true
+        if let url = try? await SocialCutdowns.render(analysis, prores, ffmpeg: ffmpeg, progress: { _ in }) {
+            let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first
+            let codec = (try? await track?.load(.formatDescriptions))?.first.map(CMFormatDescriptionGetMediaSubType)
+            let audio = (try? await AVURLAsset(url: url).loadTracks(withMediaType: .audio).count) ?? 0
+            check("cutdowns: ProRes render", url.pathExtension == "mov" && codec == kCMVideoCodecType_AppleProRes422HQ && audio == 1,
+                  "\(url.lastPathComponent) \(codec.map { String(format: "%08x", $0) } ?? "none")")
+        } else {
+            check("cutdowns: ProRes render", false, "not rendered")
         }
     }
 }
