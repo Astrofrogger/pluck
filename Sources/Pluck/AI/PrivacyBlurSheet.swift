@@ -322,6 +322,11 @@ struct PrivacyBlurSheet: View {
                 // Screenshots: -PluckScreenshotBlurAt <seconds> shows the preview there.
                 if let at = UserDefaults.standard.string(forKey: "PluckScreenshotBlurAt").flatMap(Double.init) { time = at }
                 else if let first = found.faces.first { time = first.start }
+                // Screenshots: -PluckScreenshotBlurDraw <x,y,w,h> (0…1 of the picture, from the top left) draws a region.
+                if let box = UserDefaults.standard.string(forKey: "PluckScreenshotBlurDraw")?.split(separator: ",").compactMap({ Double($0) }), box.count == 4 {
+                    add(CGRect(x: box[0] * 1000, y: box[1] * 1000, width: box[2] * 1000, height: box[3] * 1000),
+                        in: CGSize(width: 1000, height: 1000), analysis: found)
+                }
             } catch is CancellationError {
             } catch {
                 problem = error.localizedDescription

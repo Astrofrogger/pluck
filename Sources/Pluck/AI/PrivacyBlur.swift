@@ -307,13 +307,21 @@ extension AIStudio {
                 painter.mask(frame.image.extent, at: frame.seconds) ?? CIImage(color: .black).cropped(to: frame.image.extent)
             }
         }
-        // shortcut: the container's timecode tag only; at merge use FrameRewriter.keepingSource (gy-ai1) for track timecode + reel.
-        guard let ffmpeg = await MainActor.run(body: { AppDelegate.shared?.manager.tool("ffmpeg") }) else {
+        let (ffmpeg, ffprobe) = await MainActor.run { (AppDelegate.shared?.manager.tool("ffmpeg"), AppDelegate.shared?.manager.tool("ffprobe")) }
+        guard let ffmpeg else {
             try FileManager.default.moveItem(at: picture, to: output)
             return
         }
+        // The start timecode (container or timecode track), so the matte lines up with the clip.
+        // shortcut: timecode only; at merge FrameRewriter.keepingSource (gy-ai1) can replace this and keep the reel name too.
+        var timecode: [String] = []
+        if let ffprobe {
+            let tags = await DeliveryCheck.output(ffprobe, ["-v", "error", "-show_entries", "format_tags=timecode:stream_tags=timecode",
+                                                            "-of", "default=nw=1:nk=1", file.path])
+            if let first = tags.split(separator: "\n").first(where: { $0.contains(":") }) { timecode = ["-timecode", String(first)] }
+        }
         let outcome = await EditorExport.run(ffmpeg, ["-y", "-v", "error", "-i", picture.path, "-i", file.path, "-map", "0:v",
-                                                      "-map_metadata", "1", "-c", "copy", EditorExport.partial(output).path], total: 0) { _ in }
+                                                      "-map_metadata", "1"] + timecode + ["-c", "copy", EditorExport.partial(output).path], total: 0) { _ in }
         guard case .done = outcome else {
             try? FileManager.default.removeItem(at: EditorExport.partial(output))
             try FileManager.default.moveItem(at: picture, to: output)

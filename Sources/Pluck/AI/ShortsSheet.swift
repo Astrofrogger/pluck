@@ -79,6 +79,10 @@ struct ShortsSheet: View {
         .frame(width: review == nil ? 460 : 560)
         .onDisappear { task?.cancel() }
         .task {
+            // A transcript made in the Editor (found by its file) counts too.
+            for item in items where item.transcriptID == nil {
+                item.transcriptID = item.existingFile.flatMap { TranscriptStore.find(forFile: $0.path) }?.id
+            }
             // Screenshots: -PluckScreenshotShortsReview YES finds the moments straight away.
             if ScreenshotMode.scene == "shorts", UserDefaults.standard.bool(forKey: "PluckScreenshotShortsReview") { find() }
         }
@@ -91,7 +95,7 @@ struct ShortsSheet: View {
                     SpokenLanguagePicker(item: item, languages: $languages, language: $language)
                 }
                 if let range {
-                    LabeledContent("Part") {
+                    LabeledContent("Range") {
                         Text(Format.duration(range.lowerBound) + "–" + Format.duration(range.upperBound)).monospacedDigit()
                     }
                 }
