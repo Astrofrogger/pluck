@@ -16,6 +16,8 @@ enum Shorts {
         var framing: FramingChoice = .automatic
         /// The spoken language, when the user chose it (otherwise guessed).
         var language: Locale?
+        /// Only from this part of the video (the Editor's range or a best moment); nil: all of it.
+        var range: ClosedRange<Double>?
     }
 
     enum FramingChoice: String, CaseIterable, Identifiable, Sendable {
@@ -56,7 +58,7 @@ enum Shorts {
         }
     }
 
-    struct Moment: Sendable {
+    struct Moment: Sendable, Equatable {
         var start: Double
         var end: Double
         var title: String
@@ -87,23 +89,50 @@ enum Shorts {
     /// The moments to cut, chosen by local AI from what's said when Apple Intelligence is on,
     /// otherwise by where the speech is densest. Snapped to whole sentences and kept apart.
     static func moments(in transcript: Transcript, options: Options) async -> [Moment] {
-        let cues = transcript.cues(maxCharacters: 160, maxDuration: 12)
+        Array(await candidates(in: transcript, options: options).prefix(options.count)).sorted { $0.start < $1.start }
+    }
+
+    /// Every moment worth a short, best first and none overlapping: the first `count` are the
+    /// picks, the rest are there to swap in while reviewing. A range no longer than a short is
+    /// that one moment, exactly as picked.
+    static func candidates(in transcript: Transcript, options: Options, useAI: Bool = true) async -> [Moment] {
+        var cues = transcript.cues(maxCharacters: 160, maxDuration: 12)
+        if let range = options.range {
+            cues = cues.filter { $0.start >= range.lowerBound - 0.05 && $0.end <= range.upperBound + 0.05 }
+            if range.upperBound - range.lowerBound <= options.length.range.upperBound {
+                let title = cues.first.map { $0.text.split(separator: " ").prefix(5).joined(separator: " ") } ?? transcript.title
+                return [Moment(start: range.lowerBound, end: range.upperBound, title: title)]
+            }
+        }
         guard !cues.isEmpty else { return [] }
         var picked: [(Moment, Int)] = []
-        if #available(macOS 26, *), LocalAI.canSummarize {
+        if useAI, #available(macOS 26, *), LocalAI.canSummarize {
             picked = (try? await aiMoments(cues, title: transcript.title, options: options)) ?? []
         }
-        if picked.isEmpty { picked = densestMoments(cues, options: options) }
+        // The busiest stretches after local AI's picks (or alone, without it): more to swap in.
+        picked += densestMoments(cues, options: options).map { ($0.0, $0.1 - 100_000) }
 
-        // Best first, no overlaps, then back in time order.
+        // Best first, no overlaps.
         var chosen: [Moment] = []
         for (moment, _) in picked.sorted(by: { $0.1 > $1.1 }) {
             let fitted = fit(moment, cues: cues, range: options.length.range)
             if chosen.contains(where: { $0.start < fitted.end && fitted.start < $0.end }) { continue }
             chosen.append(fitted)
-            if chosen.count == options.count { break }
+            if chosen.count == max(options.count * 3, 8) { break }
         }
-        return chosen.sorted { $0.start < $1.start }
+        return chosen
+    }
+
+    /// A moment's in or out moved by `by` seconds while reviewing: kept inside the video and at
+    /// least three seconds long.
+    static func nudged(_ moment: Moment, start: Bool, by delta: Double, duration: Double) -> Moment {
+        var moment = moment
+        if start {
+            moment.start = min(max(moment.start + delta, 0), moment.end - 3)
+        } else {
+            moment.end = max(min(moment.end + delta, duration > 0 ? duration : .infinity), moment.start + 3)
+        }
+        return moment
     }
 
     @available(macOS 26, *)

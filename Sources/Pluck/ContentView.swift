@@ -900,8 +900,8 @@ private struct AISheets: ViewModifier {
                 AudioCleanupSheet(items: batch.items)
                     .environment(ai)
             }
-            .sheet(item: Binding(get: { ai.shortsItem }, set: { ai.shortsItem = $0 })) { item in
-                ShortsSheet(item: item)
+            .sheet(item: Binding(get: { ai.shortsBatch }, set: { ai.shortsBatch = $0 })) { batch in
+                ShortsSheet(items: batch.items)
                     .environment(ai)
             }
             .sheet(item: Binding(get: { ai.deliverablesItem }, set: { ai.deliverablesItem = $0 })) { item in

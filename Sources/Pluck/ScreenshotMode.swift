@@ -505,6 +505,8 @@ enum ScreenshotMode {
                 let all = AIStudio.Batch(manager.items.filter { $0.state == .finished && $0.existingFile != nil })
                 if scene == "enhancebatch" { ai.enhanceBatch = all } else if scene == "backgroundbatch" { ai.backgroundBatch = all } else { ai.blurBatch = all }
             case "shorts": ai.shortsItem = item
+                window.makeKeyAndOrderFront(nil)
+            case "shorts": ai.shortsBatch = batch
             case "summarize": if let item { ai.languageAsk = AIStudio.LanguageAsk(item: item, action: .summarize) { _ in } }
             case "live":
                 // -PluckScreenshotLink <stream> records it; -PluckScreenshotFile <path> analyses a file.

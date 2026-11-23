@@ -461,7 +461,7 @@ struct DownloadRow: View {
         if isVideo {
             Section("Video") {
                 if LocalAI.canTranscribe {
-                    Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsItem = item }
+                    Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsBatch = AIStudio.Batch(targets.filter { $0.existingFile.map(Converting.isVideo) ?? false }) }
                         .disabled(busy)
                 }
                 Button("Make Deliverables…", systemImage: "square.stack.3d.down.right") { ai.deliverablesItem = item }

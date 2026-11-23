@@ -26,6 +26,8 @@ enum PrivacyBlur {
         /// The clearest look at this face, for choosing who stays sharp.
         var thumbnail: CGImage?
         var thumbnailArea: CGFloat = 0
+        /// Drawn by the user (then followed from there): covered as drawn, not as a face.
+        var manual = false
 
         var start: Double { samples.first?.time ?? 0 }
         var end: Double { samples.last?.time ?? 0 }
@@ -135,6 +137,43 @@ enum PrivacyBlur {
         return rect.intersection(extent)
     }
 
+    /// A region the user drew at `time` (a box as above), followed forwards and backwards with
+    /// Vision's object tracker, a look every `step`, until it's lost (a cut, gone from view).
+    /// shortcut: at most a minute each way from where it was drawn; draw again further on if longer.
+    static func follow(_ file: URL, box: CGRect, at time: Double, step: Double, id: Int) async -> Track {
+        let asset = AVURLAsset(url: file)
+        let duration = (try? await asset.load(.duration).seconds) ?? time
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 640, height: 640)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: step / 4, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: step / 4, preferredTimescale: 600)
+        var track = Track(id: id, samples: [(time, box)], manual: true)
+        if let image = try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)).image {
+            let extent = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            let rect = expanded(box, by: 0.3, in: extent)
+            // CGImage cropping counts from the top.
+            track.thumbnail = image.cropping(to: CGRect(x: rect.minX, y: extent.height - rect.maxY, width: rect.width, height: rect.height))
+        }
+        for direction in [1.0, -1.0] {
+            var observation = VNDetectedObjectObservation(boundingBox: box)
+            let sequence = VNSequenceRequestHandler()
+            var t = time + step * direction
+            while t >= 0, t <= duration, abs(t - time) <= 60, !Task.isCancelled {
+                guard let image = try? await generator.image(at: CMTime(seconds: t, preferredTimescale: 600)).image else { break }
+                let request = VNTrackObjectRequest(detectedObjectObservation: observation)
+                request.trackingLevel = .accurate
+                guard (try? sequence.perform([request], on: image)) != nil,
+                      let result = request.results?.first as? VNDetectedObjectObservation, result.confidence > 0.3 else { break }
+                observation = result
+                track.samples.append((t, result.boundingBox))
+                t += step * direction
+            }
+        }
+        track.samples.sort { $0.time < $1.time }
+        return track
+    }
+
     /// The step that blurs one frame.
     final class Painter: @unchecked Sendable {
         let faces: [Track]
@@ -151,10 +190,26 @@ enum PrivacyBlur {
 
         func paint(_ frame: CIImage, at seconds: Double) -> CIImage {
             let extent = frame.extent
+            guard let mask = mask(extent, at: seconds) else { return frame }
+            let hidden: CIImage = switch style {
+            case .blur: frame.clampedToExtent().applyingGaussianBlur(sigma: extent.height / 45).cropped(to: extent)
+            case .pixelate: frame.clampedToExtent().applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: max(extent.height / 40, 8)]).cropped(to: extent)
+            }
+            return hidden.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: frame, kCIInputMaskImageKey: mask])
+        }
+
+        /// What's hidden at a moment: white on black (the matte for Resolve), nil when nothing is.
+        func mask(_ extent: CGRect, at seconds: Double) -> CIImage? {
             var mask = CIImage(color: .black).cropped(to: extent)
             var any = false
             for face in faces {
-                guard let box = face.box(at: seconds, hold: 0.4) else { continue }
+                guard let box = face.box(at: seconds, hold: face.manual ? step : 0.4) else { continue }
+                if face.manual {
+                    let patch = CIImage(color: .white).cropped(to: PrivacyBlur.expanded(box, by: 0.1, in: extent))
+                    mask = patch.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: mask])
+                    any = true
+                    continue
+                }
                 // A soft oval over the face, hair and ears.
                 let rect = PrivacyBlur.expanded(box, by: 0.7, in: extent)
                 let radius = max(rect.width, rect.height) / 2
@@ -176,12 +231,7 @@ enum PrivacyBlur {
                     any = true
                 }
             }
-            guard any else { return frame }
-            let hidden: CIImage = switch style {
-            case .blur: frame.clampedToExtent().applyingGaussianBlur(sigma: extent.height / 45).cropped(to: extent)
-            case .pixelate: frame.clampedToExtent().applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: max(extent.height / 40, 8)]).cropped(to: extent)
-            }
-            return hidden.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: frame, kCIInputMaskImageKey: mask])
+            return any ? mask : nil
         }
     }
 }
@@ -221,5 +271,63 @@ extension AIStudio {
                 failJob(item, error)
             }
         }
+    }
+}
+
+extension AIStudio {
+    /// A "(matte)" .mov next to the video: white where Privacy Blur hides something, black
+    /// elsewhere (ProRes 4444), to finish the blur in DaVinci Resolve as an external matte.
+    func privacyMatte(_ item: DownloadItem, analysis: PrivacyBlur.Analysis, keepSharp: Set<Int>, blurText: Bool) {
+        guard let file = item.existingFile else { return }
+        enqueue(item) { [self] in
+            item.aiStatus = String(localized: "Making the matte…")
+            item.aiProgress = 0
+            do {
+                let output = Converting.outputURL(folder: file.deletingLastPathComponent().path,
+                                                  name: file.deletingPathExtension().lastPathComponent + String(localized: " (matte)"),
+                                                  fileExtension: "mov")
+                try await Self.writeMatte(file, to: output, analysis: analysis, keepSharp: keepSharp, blurText: blurText) { progress in
+                    Task { @MainActor in item.aiProgress = progress }
+                }
+                finishJob(item)
+                NSWorkspace.shared.activateFileViewerSelecting([output])
+            } catch {
+                failJob(item, error)
+            }
+        }
+    }
+
+    /// The matte itself (no sound), the source's tags kept so it lines up in Resolve.
+    nonisolated static func writeMatte(_ file: URL, to output: URL, analysis: PrivacyBlur.Analysis, keepSharp: Set<Int>, blurText: Bool,
+                                       progress: @escaping @Sendable (Double) -> Void) async throws {
+        let painter = PrivacyBlur.Painter(analysis: analysis, keepSharp: keepSharp, blurText: blurText, style: .blur)
+        let picture = output.deletingLastPathComponent().appendingPathComponent(".pluck-matte-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: picture) }
+        try await offMain {
+            try await FrameRewriter().run(input: file, output: picture, codec: .proRes4444, progress: progress) { frame in
+                painter.mask(frame.image.extent, at: frame.seconds) ?? CIImage(color: .black).cropped(to: frame.image.extent)
+            }
+        }
+        let (ffmpeg, ffprobe) = await MainActor.run { (AppDelegate.shared?.manager.tool("ffmpeg"), AppDelegate.shared?.manager.tool("ffprobe")) }
+        guard let ffmpeg else {
+            try FileManager.default.moveItem(at: picture, to: output)
+            return
+        }
+        // The start timecode (container or timecode track), so the matte lines up with the clip.
+        // shortcut: timecode only; at merge FrameRewriter.keepingSource (gy-ai1) can replace this and keep the reel name too.
+        var timecode: [String] = []
+        if let ffprobe {
+            let tags = await DeliveryCheck.output(ffprobe, ["-v", "error", "-show_entries", "format_tags=timecode:stream_tags=timecode",
+                                                            "-of", "default=nw=1:nk=1", file.path])
+            if let first = tags.split(separator: "\n").first(where: { $0.contains(":") }) { timecode = ["-timecode", String(first)] }
+        }
+        let outcome = await EditorExport.run(ffmpeg, ["-y", "-v", "error", "-i", picture.path, "-i", file.path, "-map", "0:v",
+                                                      "-map_metadata", "1"] + timecode + ["-c", "copy", EditorExport.partial(output).path], total: 0) { _ in }
+        guard case .done = outcome else {
+            try? FileManager.default.removeItem(at: EditorExport.partial(output))
+            try FileManager.default.moveItem(at: picture, to: output)
+            return
+        }
+        try FileManager.default.moveItem(at: EditorExport.partial(output), to: output)
     }
 }

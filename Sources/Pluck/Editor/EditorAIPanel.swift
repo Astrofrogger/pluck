@@ -30,6 +30,9 @@ struct EditorAIPanel<Model: FileEditing>: View {
     /// The Transcript tab shows the words or local AI's summary.
     @AppStorage("editorTranscriptView") private var transcriptView = "words"
     @State private var renaming: Int?
+    /// Words being corrected (their text; the timing stays), and what they should say.
+    @State private var correcting: ClosedRange<Int>?
+    @State private var correction = ""
     @State private var newName = ""
     /// What the story is about, to steer the choice (optional).
     @AppStorage("storyFocus") private var storyFocus = ""
@@ -72,6 +75,12 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     wordSelection = pick[0]...pick[1]
                     if let span = wordSpan() { model.toggleOut(span) }
                 }
+            }
+            // Screenshots: -PluckScreenshotCorrectWords <first>-<last> opens Correct Words on those words.
+            if part == .transcript, ScreenshotMode.scene == "editor", transcript != nil,
+               let pick = UserDefaults.standard.string(forKey: "PluckScreenshotCorrectWords")?.split(separator: "-").compactMap({ Int($0) }), pick.count == 2 {
+                wordSelection = pick[0]...pick[1]
+                startCorrecting(pick[0]...pick[1])
             }
             if part == .ai, ScreenshotMode.scene == "editor", UserDefaults.standard.bool(forKey: "PluckScreenshotFind"), transcript != nil {
                 findMoments()
@@ -292,6 +301,13 @@ struct EditorAIPanel<Model: FileEditing>: View {
             } message: {
                 Text("Used in this transcript, its subtitles and summaries.")
             }
+            .alert("Correct words", isPresented: Binding(get: { correcting != nil }, set: { if !$0 { correcting = nil } })) {
+                TextField("Words", text: $correction)
+                Button("Correct") { correctWords() }
+                Button("Cancel", role: .cancel) { correcting = nil }
+            } message: {
+                Text("The timing stays. Shorts and cutdowns caption it like this.")
+            }
         }
     }
 
@@ -341,6 +357,12 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     model.toggleOut(span)
                     return .handled
                 }
+                // ↩ corrects the picked words.
+                .onKeyPress(.return) {
+                    guard let wordSelection else { return .ignored }
+                    startCorrecting(wordSelection)
+                    return .handled
+                }
                 .onKeyPress(.escape) {
                     guard wordSelection != nil else { return .ignored }
                     wordSelection = nil
@@ -350,7 +372,7 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     if model.isPlaying, search.isEmpty, let id { withAnimation { scrolledCue = id } }
                 }
                 speakerBar
-                Text("Click a word to go there, ⇧-click to pick up to it, ⌫ to cut. ⇧-click a time for the range.")
+                Text("Click a word to go there, ⇧-click to pick up to it, ⌫ to cut, ↩ to correct. ⇧-click a time for the range.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .padding(8)
@@ -780,6 +802,28 @@ struct EditorAIPanel<Model: FileEditing>: View {
             .background(picked ? Color.accentColor.opacity(0.35) : .clear, in: .rect(cornerRadius: 3))
             .contentShape(.rect)
             .onTapGesture { pickWord(index) }
+            .contextMenu {
+                Button("Correct…") { startCorrecting(wordSelection?.contains(index) == true ? wordSelection! : index...index) }
+            }
+    }
+
+    private func startCorrecting(_ range: ClosedRange<Int>) {
+        guard let words = transcript?.words, range.upperBound < words.count else { return }
+        correction = words[range].map(\.t).joined().trimmingCharacters(in: .whitespaces)
+        correcting = range
+    }
+
+    /// Saves the corrected words in the transcript (everything made from it after uses them).
+    private func correctWords() {
+        guard let range = correcting, let current = transcript else { return }
+        correcting = nil
+        let corrected = current.correctingWords(range, to: correction)
+        guard corrected.words.count != current.words.count || zip(corrected.words, current.words).contains(where: { $0.t != $1.t }) else { return }
+        TranscriptStore.save(corrected)
+        transcript = corrected
+        wordSelection = nil
+        wordAnchor = nil
+        load()
     }
 
     /// Click: this word (and go there). ⇧-click: from the last word clicked to this one.
@@ -1026,7 +1070,8 @@ struct EditorAIPanel<Model: FileEditing>: View {
         }
         guard let item = fileItem() else { return }
         if tool == .stems { ai.separateStems(item); return }
-        open = EditorToolSheet(tool: tool, item: item)
+        // Shorts from the picked range (or a best moment clicked), when there is one.
+        open = EditorToolSheet(tool: tool, item: item, range: model.hasRange && model.rangeEnd > model.rangeStart ? model.rangeStart...model.rangeEnd : nil)
     }
 }
 
@@ -1039,6 +1084,7 @@ fileprivate enum EditorAITool: CaseIterable {
 private struct EditorToolSheet: Identifiable {
     let tool: EditorAITool
     let item: DownloadItem
+    var range: ClosedRange<Double>?
     var id: String { "\(tool)" }
 }
 
@@ -1049,7 +1095,7 @@ private struct EditorToolSheetContent: View {
 
     var body: some View {
         switch sheet.tool {
-        case .shorts: ShortsSheet(item: sheet.item).environment(ai)
+        case .shorts: ShortsSheet(item: sheet.item, range: sheet.range).environment(ai)
         case .subtitles:
             if #available(macOS 26, *) { SubtitleSheet(items: [sheet.item]).environment(ai) }
         case .tighten: TightenSheet(items: [sheet.item]).environment(ai)

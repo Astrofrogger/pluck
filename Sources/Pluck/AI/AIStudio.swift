@@ -27,8 +27,8 @@ final class AIStudio {
             items.count == 1 ? items[0].title : String(localized: "\(items.count) files")
         }
     }
-    /// A video waiting for the user to choose shorts options.
-    var shortsItem: DownloadItem?
+    /// Videos waiting for the user to choose shorts options.
+    var shortsBatch: Batch?
     /// A video waiting for the user to choose its deliverables.
     var deliverablesItem: DownloadItem?
     /// Summarize or Add Chapters waiting for the spoken language (files without a transcript).
