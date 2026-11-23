@@ -31,6 +31,10 @@ struct SyncClip: Identifiable, Hashable, Sendable, Codable {
     /// The time a timecode slate shown to the camera reads at the first frame, once looked for.
     var slate: Double?
     var slateChecked = false
+    /// The slate's other reading when the clip alone can't tell 23.976 from 24 (29.97 from 30…), and whether `slate`
+    /// counts its frames 1001/1000 longer (nil: a rate without the two, 25 or 50).
+    var slateOther: Double?
+    var slateNTSC: Bool?
     /// Every timecode read off its picture (to check by eye), and whether it agrees with the slate value.
     var shown: [ShownTimecode] = []
     /// Frames the slate it shows is off from the other cameras' slates where it's synced.
@@ -122,7 +126,7 @@ enum CameraSync {
     static func probe(_ file: URL, root: URL, ffprobe: String) -> Probe? {
         var clip = SyncClip(path: file.path)
         if RawFormats.isRawVideo(file) {
-            guard let source = try? RawFormats.open(file) else { return nil }
+            guard let source = try? openRaw(file) else { return nil }
             defer { source.close() }
             let info = source.info
             clip.fps = info.fps
@@ -134,7 +138,8 @@ enum CameraSync {
             clip.hasAudio = info.audioChannels > 0 || ((try? source.audio()) ?? nil) != nil
             clip.timecode = info.timecode.flatMap { seconds(timecode: $0, fps: info.fps) }
             clip.dropFrame = info.timecode.map(isDropFrame) ?? false
-            fileClock(&clip)
+            clip.created = rawDate(info.meta)
+            if clip.created == nil { fileClock(&clip) }
             let serial = ["camera_id", "serial_number", "camera_serial_number", "Camera Serial #"].lazy.compactMap { info.meta[$0] }.first { !$0.isEmpty }
             return Probe(clip: clip, root: root, serial: serial, model: info.camera)
         }
@@ -254,8 +259,28 @@ enum CameraSync {
         return x.hasPrefix(y) || y.hasPrefix(x)
     }
 
+    /// The raw decoder (RED, Blackmagic RAW); tests put a stand-in here.
+    nonisolated(unsafe) static var openRaw: (URL) throws -> RawSource = { try RawFormats.open($0) }
+
+    /// When a RED or Blackmagic RAW clip began, from its metadata: RED's GMT date and time, else its local ones,
+    /// Blackmagic's date recorded (with a time). nil without a time of day (a date alone is no clock).
+    /// shortcut: the date formats are RED's documented yyyyMMdd/HHmmss and guesses for Blackmagic; check on real camera files.
+    static func rawDate(_ meta: [String: String]) -> Date? {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyyMMddHHmmss"
+        func date(_ day: String?, _ time: String?, _ zone: TimeZone) -> Date? {
+            let digits = ((day ?? "") + (time ?? "")).filter(\.isNumber)
+            guard digits.count == 14 else { return nil }
+            parser.timeZone = zone
+            return parser.date(from: digits)
+        }
+        return date(meta["gmt_date"], meta["gmt_time"], TimeZone(identifier: "UTC")!)
+            ?? date(meta["local_date"], meta["local_time"], .current)
+            ?? date(meta["date_recorded"], meta["time_recorded"], .current)
+    }
+
     /// The file's dates as a last resort: its last change (kept when copied), less its length, else when it was made.
-    /// shortcut: RED/BRAW metadata dates aren't read; their file dates are used.
     static func fileClock(_ clip: inout SyncClip) {
         guard let values = try? clip.file.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey]) else { return }
         clip.created = values.contentModificationDate.map { $0.addingTimeInterval(-clip.duration) } ?? values.creationDate
@@ -406,11 +431,16 @@ enum CameraSync {
         if Task.isCancelled { return cameras }
         for ((c, i), found) in zip(unread, slates) {
             cameras[c].clips[i].slate = found?.value
+            cameras[c].clips[i].slateOther = found?.other
+            cameras[c].clips[i].slateNTSC = found?.ntsc
             cameras[c].clips[i].shown = found?.shown ?? []
             cameras[c].clips[i].slateChecked = true
         }
-        let sound = await bySound(cameras, options: options, progress: progress)
+        var sound = await bySound(cameras, options: options, progress: progress)
         if Task.isCancelled { return sound }
+        let heard = sound
+        resolveSlates(&cameras, sound: heard)
+        resolveSlates(&sound, sound: heard)
         if !options.audioFirst, let placed = byTimecode(cameras, sound: sound) {
             cameras = placed
         } else {
@@ -1015,7 +1045,8 @@ enum CameraSync {
                 cameras[source.c].clips[source.i].start = source.value + offset
                 cameras[source.c].clips[source.i].method = key == -1 ? .slate : offset == 0 ? .timecode : .timecodeOffset
                 // A slate read once only (no second frame agreeing) and nothing heard to confirm it: to check.
-                let once = key == -1 && cameras[source.c].clips[source.i].shown.filter(\.agrees).count < 2
+                // (So is one that may count 23.976 or 24, nothing telling which.)
+                let once = key == -1 && (cameras[source.c].clips[source.i].shown.filter(\.agrees).count < 2 || cameras[source.c].clips[source.i].slateOther != nil)
                 cameras[source.c].clips[source.i].confidence = source.check != nil || offset != 0 ? 0.95 : once ? 0.5 : 0.8
             }
         }
@@ -1029,6 +1060,33 @@ enum CameraSync {
             }
         }
         return cameras
+    }
+
+    /// Slates whose clip alone can't tell 23.976 from 24 (29.97 from 30…): the reading its own sound puts where the other
+    /// slates' sound puts theirs; else the count every other slate was read in; else the first reading stays (to check).
+    static func resolveSlates(_ cameras: inout [SyncCamera], sound: [SyncCamera]) {
+        let all = cameras.indices.flatMap { c in cameras[c].clips.indices.map { (c, $0) } }
+        // Where its sound put it (sure matches only, as byTimecode).
+        func heard(_ c: Int, _ i: Int) -> Double? {
+            let clip = sound[c].clips[i]
+            return clip.start != nil && (clip.locked || (clip.method == .audio && clip.confidence >= 0.7)) ? clip.start : nil
+        }
+        let sure = all.filter { cameras[$0.0].clips[$0.1].slate != nil && cameras[$0.0].clips[$0.1].slateOther == nil }
+        let reference = consensus(sure.compactMap { c, i in heard(c, i).map { $0 - cameras[c].clips[i].slate! } }, tolerance: 1.0 / 25)?.value
+        let kinds = Set(sure.compactMap { cameras[$0.0].clips[$0.1].slateNTSC })
+        for (c, i) in all {
+            guard let first = cameras[c].clips[i].slate, let other = cameras[c].clips[i].slateOther else { continue }
+            var pick: Double?
+            if let reference, let start = heard(c, i) {
+                let frame = 1 / max(cameras[c].clips[i].fps, 1)
+                pick = abs(start - first - reference) < frame ? first : abs(start - other - reference) < frame ? other : nil
+            }
+            if pick == nil, kinds.count == 1, let own = cameras[c].clips[i].slateNTSC { pick = kinds.first == own ? first : other }
+            guard let pick else { continue }
+            if pick == other { cameras[c].clips[i].slateNTSC?.toggle() }
+            cameras[c].clips[i].slate = pick
+            cameras[c].clips[i].slateOther = nil
+        }
     }
 
     // MARK: Recorder rollover
@@ -1103,10 +1161,18 @@ enum CameraSync {
     /// two readings at least. `thorough`: a frame every 2 s through the first and last 10 s (a few in between
     /// if none), a dozen at the first that shows one; one reading is enough (its confidence is low).
     /// The slate's rate: the clip's, half it, 24, 25, 30 (50/60/120 past those), above the highest frame shown, whichever more readings agree on.
-    /// shortcut: 24/30/60 count 1001/1000 longer only on a 23.976/29.97/59.94 camera (a 23.976 slate filmed at 25 reads as 24); RED/BRAW aren't read.
-    static func slate(_ clip: SyncClip, ffmpeg: String, thorough: Bool = false) async -> (value: Double, shown: [ShownTimecode])? {
-        guard clip.hasVideo, clip.fps > 0, !RawFormats.isRawVideo(clip.file) else { return nil }
-        return await Task.detached { () -> (value: Double, shown: [ShownTimecode])? in
+    /// On a 23.976/29.97/59.94 camera 24/30/60 count 1001/1000 longer; on another both counts are tried (23.976 first): the one more
+    /// readings agree on over the clip (the counts part by a frame in 40 s at 24), else `other` holds the second (see resolveSlates).
+    /// RED and Blackmagic RAW frames come from the raw decoder.
+    static func slate(_ clip: SyncClip, ffmpeg: String, thorough: Bool = false) async -> (value: Double, shown: [ShownTimecode], other: Double?, ntsc: Bool?)? {
+        guard clip.hasVideo, clip.fps > 0 else { return nil }
+        return await Task.detached { () -> (value: Double, shown: [ShownTimecode], other: Double?, ntsc: Bool?)? in
+            let raw = RawFormats.isRawVideo(clip.file) ? try? openRaw(clip.file) : nil
+            defer { raw?.close() }
+            if RawFormats.isRawVideo(clip.file) && raw == nil { return nil }
+            func frames(_ file: URL, from: Double, count: Int, ffmpeg: String) -> [CGImage] {
+                raw.map { CameraSync.frames($0, first: Int((from * clip.fps).rounded(.up)), count: count) } ?? CameraSync.frames(file, from: from, count: count, ffmpeg: ffmpeg)
+            }
             let last = max(0, Int(clip.duration * clip.fps) - 1)
             func at(_ seconds: Double) -> Int { min(last, max(0, Int(seconds * clip.fps))) }
             var spots = thorough ? stride(from: 0.0, to: 10, by: 2).map(at) + stride(from: 10.0, to: 0, by: -2).map { at(clip.duration - $0) }
@@ -1142,16 +1208,20 @@ enum CameraSync {
                 return consensus(offsets, tolerance: 1 / rate)
             }
             // (Ties: the first, the clip's own rate.)
+            let family: Set<Double> = [24, 30, 48, 60, 120]
             let tried = rates.flatMap { rate in
-                let fractional = ntsc && [24.0, 30, 48, 60, 120].contains(rate)
-                return (fractional ? [shownDrop, !shownDrop] : [false]).compactMap { drop in agreement(rate, fractional, drop).map { (rate, fractional, drop, $0) } }
+                (!family.contains(rate) ? [false] : ntsc ? [true] : [true, false]).flatMap { fractional in
+                    (fractional ? [shownDrop, !shownDrop] : [false]).compactMap { drop in agreement(rate, fractional, drop).map { (rate, fractional, drop, $0) } }
+                }
             }
             guard let (rate, fractional, drop, agreed) = tried.max(by: { $0.3.members.count < $1.3.members.count }), agreed.members.count >= (thorough ? 1 : 2) else { return nil }
+            // The other count at this rate agreeing as much: too short a clip to tell.
+            let other = ntsc ? nil : tried.first { $0.0 == rate && $0.1 != fractional && $0.3.members.count == agreed.members.count }
             let members = Set(agreed.members)
             let shown = readings.enumerated().map { k, reading in
                 ShownTimecode(frame: reading.frame, text: timecodeText(reading.tc, drop: drop && fractional), agrees: members.contains(k))
             }
-            return (agreed.value + 0.5 / rate, shown)
+            return (agreed.value + 0.5 / rate, shown, other.map { $0.3.value + 0.5 / rate }, family.contains(rate) ? fractional : nil)
         }.value
     }
 
@@ -1191,6 +1261,23 @@ enum CameraSync {
             return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
                            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
         }
+    }
+
+    /// `count` frames of a raw clip from frame `first`, through its decoder, as `frames` gives them (small and grey).
+    static func frames(_ raw: RawSource, first: Int, count: Int, width: Int = 960, height: Int = 540) -> [CGImage] {
+        var scale = 1
+        while scale < 8, raw.info.height / (scale * 2) >= height { scale *= 2 }
+        return (first..<min(first + count, raw.info.frames)).compactMap { index in
+            (try? raw.displayFrame(index, scale: scale, settings: RawSettings())).flatMap { gray($0, width: width, height: height)?.makeImage() }
+        }
+    }
+
+    /// A picture drawn grey at a size (8 bits a pixel, no padding).
+    static func gray(_ image: CGImage, width: Int, height: Int) -> CGContext? {
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context
     }
 
     /// The timecode a picture shows in big digits, if any: [hours, minutes, seconds, frames], and whether it's drop frame (; or . before the frames).
@@ -1233,6 +1320,26 @@ enum CameraSync {
     /// clip's usual change: a flash, a strobe or pyro stands out as a big number.
     static func flashes(_ file: URL, ffmpeg: String) async -> [Float]? {
         await Task.detached { () -> [Float]? in
+            let size = 32 * 18
+            var luma: [Float]
+            if RawFormats.isRawVideo(file) {
+                // Every frame through the raw decoder at its smallest (a frame it can't decode keeps the last value).
+                // shortcut: one decoder, frame by frame; decode several at once (raw.another()) if long raw takes are too slow.
+                guard let raw = try? openRaw(file) else { return nil }
+                defer { raw.close() }
+                var scale = 1
+                while scale < 8, raw.info.height / (scale * 2) >= 18 { scale *= 2 }
+                luma = []
+                for index in 0..<raw.info.frames {
+                    if let image = try? raw.displayFrame(index, scale: scale, settings: RawSettings()), let context = gray(image, width: 32, height: 18), let bytes = context.data {
+                        let pixels = bytes.bindMemory(to: UInt8.self, capacity: size)
+                        luma.append(Float((0..<size).reduce(0) { $0 + Int(pixels[$1]) }) / Float(size))
+                    } else {
+                        luma.append(luma.last ?? 0)
+                    }
+                }
+                guard luma.count >= 2 else { return nil }
+            } else {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)
             process.arguments = ["-nostdin", "-v", "error", "-i", file.path, "-an", "-map", "0:v:0", "-fps_mode", "passthrough",
@@ -1243,14 +1350,14 @@ enum CameraSync {
             guard (try? process.run()) != nil else { return nil }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            let size = 32 * 18
             guard data.count >= size * 2 else { return nil }
-            let luma: [Float] = data.withUnsafeBytes { bytes in
+            luma = data.withUnsafeBytes { bytes in
                 stride(from: 0, to: data.count - size + 1, by: size).map { offset in
                     var sum = 0
                     for k in 0..<size { sum += Int(bytes[offset + k]) }
                     return Float(sum) / Float(size)
                 }
+            }
             }
             var rises = [Float](repeating: 0, count: luma.count)
             for k in 1..<luma.count { rises[k] = max(0, luma[k] - luma[k - 1]) }
@@ -1262,10 +1369,10 @@ enum CameraSync {
     /// Clips with a picture but no place yet, matched on the flashes the synced cameras saw: the
     /// rises in brightness at 100 values a second, the best place, then the median gap between
     /// matching flashes for the last fraction of a frame.
-    /// shortcut: only the two synced cameras with the most footage that ffmpeg decodes are looked at (not RED/BRAW); add more if a show needs it.
+    /// shortcut: only the two synced cameras with the most footage are looked at; add more if a show needs it.
     static func placeByFlashes(_ cameras: inout [SyncCamera], options: Options) async {
         let step = AudioFeatures.step
-        let decodable = { (clip: SyncClip) in clip.hasVideo && !RawFormats.isRawVideo(clip.file) }
+        let decodable = { (clip: SyncClip) in clip.hasVideo }
         let known = cameras
         let references = known.indices
             .filter { c in known[c].clips.contains { $0.start != nil && $0.method != .flashes && decodable($0) } }
@@ -1347,7 +1454,7 @@ final class SyncCache: @unchecked Sendable {
     /// A clip's sound as a file ffmpeg reads: RED and Blackmagic RAW sound written by the raw decoder (once, kept while syncing).
     func sound(_ clip: SyncClip) -> URL? {
         guard RawFormats.isRawVideo(clip.file) else { return clip.file }
-        guard let source = lock.withLock({ sources[clip.path] }) ?? (try? RawFormats.open(clip.file)) else { return nil }
+        guard let source = lock.withLock({ sources[clip.path] }) ?? (try? CameraSync.openRaw(clip.file)) else { return nil }
         lock.withLock { sources[clip.path] = source }
         return (try? source.audio()) ?? nil
     }

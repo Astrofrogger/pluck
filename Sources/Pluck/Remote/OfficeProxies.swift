@@ -630,7 +630,7 @@ final class OfficeProxies {
         let job = Task.detached {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             if RemoteEditHost.isRawClip(source, directory: RemoteEditHost.isDirectory(source)) {
-                return encodeRaw(source, to: target, format: format, progress: progress)
+                return encodeRaw(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress)
             }
             let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
             let (duration, timecode, container, reel) = probe(source, ffprobe: ffprobe)
@@ -739,30 +739,77 @@ final class OfficeProxies {
     }
 
     /// A raw clip (RED, Blackmagic RAW, a CinemaDNG folder) through pluck-raw, which ffmpeg can't read: at the
-    /// format's height or less, picture only.
-    /// shortcut: no sound or timecode in it (enough to preview), add both before raw proxies are linked in Resolve.
-    nonisolated static func encodeRaw(_ source: URL, to target: URL, format: Format, progress: @escaping @Sendable (Double) -> Void) -> Bool {
-        guard let raw = try? RawFormats.open(source) else { return false }
+    /// format's height or less, with the clip's sound (every channel, from the decoder), start timecode and reel, so
+    /// Resolve links it. (Proxies older Macs made have no sound: they're still accepted, see RemoteResolveProject.conform.)
+    /// `open`: the raw decoder (tests put a stand-in here).
+    nonisolated static func encodeRaw(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+                                      open: (URL) throws -> RawSource = { try RawFormats.open($0) }, progress: @escaping @Sendable (Double) -> Void) -> Bool {
+        guard let raw = try? open(source) else { return false }
         defer { raw.close() }
         let info = raw.info
         guard info.frames > 0, info.height > 0 else { return false }
         var scale = 1
         while scale < 16, info.height / scale > format.height { scale *= 2 }
         // Written under a name of its own and renamed into place: on a shared NAS folder nobody serves it half made.
-        let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
+        // (The picture first, then sound, timecode and reel put with it; both names cleaned up by makeClaimed if left.)
+        let stem = target.deletingPathExtension().appendingPathExtension(String(UUID().uuidString.prefix(8)))
+        let picture = stem.appendingPathExtension("picture.part.mov"), partial = stem.appendingPathExtension("part.mov")
+        defer { try? FileManager.default.removeItem(at: picture) }
         do {
-            try RawExport.write(raw, to: partial, codec: format == .prores ? .proresProxy : .h264, scale: scale, settings: RawSettings(),
-                                frames: 0...(info.frames - 1), stop: RawExport.Stop(), progress: progress,
+            try RawExport.write(raw, to: picture, codec: format == .prores ? .proresProxy : .h264, scale: scale, settings: RawSettings(),
+                                frames: 0...(info.frames - 1), stop: RawExport.Stop(), progress: { progress($0 * 0.95) },
                                 bitRate: format == .stream ? 3_000_000 : 8_000_000)
         } catch {
+            return false
+        }
+        let sound = info.audioChannels > 0 ? (try? raw.audio()) ?? nil : nil
+        if info.audioChannels > 0 && sound == nil { return false }
+        var arguments = ["-nostdin", "-y", "-loglevel", "error", "-i", picture.path]
+        if let sound {
+            // AAC up to stereo in the small formats; more channels (a camera's 4 to 16) as PCM, which keeps every one.
+            let pcm = format == .prores || info.audioChannels > 2
+            arguments += ["-i", sound.path, "-map", "0:v:0", "-map", "1:a:0", "-c:a"] + (pcm ? ["pcm_s16le"] : ["aac", "-b:a", format == .stream ? "128k" : "192k"])
+        }
+        arguments += ["-c:v", "copy"]
+        if let timecode = info.timecode { arguments += ["-timecode", timecode] }
+        let reel = ["reel_name", "reel_id_full", "reel_id"].lazy.compactMap { info.meta[$0] }.first { !$0.isEmpty }
+        arguments += ["-metadata:s:v:0", "reel_name=" + (reel ?? source.deletingPathExtension().lastPathComponent), "-f", "mov", partial.path]
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpeg)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
             try? FileManager.default.removeItem(at: partial)
             return false
         }
+        if let ffprobe, let problem = rawAttachProblem(info, partial, ffprobe: ffprobe) {
+            mismatches.withLock { $0[target.path] = problem }
+            try? FileManager.default.removeItem(at: partial)
+            return false
+        }
+        progress(1)
         guard renamex_np(partial.path, target.path, UInt32(RENAME_EXCL)) == 0 else {
             try? FileManager.default.removeItem(at: partial)
             return FileManager.default.fileExists(atPath: target.path)
         }
         return true
+    }
+
+    /// attachProblem for a raw original (which ffprobe can't read): its decoder's frame rate, timecode and channels.
+    nonisolated static func rawAttachProblem(_ info: RawClipInfo, _ proxy: URL, ffprobe: String) -> String? {
+        let b = attachFacts(proxy, ffprobe: ffprobe)
+        let parts = b.fps.split(separator: "/").compactMap { Double($0) }
+        if parts.count == 2, parts[1] > 0, abs(parts[0] / parts[1] - info.fps) > info.fps * 0.005 {
+            return String(localized: "The proxy’s frame rate (\(b.fps)) isn’t the original’s (\(String(format: "%g", info.fps))).")
+        }
+        if let code = info.timecode, code.replacingOccurrences(of: ";", with: ":") != b.timecode?.replacingOccurrences(of: ";", with: ":") {
+            return String(localized: "The proxy’s timecode isn’t the original’s.")
+        }
+        if b.audio != (info.audioChannels > 0 ? [info.audioChannels] : []) { return String(localized: "The proxy’s audio channels aren’t the original’s.") }
+        return nil
     }
 
     /// Containers that open other files (playlists, manifests, scripts): a file named .mov can be one.
