@@ -50,8 +50,9 @@ struct SocialCutdownsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            if captionsInline { captionSettings.studioBox() }
-            if let analysis {
+            if captionsInline {
+                captionSettings.studioBox()
+            } else if let analysis {
                 editor(analysis)
             } else if status == nil {
                 StudioEmptyState(symbol: "rectangle.portrait.on.rectangle.portrait", title: "Drop a finished edit here",
