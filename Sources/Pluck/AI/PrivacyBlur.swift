@@ -313,16 +313,10 @@ extension AIStudio {
             try FileManager.default.moveItem(at: picture, to: output)
             return
         }
-        // The start timecode (container or timecode track), so the matte lines up with the clip.
-        // shortcut: timecode only; at merge FrameRewriter.keepingSource (gy-ai1) can replace this and keep the reel name too.
-        var timecode: [String] = []
-        if let ffprobe {
-            let tags = await DeliveryCheck.output(ffprobe, ["-v", "error", "-show_entries", "format_tags=timecode:stream_tags=timecode",
-                                                            "-of", "default=nw=1:nk=1", file.path])
-            if let first = tags.split(separator: "\n").first(where: { $0.contains(":") }) { timecode = ["-timecode", String(first)] }
-        }
-        let outcome = await EditorExport.run(ffmpeg, ["-y", "-v", "error", "-i", picture.path, "-i", file.path, "-map", "0:v",
-                                                      "-map_metadata", "1"] + timecode + ["-c", "copy", EditorExport.partial(output).path], total: 0) { _ in }
+        // The start timecode and reel name (container or timecode track), so the matte lines up with the clip.
+        let source = await FrameRewriter.keepingSource(file, input: 1, ffprobe: ffprobe)
+        let outcome = await EditorExport.run(ffmpeg, ["-y", "-v", "error", "-i", picture.path, "-i", file.path, "-map", "0:v"]
+                                                      + source + ["-c", "copy", EditorExport.partial(output).path], total: 0) { _ in }
         guard case .done = outcome else {
             try? FileManager.default.removeItem(at: EditorExport.partial(output))
             try FileManager.default.moveItem(at: picture, to: output)
