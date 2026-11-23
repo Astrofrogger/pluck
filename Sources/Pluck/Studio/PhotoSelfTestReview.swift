@@ -1367,7 +1367,9 @@ extension PhotoSelfTest {
             macAsks.append(arguments["step"] as? String ?? "")
             return try await ReviewHostUploads.answer(arguments, in: office)
         }
-        await publish.importUploads([], project: project.id, host: mac) // (kept, and fetched once that Mac is updated)
+        // (Kept on disk: a restart of this Mac fetches it at the next pull.)
+        let restarted = ReviewPublish(store: store)
+        await restarted.importUploads([], project: project.id, host: mac) // (kept, and fetched once that Mac is updated)
         let fromMac = store.content(project.id).assets.first { $0.name == "From Mac" }
         check("host uploads: fetched, checked, added and deleted", fromMac?.folder == socials.id && macAsks == ["info", "data", "delete"]
               && (fromMac.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0.current.path)) }) == Data("hello".utf8)
@@ -1384,6 +1386,30 @@ extension PhotoSelfTest {
         check("host uploads: a damaged copy isn't added", !store.content(project.id).assets.contains { $0.name == "Damaged" }
               && fm.fileExists(atPath: linkFolder.appendingPathComponent("u2.png").path)
               && (try? fm.contentsOfDirectory(atPath: store.root.appendingPathComponent("Uploads/\(client.id.uuidString)").path))?.contains { $0.hasSuffix(".part") } != true, "")
+
+        // The same lasting problem (no room here): kept, said once, tried again after an hour, not at every pull.
+        fm.createFile(atPath: linkFolder.appendingPathComponent("u3.png").path, contents: Data("big".utf8))
+        var infos = 0, clock = Date.now
+        ReviewHostUploads.ask = { _, arguments in
+            if arguments["step"] as? String == "info", (arguments["path"] as? String)?.hasSuffix("u3.png") == true { infos += 1; return ["size": Int64(1) << 60, "sha256": "x"] }
+            return try await ReviewHostUploads.answer(arguments, in: office)
+        }
+        restarted.uploadsNow = { clock }
+        restarted.problem = nil
+        await restarted.importUploads([["seq": 7, "upload": ["link": client.id.uuidString, "name": "Big.png", "path": "uploads/\(client.id.uuidString)/u3.png", "size": 0]]],
+                                      project: project.id, host: mac)
+        let said = restarted.problem
+        restarted.problem = nil
+        await restarted.importUploads([], project: project.id, host: mac)
+        let again = ReviewPublish(store: store)
+        again.uploadsNow = { clock }
+        await again.importUploads([], project: project.id, host: mac)
+        let early = infos
+        clock = clock.addingTimeInterval(3700)
+        await again.importUploads([], project: project.id, host: mac)
+        check("host uploads: a lasting problem is said once and tried hourly", said == String(localized: "A client’s upload waits on the always-on Mac: it couldn’t be saved on this Mac.")
+              && restarted.problem == nil && again.problem == nil && early == 1 && infos == 2 && fm.fileExists(atPath: linkFolder.appendingPathComponent("u3.png").path),
+              "\(String(describing: said)) \(early) \(infos)")
 
         // The sync wait: sent only when every file's size and date match what SendSync sent.
         let folder = base.appendingPathComponent("Sync", isDirectory: true)

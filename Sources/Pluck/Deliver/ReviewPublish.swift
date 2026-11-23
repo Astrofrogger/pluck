@@ -105,6 +105,8 @@ final class ReviewPublish {
     @ObservationIgnored private var outbox: [String: [[String: Any]]] = [:]
     /// Per project, a Mac host's uploads not fetched yet (that Mac was away, or needs a newer Pluck): tried again at the next pull.
     @ObservationIgnored private var waitingUploads: [UUID: [[String: Any]]] = [:]
+    /// (A test sets the clock for retries.)
+    @ObservationIgnored var uploadsNow: () -> Date = { .now }
     @ObservationIgnored private var merging = false
     @ObservationIgnored private var puller: Task<Void, Never>?
     /// Per project, the link state hosts were last sent (see linkState), and the update on its way.
