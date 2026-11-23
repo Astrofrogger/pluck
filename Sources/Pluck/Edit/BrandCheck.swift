@@ -103,7 +103,7 @@ enum BrandCheck {
                 }
             } else {
                 issues.append(.init(severity: .note, title: String(localized: "No logo rule for this size"),
-                                    detail: String(localized: "The brand profile has no logo placement for \(Int(size.width))×\(Int(size.height)).")))
+                                    detail: String(localized: "The brand profile has no logo placement for \(String(Int(size.width)))×\(String(Int(size.height))).")))
             }
         }
 

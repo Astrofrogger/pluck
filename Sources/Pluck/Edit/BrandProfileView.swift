@@ -445,7 +445,7 @@ struct BrandProfileEditor: View {
 
     private func summary(_ m: BrandCheck.Measurement) -> String {
         let p = m.placement
-        var lines = [String(localized: "\(p.anchor.label): \(BrandCheck.pixels(p.x)) px across, \(BrandCheck.pixels(p.y)) px down, \(BrandCheck.pixels(p.width)) px wide (\(p.referenceWidth)×\(p.referenceHeight))."),
+        var lines = [String(localized: "\(p.anchor.label): \(BrandCheck.pixels(p.x)) px across, \(BrandCheck.pixels(p.y)) px down, \(BrandCheck.pixels(p.width)) px wide (\(String(p.referenceWidth))×\(String(p.referenceHeight)))."),
                      String(localized: "Colour \(m.colour).")]
         if let timing = m.timing {
             switch timing.mode {

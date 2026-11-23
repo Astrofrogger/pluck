@@ -8736,60 +8736,60 @@
         }
       }
     },
-    "%@: %@ px across, %@ px down, %@ px wide (%lld×%lld)." : {
+    "%@: %@ px across, %@ px down, %@ px wide (%@×%@)." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: %@ px horizontal, %@ px nach unten, %@ px breit (%lld×%lld)."
+            "value" : "%@: %@ px horizontal, %@ px nach unten, %@ px breit (%@×%@)."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: %@ px en horizontal, %@ px hacia abajo, %@ px de ancho (%lld×%lld)."
+            "value" : "%@: %@ px en horizontal, %@ px hacia abajo, %@ px de ancho (%@×%@)."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ : %@ px à l’horizontale, %@ px vers le bas, %@ px de large (%lld×%lld)."
+            "value" : "%@ : %@ px à l’horizontale, %@ px vers le bas, %@ px de large (%@×%@)."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: %@ px in orizzontale, %@ px in basso, %@ px di larghezza (%lld×%lld)."
+            "value" : "%@: %@ px in orizzontale, %@ px in basso, %@ px di larghezza (%@×%@)."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@:横 %@ px、下 %@ px、幅 %@ px(%lld×%lld)。"
+            "value" : "%@:横 %@ px、下 %@ px、幅 %@ px(%@×%@)。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: 가로 %@ px, 아래로 %@ px, 너비 %@ px (%lld×%lld)."
+            "value" : "%@: 가로 %@ px, 아래로 %@ px, 너비 %@ px (%@×%@)."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: %@ px horizontaal, %@ px omlaag, %@ px breed (%lld×%lld)."
+            "value" : "%@: %@ px horizontaal, %@ px omlaag, %@ px breed (%@×%@)."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: %@ px na horizontal, %@ px para baixo, %@ px de largura (%lld×%lld)."
+            "value" : "%@: %@ px na horizontal, %@ px para baixo, %@ px de largura (%@×%@)."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@:水平 %@ px,向下 %@ px,宽 %@ px(%lld×%lld)。"
+            "value" : "%@:水平 %@ px,向下 %@ px,宽 %@ px(%@×%@)。"
           }
         }
       }
@@ -15456,9 +15456,6 @@
         }
       }
     },
-    "%lld px" : {
-      "shouldTranslate" : false
-    },
     "%lld ready" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -16901,9 +16898,6 @@
           }
         }
       }
-    },
-    "%lldp" : {
-      "shouldTranslate" : false
     },
     "%lld×%lld" : {
       "localizations" : {
@@ -77934,66 +77928,66 @@
         }
       }
     },
-    "Compressed to %lld%% · %lldp" : {
+    "Compressed to %lld%% · %@p" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auf %1$lld %% komprimiert · %2$lldp"
+            "value" : "Auf %1$lld %% komprimiert · %2$@p"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Compressed to %1$lld%% · %2$lldp"
+            "value" : "Compressed to %1$lld%% · %2$@p"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Comprimido al %1$lld %% · %2$lldp"
+            "value" : "Comprimido al %1$lld %% · %2$@p"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compressé à %1$lld %% · %2$lldp"
+            "value" : "Compressé à %1$lld %% · %2$@p"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compresso al %1$lld%% · %2$lldp"
+            "value" : "Compresso al %1$lld%% · %2$@p"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$lld%% に圧縮 · %2$lldp"
+            "value" : "%1$lld%% に圧縮 · %2$@p"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$lld%%로 압축 · %2$lldp"
+            "value" : "%1$lld%%로 압축 · %2$@p"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gecomprimeerd tot %1$lld%% · %2$lldp"
+            "value" : "Gecomprimeerd tot %1$lld%% · %2$@p"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Comprimido para %1$lld%% · %2$lldp"
+            "value" : "Comprimido para %1$lld%% · %2$@p"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已压缩至 %1$lld%% · %2$lldp"
+            "value" : "已压缩至 %1$lld%% · %2$@p"
           }
         }
       }
@@ -165486,60 +165480,60 @@
         }
       }
     },
-    "Lowered to %lldp to stay sharp" : {
+    "Lowered to %@p to stay sharp" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auf %lldp gesenkt, damit es scharf bleibt"
+            "value" : "Auf %@p gesenkt, damit es scharf bleibt"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reducido a %lldp para mantener la nitidez"
+            "value" : "Reducido a %@p para mantener la nitidez"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abaissé à %lldp pour rester net"
+            "value" : "Abaissé à %@p pour rester net"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ridotto a %lldp per restare nitido"
+            "value" : "Ridotto a %@p per restare nitido"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "鮮明さを保つため %lldp に下げます"
+            "value" : "鮮明さを保つため %@p に下げます"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "선명도를 유지하도록 %lldp로 낮춤"
+            "value" : "선명도를 유지하도록 %@p로 낮춤"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verlaagd naar %lldp om scherp te blijven"
+            "value" : "Verlaagd naar %@p om scherp te blijven"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reduzido para %lldp para continuar nítido"
+            "value" : "Reduzido para %@p para continuar nítido"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "降至 %lldp 以保持清晰"
+            "value" : "降至 %@p 以保持清晰"
           }
         }
       }
@@ -208661,60 +208655,60 @@
         }
       }
     },
-    "Original (%lldp)" : {
+    "Original (%@p)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Original (%lldp)"
+            "value" : "Original (%@p)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Original (%lldp)"
+            "value" : "Original (%@p)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Originale (%lldp)"
+            "value" : "Originale (%@p)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Originale (%lldp)"
+            "value" : "Originale (%@p)"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "オリジナル（%lldp）"
+            "value" : "オリジナル（%@p）"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "원본 (%lldp)"
+            "value" : "원본 (%@p)"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Origineel (%lldp)"
+            "value" : "Origineel (%@p)"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Original (%lldp)"
+            "value" : "Original (%@p)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "原始（%lldp）"
+            "value" : "原始（%@p）"
           }
         }
       }
@@ -301598,60 +301592,60 @@
         }
       }
     },
-    "The brand profile has no logo placement for %lld×%lld." : {
+    "The brand profile has no logo placement for %@×%@." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das Markenprofil hat keine Logo-Platzierung für %lld×%lld."
+            "value" : "Das Markenprofil hat keine Logo-Platzierung für %@×%@."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El perfil de marca no tiene posición de logotipo para %lld×%lld."
+            "value" : "El perfil de marca no tiene posición de logotipo para %@×%@."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le profil de marque n’a pas de placement de logo pour %lld×%lld."
+            "value" : "Le profil de marque n’a pas de placement de logo pour %@×%@."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il profilo del brand non ha una posizione del logo per %lld×%lld."
+            "value" : "Il profilo del brand non ha una posizione del logo per %@×%@."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ブランドプロファイルに %lld×%lld のロゴ配置がありません。"
+            "value" : "ブランドプロファイルに %@×%@ のロゴ配置がありません。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "브랜드 프로필에 %lld×%lld용 로고 위치가 없습니다."
+            "value" : "브랜드 프로필에 %@×%@용 로고 위치가 없습니다."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Het merkprofiel heeft geen logopositie voor %lld×%lld."
+            "value" : "Het merkprofiel heeft geen logopositie voor %@×%@."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O perfil de marca não tem posição de logotipo para %lld×%lld."
+            "value" : "O perfil de marca não tem posição de logotipo para %@×%@."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "品牌档案中没有 %lld×%lld 的标志位置。"
+            "value" : "品牌档案中没有 %@×%@ 的标志位置。"
           }
         }
       }

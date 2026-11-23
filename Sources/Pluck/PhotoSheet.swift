@@ -56,7 +56,7 @@ struct PhotoSheet: View {
                 }
                 Picker("Maximum size", selection: $maxPixel) {
                     Text("Original").tag(0)
-                    ForEach(Photos.sizes, id: \.self) { Text("\($0) px").tag($0) }
+                    ForEach(Photos.sizes, id: \.self) { Text(verbatim: "\($0) px").tag($0) }
                 }
                 .help("The longest side of the photo")
                 Toggle("Remove location and camera details", isOn: $removeDetails)

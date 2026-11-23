@@ -70,7 +70,7 @@ struct Conversion: Codable, Equatable {
         case .mp4: "MP4 · H.264"
         case .compress:
             if let resolution, resolution > 0 {
-                String(localized: "Compressed to \(percent ?? 50)% · \(resolution)p")
+                String(localized: "Compressed to \(percent ?? 50)% · \(String(resolution))p")
             } else {
                 String(localized: "Compressed to \(percent ?? 50)%")
             }

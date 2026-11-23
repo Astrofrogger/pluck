@@ -351,7 +351,7 @@ struct ConvertSheet: View {
                 Picker("Resolution", selection: $resolution) {
                     Text("Automatic").tag(Int?.none)
                     Text(originalLabel).tag(Int?.some(0))
-                    ForEach(Converting.resolutions(below: tallest), id: \.self) { Text("\($0)p").tag(Int?.some($0)) }
+                    ForEach(Converting.resolutions(below: tallest), id: \.self) { Text(verbatim: "\($0)p").tag(Int?.some($0)) }
                 }
                 .fixedSize()
                 .help("Automatic keeps the resolution unless the file gets so small that a lower one looks sharper")
@@ -363,7 +363,7 @@ struct ConvertSheet: View {
     private var tallest: Int { files.compactMap { details[$0]?.info?.height }.max() ?? 0 }
 
     private var originalLabel: String {
-        tallest > 0 ? String(localized: "Original (\(tallest)p)") : String(localized: "Original")
+        tallest > 0 ? String(localized: "Original (\(String(tallest))p)") : String(localized: "Original")
     }
 
     /// What each file becomes at the chosen size: the same numbers the encoder will aim for.
@@ -406,7 +406,7 @@ struct ConvertSheet: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 if resolution == nil, let lowered = plans.compactMap({ $0.compression?.height }).max() {
-                    Label("Lowered to \(lowered)p to stay sharp", systemImage: "arrow.down.right.and.arrow.up.left")
+                    Label("Lowered to \(String(lowered))p to stay sharp", systemImage: "arrow.down.right.and.arrow.up.left")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
