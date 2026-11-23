@@ -57,5 +57,13 @@ extension PhotoSelfTest {
         store.setSpec(social, for: store.items[1].id, manager: manager)
         await store.running?.value
         check("per file: changing a spec checks it again", wrongShape(store.items.last) == false)
+        // The spec changes while the file is being checked: the finished result is not kept, it's checked again for the new one.
+        let busy = DeliveryCheckStore(url: nil)
+        busy.items = [.init(file: square)]
+        busy.check(all: false, manager: manager)
+        busy.setSpec(social, for: busy.items[0].id, manager: manager)
+        while let task = busy.running { await task.value }
+        check("spec changed during a check: result is for the new spec", wrongShape(busy.items.first) == false && busy.items.first?.report?.spec.id == social,
+              busy.items.first?.failed ?? "")
     }
 }

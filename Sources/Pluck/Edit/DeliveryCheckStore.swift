@@ -141,7 +141,8 @@ final class DeliveryCheckStore {
                 }
                 // Stopped part way: what was measured isn't a whole report.
                 guard !Task.isCancelled else { break }
-                guard let index = items.firstIndex(where: { $0.id == id }) else { continue }
+                // (Its spec or approved version changed during the check: that result is for the old one.)
+                guard let index = items.firstIndex(where: { $0.id == id }), items[index].specID == item.specID, items[index].approved == item.approved else { continue }
                 items[index].report = report
                 items[index].failed = failed
                 revision += 1
