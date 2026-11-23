@@ -103,6 +103,8 @@ final class ReviewPublish {
     @ObservationIgnored private var seqs: [String: Int] = [:]
     /// The owner's own comment changes still to append on hosts, per data folder.
     @ObservationIgnored private var outbox: [String: [[String: Any]]] = [:]
+    /// Per project, a Mac host's uploads not fetched yet (that Mac was away, or needs a newer Pluck): tried again at the next pull.
+    @ObservationIgnored private var waitingUploads: [UUID: [[String: Any]]] = [:]
     @ObservationIgnored private var merging = false
     @ObservationIgnored private var puller: Task<Void, Never>?
     /// Per project, the link state hosts were last sent (see linkState), and the update on its way.
@@ -899,7 +901,7 @@ final class ReviewPublish {
                 }
                 outbox[name] = Array((outbox[name] ?? []).dropFirst(outgoing.count))
                 merge(answer["entries"] as? [[String: Any]] ?? [], project: project)
-                if host.kind == .nas { await importUploads(answer["entries"] as? [[String: Any]] ?? [], project: project, host: host) }
+                await importUploads(answer["entries"] as? [[String: Any]] ?? [], project: project, host: host)
                 if let seq = answer["seq"] as? Int { seqs[name] = seq }
                 online[host.id] = true
                 for index in publications.indices where publications[index].host == host.id && publications[index].scope.project == project {
@@ -912,45 +914,73 @@ final class ReviewPublish {
         save()
     }
 
-    /// Clients' uploads on a NAS (kept apart there): fetched with `get`, added to the project, then deleted on the host.
-    /// shortcut: a Mac host's uploads stay on the office Mac (no file op through Edit Anywhere yet).
+    /// Clients' uploads on a NAS (kept apart there) or an always-on Mac (in the data folder it hosts): fetched (a NAS's `get`,
+    /// the Mac's ReviewHostUploads through Edit Anywhere), added to the project, then deleted on the host.
     func importUploads(_ entries: [[String: Any]], project: UUID, host: Deliver.Host) async {
         RemoteAskFiles.shared.arrived(entries, host: host)
         // (Ask for Files uploads go to their NAS folder, never into the project: RemoteAskFiles.)
-        let uploads = entries.compactMap { $0["upload"] as? [String: Any] }.filter { $0["into"] == nil }
+        var uploads = entries.compactMap { $0["upload"] as? [String: Any] }.filter { $0["into"] == nil && $0["for"] as? String != "attachment" } // (a comment's attachment stays with its comment)
+        if host.kind == .mac {
+            uploads = (waitingUploads.removeValue(forKey: project) ?? []) + uploads
+            guard !uploads.isEmpty else { return }
+            let bundle = Self.dataName(host: host.id, project: project)
+            var left: [[String: Any]] = []
+            for (index, upload) in uploads.enumerated() {
+                do {
+                    try await importUpload(upload, project: project, host: host,
+                                           get: { try await ReviewHostUploads.fetch(bundle: bundle, path: $0, to: $1, expected: $2) },
+                                           delete: { await ReviewHostUploads.delete(bundle: bundle, path: $0) })
+                } catch is ReviewHostUploads.Gone {
+                } catch {
+                    // shortcut: kept in memory only (a restart forgets them; the files stay on that Mac), persist if owners hit it.
+                    left.append(upload)
+                    if ReviewHostUploads.needsUpdate(error) { problem = ShrinkRemote.reason(error); left += uploads.dropFirst(index + 1); break }
+                }
+            }
+            if !left.isEmpty { waitingUploads[project] = left }
+            return
+        }
         guard !uploads.isEmpty else { return }
         try? await ReviewHostClient.session(host) { session in
-            for upload in uploads where upload["for"] as? String != "attachment" { // (a comment's attachment stays with its comment)
-                // A client's file from an outage, now in the server's uploads folder (§13.25): added where it is, by reference.
-                if upload["root"] as? Bool == true, let path = upload["path"] as? String, !path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
-                   let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project {
-                    let name = DeliverServer.safeName(upload["name"] as? String ?? "")
-                    let file = URL(fileURLWithPath: name)
-                    let reference = Self.nasPath(host: host.id, path: path)
-                    guard !name.isEmpty, !self.store.content(project).assets.contains(where: { $0.versions.contains { $0.path == reference } }) else { continue }
-                    if let made = self.store.addReferences([(name: file.deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(file), path: reference,
-                                                             size: (upload["size"] as? NSNumber)?.int64Value ?? 0)], to: project).first {
-                        if let folder = link.uploads?.folder { self.store.move(asset: made.id, to: folder) }
-                        self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
-                    }
-                    continue
-                }
-                guard let path = upload["path"] as? String, path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
-                      let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project,
-                      let raw = upload["name"] as? String else { continue }
-                let name = DeliverServer.safeName(raw)
-                guard !name.isEmpty else { continue }
-                let target = DeliverServer.unique(self.store.root.appendingPathComponent("Uploads/\(link.id.uuidString)/\(name)"))
-                try await session.get(path, to: target, expected: (upload["size"] as? NSNumber)?.int64Value ?? 0)
-                let folders = self.store.content(project).folders
-                var folder: UUID? = link.uploads?.folder.flatMap { id in folders.contains { $0.id == id } ? id : nil }
-                if folder == nil, case .folder(let id, _) = link.scope { folder = id }
-                if let made = try? self.store.add([target], to: project, folder: folder).first {
-                    self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
-                }
-                _ = try? await session.ask(["op": "delete", "path": path])
+            for upload in uploads {
+                try await self.importUpload(upload, project: project, host: host,
+                                            get: { try await session.get($0, to: $1, expected: $2) },
+                                            delete: { _ = try? await session.ask(["op": "delete", "path": $0]) })
             }
         }
+    }
+
+    /// One client upload: fetched with `get` (path, target, size) into this Mac's store, added, then `delete`d on the host.
+    private func importUpload(_ upload: [String: Any], project: UUID, host: Deliver.Host,
+                              get: (String, URL, Int64) async throws -> Void, delete: (String) async -> Void) async throws {
+        // A client's file from an outage, now in the server's uploads folder (§13.25): added where it is, by reference.
+        if host.kind == .nas, upload["root"] as? Bool == true, let path = upload["path"] as? String, !path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
+           let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project {
+            let name = DeliverServer.safeName(upload["name"] as? String ?? "")
+            let file = URL(fileURLWithPath: name)
+            let reference = Self.nasPath(host: host.id, path: path)
+            guard !name.isEmpty, !self.store.content(project).assets.contains(where: { $0.versions.contains { $0.path == reference } }) else { return }
+            if let made = self.store.addReferences([(name: file.deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(file), path: reference,
+                                                     size: (upload["size"] as? NSNumber)?.int64Value ?? 0)], to: project).first {
+                if let folder = link.uploads?.folder { self.store.move(asset: made.id, to: folder) }
+                self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
+            }
+            return
+        }
+        guard let path = upload["path"] as? String, path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
+              let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project,
+              let raw = upload["name"] as? String else { return }
+        let name = DeliverServer.safeName(raw)
+        guard !name.isEmpty else { return }
+        let target = DeliverServer.unique(self.store.root.appendingPathComponent("Uploads/\(link.id.uuidString)/\(name)"))
+        try await get(path, target, (upload["size"] as? NSNumber)?.int64Value ?? 0)
+        let folders = self.store.content(project).folders
+        var folder: UUID? = link.uploads?.folder.flatMap { id in folders.contains { $0.id == id } ? id : nil }
+        if folder == nil, case .folder(let id, _) = link.scope { folder = id }
+        if let made = try? self.store.add([target], to: project, folder: folder).first {
+            self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
+        }
+        await delete(path)
     }
 
     /// A data host's clients' uploads (§13.25; it holds the review data, so nothing comes to this Mac): each becomes an asset
