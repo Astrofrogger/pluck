@@ -4,10 +4,13 @@ import SwiftUI
 struct EnhanceSheet: View {
     @Environment(AIStudio.self) private var studio
     @Environment(\.dismiss) private var dismiss
-    let item: DownloadItem
+    let items: [DownloadItem]
+    private var item: DownloadItem { items[0] }
     @AppStorage("enhanceUpscale") private var upscale: Enhance.Upscale = .hd
     @AppStorage("enhanceMotion") private var motion: Enhance.Motion = .off
     @State private var info: Converting.MediaInfo?
+    /// Every video's, for the time estimate.
+    @State private var infos: [Converting.MediaInfo] = []
 
     /// The picture's short side (its height when upright).
     private var sourceHeight: Int? {
@@ -21,8 +24,11 @@ struct EnhanceSheet: View {
     private var hasWork: Bool { upscales || motion != .off }
 
     private var estimate: String? {
-        guard hasWork, let w = info?.width, let h = info?.height, let duration = info?.duration else { return nil }
-        let seconds = Enhance.estimatedSeconds(width: w, height: h, duration: duration, frameRate: info?.fps ?? 30, options: options)
+        guard hasWork, !infos.isEmpty else { return nil }
+        let seconds = infos.reduce(0.0) { total, info in
+            guard let w = info.width, let h = info.height, let duration = info.duration else { return total }
+            return total + Enhance.estimatedSeconds(width: w, height: h, duration: duration, frameRate: info.fps ?? 30, options: options)
+        }
         let minutes = max(1, Int((seconds / 60).rounded(.up)))
         return minutes < 90 ? String(localized: "Takes about \(minutes) min on this Mac.")
                             : String(localized: "Takes about \(minutes / 60) h on this Mac. Try part of the video first.")
@@ -30,7 +36,7 @@ struct EnhanceSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "sparkles.tv", title: Text("Upscale & Smooth"), subtitle: Text(item.title))
+            SheetHeader(symbol: "sparkles.tv", title: Text("Upscale & Smooth"), subtitle: Text(AIStudio.Batch(items).title))
 
             Form {
                 Picker(selection: $upscale) {
@@ -71,7 +77,7 @@ struct EnhanceSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Enhance") {
-                    studio.enhance(item, options: options)
+                    for item in items { studio.enhance(item, options: options) }
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -82,8 +88,12 @@ struct EnhanceSheet: View {
         .padding(Design.Spacing.sheet)
         .frame(width: 500)
         .task {
-            guard let file = item.existingFile, let ffprobe = studio.toolPath("ffprobe") else { return }
-            info = await Converting.probe(file, ffprobe: ffprobe)
+            guard let ffprobe = studio.toolPath("ffprobe") else { return }
+            for item in items {
+                guard let file = item.existingFile, let found = await Converting.probe(file, ffprobe: ffprobe) else { continue }
+                if item === items[0] { info = found }
+                infos.append(found)
+            }
         }
     }
 
@@ -95,4 +105,8 @@ struct EnhanceSheet: View {
         case .slow2, .slow4: String(localized: "New frames in between make smooth slow motion. Slow motion has no sound.")
         }
     }
+}
+
+extension EnhanceSheet {
+    init(item: DownloadItem) { self.init(items: [item]) }
 }

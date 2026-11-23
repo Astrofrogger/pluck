@@ -376064,6 +376064,528 @@
           }
         }
       }
+    },
+    "Sending to DaVinci Resolve…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird an DaVinci Resolve gesendet …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviando a DaVinci Resolve…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi vers DaVinci Resolve…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invio a DaVinci Resolve…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolveに送信中…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve로 보내는 중…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versturen naar DaVinci Resolve…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviando ao DaVinci Resolve…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在发送到 DaVinci Resolve…"
+          }
+        }
+      }
+    },
+    "The cut timeline on the original clip, in the open project." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die geschnittene Timeline mit dem Originalclip, im geöffneten Projekt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La línea de tiempo cortada sobre el clip original, en el proyecto abierto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La timeline coupée sur le clip d’origine, dans le projet ouvert."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La timeline tagliata sulla clip originale, nel progetto aperto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のクリップでカット済みのタイムラインを、開いているプロジェクトに。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "원본 클립으로 자른 타임라인을 열려 있는 프로젝트에."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De geknipte tijdlijn op de originele clip, in het open project."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A timeline cortada sobre o clipe original, no projeto aberto."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在打开的项目中，用原始片段生成剪好的时间线。"
+          }
+        }
+      }
+    },
+    "Channels to clean" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu bereinigende Kanäle"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canales que limpiar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canaux à nettoyer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canali da pulire"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリーンアップするチャンネル"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "정리할 채널"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kanalen om op te schonen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canais a limpar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要清理的声道"
+          }
+        }
+      }
+    },
+    "Each channel is cleaned on its own and kept in its place." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeder Kanal wird einzeln bereinigt und bleibt an seinem Platz."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada canal se limpia por separado y queda en su lugar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque canal est nettoyé séparément et reste à sa place."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ogni canale viene pulito da solo e resta al suo posto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各チャンネルを個別にクリーンアップし、元の位置に残します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "각 채널을 따로 정리하고 제자리에 둡니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elk kanaal wordt apart opgeschoond en blijft op zijn plek."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada canal é limpo separadamente e fica no seu lugar."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个声道单独清理，并保留在原位置。"
+          }
+        }
+      }
+    },
+    "Also save a WAV" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auch eine WAV sichern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar también un WAV"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer aussi un WAV"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salva anche un WAV"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WAVも保存"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WAV도 저장"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bewaar ook een WAV"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salvar também um WAV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同时保存 WAV"
+          }
+        }
+      }
+    },
+    "For PCM sound: the clean sound beside the video, to sync in DaVinci Resolve." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für PCM-Ton: der bereinigte Ton neben dem Video, zum Synchronisieren in DaVinci Resolve."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para sonido PCM: el sonido limpio junto al vídeo, para sincronizar en DaVinci Resolve."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour le son PCM : le son nettoyé à côté de la vidéo, à synchroniser dans DaVinci Resolve."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per l’audio PCM: l’audio pulito accanto al video, da sincronizzare in DaVinci Resolve."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PCM音声の場合：クリーンな音声をビデオの横に保存し、DaVinci Resolveで同期できます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PCM 사운드: 정리된 사운드를 비디오 옆에 저장해 DaVinci Resolve에서 동기화합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voor PCM-geluid: het opgeschoonde geluid naast de video, om te synchroniseren in DaVinci Resolve."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para som PCM: o som limpo ao lado do vídeo, para sincronizar no DaVinci Resolve."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PCM 声音：将清理后的声音保存在视频旁边，用于在 DaVinci Resolve 中同步。"
+          }
+        }
+      }
+    },
+    "Channel %lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kanal %lld"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canal %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canal %lld"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canale %lld"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャンネル%lld"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채널 %lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kanaal %lld"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canal %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "声道 %lld"
+          }
+        }
+      }
+    },
+    "Most tools: all %lld selected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die meisten Werkzeuge: alle %lld ausgewählten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La mayoría de las herramientas: los %lld seleccionados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La plupart des outils : les %lld sélectionnés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La maggior parte degli strumenti: tutti i %lld selezionati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほとんどのツール：選択中の%lld項目すべて"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "대부분의 도구: 선택한 %lld개 모두"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De meeste tools: alle %lld geselecteerde"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A maioria das ferramentas: todos os %lld selecionados"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大多数工具：所选的全部 %lld 项"
+          }
+        }
+      }
+    },
+    "Every face in each video is blurred. To keep someone sharp, blur one video at a time. Check the results before sharing them." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jedes Gesicht in jedem Video wird unscharf. Um jemanden scharf zu lassen, ein Video nach dem anderen unscharf machen. Prüfe die Ergebnisse vor dem Teilen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se desenfocan todas las caras de cada vídeo. Para dejar a alguien nítido, desenfoca un vídeo cada vez. Revisa los resultados antes de compartirlos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous les visages de chaque vidéo sont floutés. Pour garder quelqu’un net, floutez une vidéo à la fois. Vérifiez les résultats avant de les partager."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ogni volto in ogni video viene sfocato. Per lasciare qualcuno nitido, sfoca un video alla volta. Controlla i risultati prima di condividerli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各ビデオのすべての顔をぼかします。誰かをはっきり残すには、1本ずつぼかしてください。共有する前に結果を確認してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "각 비디오의 모든 얼굴을 흐리게 합니다. 누군가를 선명하게 두려면 한 번에 비디오 하나씩 흐리게 하세요. 공유하기 전에 결과를 확인하세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elk gezicht in elke video wordt vervaagd. Wil je iemand scherp houden, vervaag dan één video tegelijk. Controleer de resultaten voor je ze deelt."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos os rostos de cada vídeo são desfocados. Para manter alguém nítido, desfoque um vídeo de cada vez. Confira os resultados antes de compartilhar."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个视频中的所有面孔都会被模糊。若要让某人保持清晰，请一次模糊一个视频。分享前请检查结果。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

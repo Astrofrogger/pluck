@@ -398,6 +398,12 @@ struct DownloadRow: View {
         return usable.isEmpty ? [item] : usable
     }
 
+    /// The videos among them, for the picture tools.
+    private var videoTargets: [DownloadItem] {
+        let videos = targets.filter { $0.existingFile.map(Converting.isVideo) ?? false }
+        return videos.isEmpty ? [item] : videos
+    }
+
     /// A finished video or song (not a folder or photo) that local AI can work with.
     private var isAIEligible: Bool {
         guard let file = item.existingFile, !file.hasDirectoryPath else { return false }
@@ -428,7 +434,7 @@ struct DownloadRow: View {
         let busy = item.aiStatus != nil
         let isVideo = item.existingFile.map(Converting.isVideo) ?? false
         if targets.count > 1 {
-            Text("Subtitles, silences and audio clean-up: all \(targets.count) selected")
+            Text("Most tools: all \(targets.count) selected")
         }
         if LocalAI.canTranscribe || LocalAI.summariesPossible {
             Section("Words") {
@@ -463,12 +469,14 @@ struct DownloadRow: View {
                 Button("Remove Silences & Fillers…", systemImage: "scissors") { ai.tightenBatch = AIStudio.Batch(targets) }
                     .disabled(busy)
                 if Enhance.isSupported {
-                    Button("Upscale & Smooth…", systemImage: "sparkles.tv") { ai.enhanceItem = item }
+                    Button("Upscale & Smooth…", systemImage: "sparkles.tv") { ai.enhanceBatch = AIStudio.Batch(videoTargets) }
                         .disabled(busy)
                 }
-                Button("New Background…", systemImage: "person.and.background.dotted") { ai.backgroundItem = item }
+                Button("New Background…", systemImage: "person.and.background.dotted") { ai.backgroundBatch = AIStudio.Batch(videoTargets) }
                     .disabled(busy)
-                Button("Privacy Blur…", systemImage: "eye.slash") { ai.blurItem = item }
+                Button("Privacy Blur…", systemImage: "eye.slash") {
+                    if videoTargets.count > 1 { ai.blurBatch = AIStudio.Batch(videoTargets) } else { ai.blurItem = item }
+                }
                     .disabled(busy)
             }
         }

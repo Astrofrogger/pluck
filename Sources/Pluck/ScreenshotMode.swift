@@ -497,9 +497,13 @@ enum ScreenshotMode {
             case "subtitles": ai.subtitleBatch = batch
             case "tighten": ai.tightenBatch = batch
             case "cleanup": ai.cleanupBatch = batch
-            case "enhance": ai.enhanceItem = item
-            case "background": ai.backgroundItem = item
+            case "enhance": ai.enhanceBatch = batch
+            case "background": ai.backgroundBatch = batch
             case "blur": ai.blurItem = item
+            case "enhancebatch", "backgroundbatch", "blurbatch":
+                // Every finished file (-PluckScreenshotSeed <folder>) as one batch.
+                let all = AIStudio.Batch(manager.items.filter { $0.state == .finished && $0.existingFile != nil })
+                if scene == "enhancebatch" { ai.enhanceBatch = all } else if scene == "backgroundbatch" { ai.backgroundBatch = all } else { ai.blurBatch = all }
             case "shorts": ai.shortsItem = item
             case "summarize": if let item { ai.languageAsk = AIStudio.LanguageAsk(item: item, action: .summarize) { _ in } }
             case "live":

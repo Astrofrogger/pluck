@@ -178,9 +178,9 @@ struct ConvertSheet: View {
                 case .deliverables: ai.deliverablesItem = item
                 case .tighten: ai.tightenBatch = AIStudio.Batch(items)
                 case .cleanup: ai.cleanupBatch = AIStudio.Batch(items)
-                case .enhance: ai.enhanceItem = item
-                case .background: ai.backgroundItem = item
-                case .blur: ai.blurItem = item
+                case .enhance: ai.enhanceBatch = AIStudio.Batch(items)
+                case .background: ai.backgroundBatch = AIStudio.Batch(items)
+                case .blur: if items.count > 1 { ai.blurBatch = AIStudio.Batch(items) } else { ai.blurItem = item }
                 default: ai.subtitleBatch = AIStudio.Batch(items)
                 }
             }

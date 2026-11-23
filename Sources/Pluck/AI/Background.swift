@@ -336,9 +336,10 @@ extension AIStudio {
                 item.aiProgress = nil
                 let output = Converting.outputURL(folder: file.deletingLastPathComponent().path,
                                                   name: file.deletingPathExtension().lastPathComponent + String(localized: " (new background)"),
-                                                  fileExtension: transparent ? "mov" : "mp4")
+                                                  fileExtension: transparent || file.pathExtension.lowercased() == "mov" ? "mov" : "mp4")
                 var args = ["-y", "-v", "error", "-i", picture.path, "-i", file.path, "-map", "0:v", "-map", "1:a?",
                             "-c:v", "copy", "-shortest"]
+                args += await FrameRewriter.keepingSource(file, input: 1, ffprobe: toolPath("ffprobe"))
                 args += transparent ? ["-c:a", "pcm_s16le"] : ["-c:a", "copy", "-tag:v", "hvc1", "-movflags", "+faststart"]
                 try await ffmpeg(args + [output.path], failure: FrameRewriter.Failure.noVideo)
                 finishJob(item)
