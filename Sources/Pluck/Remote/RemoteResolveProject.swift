@@ -291,14 +291,20 @@ enum RemoteResolveProject {
                 }
             } else if let a = clip.duration, let b = info.duration, abs(a - b) > max(2 / (clip.fps ?? 25), 0.1) {
                 tell(clip, String(localized: "\(clip.name): the original has another length."))
-            } else if let a = clip.audio, let b = info.audio, a != b {
+            } else if let a = clip.audio, let b = info.audio, a != b, !oldRaw(clip, info, original) {
                 tell(clip, String(localized: "\(clip.name): \(a) audio channels, the original has \(b)."))
-            } else if let a = clip.timecode, let b = info.timecode, normal(a) != normal(b) {
+            } else if let a = clip.timecode, let b = info.timecode, normal(a) != normal(b), !oldRaw(clip, info, original) {
                 tell(clip, String(localized: "\(clip.name): the timecode differs from the original."))
             }
             result[clip.id] = original
         }
         return (result, problems)
+    }
+
+    /// A raw clip's proxy made by a Mac before 4.0.7: picture only, no timecode, still the original's picture.
+    nonisolated static func oldRaw(_ clip: Clip, _ info: Original, _ original: String) -> Bool {
+        let url = URL(fileURLWithPath: original)
+        return clip.audio == 0 && info.audio != 0 && RemoteEditHost.isRawClip(url, directory: RemoteEditHost.isDirectory(url))
     }
 
     nonisolated private static func normal(_ timecode: String) -> String { timecode.replacingOccurrences(of: ";", with: ":") }
