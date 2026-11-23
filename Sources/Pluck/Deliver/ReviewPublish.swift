@@ -103,8 +103,9 @@ final class ReviewPublish {
     @ObservationIgnored private var seqs: [String: Int] = [:]
     /// The owner's own comment changes still to append on hosts, per data folder.
     @ObservationIgnored private var outbox: [String: [[String: Any]]] = [:]
-    /// Per project, a Mac host's uploads not fetched yet (that Mac was away, or needs a newer Pluck): tried again at the next pull.
-    @ObservationIgnored private var waitingUploads: [UUID: [[String: Any]]] = [:]
+    /// Per link, a Mac host's uploads not fetched yet (that Mac was away, needs a newer Pluck, or there was no room here),
+    /// kept in the support folder: tried again at the next pull, one with a lasting problem once an hour ("retryAfter").
+    private var waitingFile: URL { store.root.appendingPathComponent("waiting-uploads.json") }
     /// (A test sets the clock for retries.)
     @ObservationIgnored var uploadsNow: () -> Date = { .now }
     @ObservationIgnored private var merging = false
@@ -923,23 +924,35 @@ final class ReviewPublish {
         // (Ask for Files uploads go to their NAS folder, never into the project: RemoteAskFiles.)
         var uploads = entries.compactMap { $0["upload"] as? [String: Any] }.filter { $0["into"] == nil && $0["for"] as? String != "attachment" } // (a comment's attachment stays with its comment)
         if host.kind == .mac {
-            uploads = (waitingUploads.removeValue(forKey: project) ?? []) + uploads
+            var waiting = (try? Data(contentsOf: waitingFile)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: [[String: Any]]] } ?? [:]
+            let earlier = store.links.filter { $0.project == project }.flatMap { waiting.removeValue(forKey: $0.id.uuidString) ?? [] }
+            let now = uploadsNow().timeIntervalSince1970
+            var left = earlier.filter { $0["retryAfter"] as? Double ?? 0 > now }
+            uploads = earlier.filter { $0["retryAfter"] as? Double ?? 0 <= now } + uploads
             guard !uploads.isEmpty else { return }
             let bundle = Self.dataName(host: host.id, project: project)
-            var left: [[String: Any]] = []
             for (index, upload) in uploads.enumerated() {
                 do {
                     try await importUpload(upload, project: project, host: host,
                                            get: { try await ReviewHostUploads.fetch(bundle: bundle, path: $0, to: $1, expected: $2) },
                                            delete: { await ReviewHostUploads.delete(bundle: bundle, path: $0) })
                 } catch is ReviewHostUploads.Gone {
-                } catch {
-                    // shortcut: kept in memory only (a restart forgets them; the files stay on that Mac), persist if owners hit it.
+                } catch let error as OfficeLink.Failure { // (that Mac away, or the copy damaged on the way: the next pull)
                     left.append(upload)
                     if ReviewHostUploads.needsUpdate(error) { problem = ShrinkRemote.reason(error); left += uploads.dropFirst(index + 1); break }
+                } catch {
+                    // A lasting problem here (no room, can't be saved): said once, then tried once an hour.
+                    var upload = upload
+                    if upload["problem"] == nil { problem = String(localized: "A client’s upload waits on the always-on Mac: it couldn’t be saved on this Mac.") }
+                    upload["problem"] = "\(error)"
+                    upload["retryAfter"] = now + 3600
+                    left.append(upload)
                 }
             }
-            if !left.isEmpty { waitingUploads[project] = left }
+            guard !left.isEmpty || !earlier.isEmpty else { return }
+            for upload in left { waiting[upload["link"] as? String ?? "", default: []].append(upload) }
+            try? FileManager.default.createDirectory(at: store.root, withIntermediateDirectories: true)
+            if let data = try? JSONSerialization.data(withJSONObject: waiting) { try? data.write(to: waitingFile, options: .atomic) }
             return
         }
         guard !uploads.isEmpty else { return }
