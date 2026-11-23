@@ -9,6 +9,13 @@ struct DeliveryCheckView: View {
     @MainActor static var openFile: URL?
     static let openNotification = Notification.Name("PluckDeliveryCheckOpen")
 
+    /// Sends a finished file to Delivery Check in Tools (from the Editor).
+    @MainActor static func check(_ url: URL) {
+        openFile = url
+        StudioNavigator.shared.open(windowID: "deliveryCheck")
+        NotificationCenter.default.post(name: openNotification, object: url)
+    }
+
     /// Sends a finished file to Delivery Check in Deliver (it joins the queue).
     @MainActor static func check(_ url: URL, nav: StudioNavigator) {
         openFile = url
