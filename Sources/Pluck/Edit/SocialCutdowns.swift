@@ -12,7 +12,7 @@ enum SocialCutdowns {
     /// Seconds between the looks at the picture.
     static let step = 0.2
 
-    enum Framing: String, CaseIterable, Identifiable, Sendable {
+    enum Framing: String, CaseIterable, Identifiable, Sendable, Codable {
         /// Cropped, following the subject.
         case follow
         /// The whole picture over a blurred copy of itself.
@@ -30,7 +30,7 @@ enum SocialCutdowns {
     }
 
     /// What Vision saw at one moment. Rectangles are normalised, top left origin.
-    struct Sample: Sendable {
+    struct Sample: Sendable, Codable {
         var time: Double
         var faces: [CGRect] = []
         var people: [CGRect] = []
@@ -41,9 +41,11 @@ enum SocialCutdowns {
         var subject: CGRect?
 
         var candidates: [CGRect] { !faces.isEmpty ? faces : !people.isEmpty ? people : objects }
+        // The thumbnail only finds cuts while analysing: not saved.
+        enum CodingKeys: String, CodingKey { case time, faces, people, objects, text, subject }
     }
 
-    struct Shot: Sendable, Identifiable, Equatable {
+    struct Shot: Sendable, Identifiable, Equatable, Codable {
         var start: Double
         var end: Double
         /// Text and graphics on screen through most of the shot.
@@ -51,7 +53,7 @@ enum SocialCutdowns {
         var id: Double { start }
     }
 
-    struct Analysis: Sendable {
+    struct Analysis: Sendable, Codable {
         var file: URL
         var width: Int
         var height: Int
@@ -67,7 +69,7 @@ enum SocialCutdowns {
     }
 
     /// What was changed by hand on one shot.
-    struct ShotEdit: Sendable, Equatable {
+    struct ShotEdit: Sendable, Equatable, Codable {
         /// A subject picked and tracked: its centre (0…1 across) at each of the shot's samples.
         var path: [Double]?
         /// A crop dragged into place, per format: held there for the whole shot.
@@ -449,6 +451,8 @@ enum SocialCutdowns {
         /// The brand logo drawn at the format's placement (the source's own logo hidden).
         var logo: (image: CGImage, rect: CGRect)?
         var folder: URL
+        /// ProRes 422 HQ in a .mov, to finish in Resolve; else H.264.
+        var proRes = false
     }
 
     /// The ffmpeg filter graph for one format (input 0 the source, 1 the logo if any; output [out]).
@@ -517,8 +521,14 @@ enum SocialCutdowns {
         return graph.joined(separator: ";")
     }
 
+    /// The picture's encoder: ProRes 422 HQ (10 bit) or H.264 for posting straight away.
+    static func videoArguments(proRes: Bool) -> [String] {
+        proRes ? ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-vendor", "apl0"]
+            : ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    }
+
     /// Writes one format next to the others in `render.folder`: "<name>_9x16.mp4" (".mov" when the
-    /// source isn't an MP4, so its sound can be copied as it is).
+    /// source isn’t an MP4 or for ProRes, so its sound can be copied as it is).
     static func render(_ analysis: Analysis, _ render: Render, ffmpeg: String,
                        progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-cutdown-\(UUID().uuidString)", isDirectory: true)
@@ -540,13 +550,12 @@ enum SocialCutdowns {
             inputs += ["-i", url.path]
         }
         let graph = try filterGraph(analysis, render, commandFile: work.appendingPathComponent("path.txt"), captions: captions)
-        let ext = ["mp4", "m4v"].contains(analysis.file.pathExtension.lowercased()) ? "mp4" : "mov"
+        let ext = !render.proRes && ["mp4", "m4v"].contains(analysis.file.pathExtension.lowercased()) ? "mp4" : "mov"
         let name = analysis.file.deletingPathExtension().lastPathComponent + "_" + render.format.tag
         let output = EditorExport.reserve(folder: render.folder.path, name: name, fileExtension: ext)
         let args = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1"] + inputs
             + ["-filter_complex", graph, "-map", "[out]", "-map", "0:a?",
-               "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy",
-               "-movflags", "+faststart", EditorExport.partial(output).path]
+               ] + videoArguments(proRes: render.proRes) + ["-c:a", "copy", EditorExport.partial(output).path]
         let outcome = await EditorExport.run(ffmpeg, args, total: analysis.duration, progress: progress)
         switch outcome {
         case .done:
@@ -559,18 +568,6 @@ enum SocialCutdowns {
             try? FileManager.default.removeItem(at: EditorExport.partial(output))
             throw AIStudio.ToolFailure(message: EditorExport.readable(outcome) ?? String(localized: "The video couldn’t be written."))
         }
-    }
-
-    /// Captions for the edit, from the on-device speech recognizer.
-    @available(macOS 26, *)
-    static func transcribe(_ file: URL, studio: AIStudio, status: @escaping @Sendable (String, Double?) -> Void) async throws -> [Transcript.Cue] {
-        let audio = try await studio.extractAudio(from: file)
-        defer { try? FileManager.default.removeItem(at: audio) }
-        // shortcut: the Mac's own language (else English); add a language menu if edits in other languages come up.
-        let language = LocalAI.match(Locale.current, in: await OnDeviceSpeech.languages()) ?? Locale(identifier: "en-US")
-        let words = try await OnDeviceSpeech.transcribe(audio, locale: language, duration: nil, status: status)
-        return Transcript(id: UUID().uuidString, title: file.lastPathComponent, filePath: file.path, sourceURL: nil,
-                          language: language.identifier, duration: nil, created: .now, words: words).cues()
     }
 }
 
