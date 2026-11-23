@@ -54,6 +54,9 @@ struct PhotoPage: View {
     /// The Map's chosen pin: only its photos in the grid (nil: every photo with a place).
     @State private var mapPick: Set<String>?
     @State private var editingSmart: SmartAlbum?
+    /// Share with Client in progress (photos exported so far, of how many), and what went wrong.
+    @State private var sharing: (done: Int, total: Int)?
+    @State private var shareProblem: String?
 
     /// The album or list open on the left (remembered, so a drop goes into the album you see).
     private var source: PhotoCatalog.Source {
@@ -220,6 +223,7 @@ struct PhotoPage: View {
                     .clipShape(panel)
                     .contextMenu { if strip { surroundPicker } }
                     .overlay(alignment: .bottom) { if strip, !editing.cropping { photoCounter.padding(.bottom, 14) } }
+                    .overlay(alignment: .top) { notice.padding(.top, 10) }
                     if strip {
                         filmstrip
                             .background(Design.Studio.panel, in: panel)
@@ -260,8 +264,8 @@ struct PhotoPage: View {
         .onChange(of: minRating) { keepFocusInFilter() }
         .onChange(of: labelFilter) { keepFocusInFilter() }
         .onChange(of: checkFilter) { keepFocusInFilter() }
-        .onChange(of: selection, initial: true) { editing.levelCount = pasteTargets.count }
-        .onChange(of: focus) { editing.levelCount = pasteTargets.count }
+        .onChange(of: selection, initial: true) { editing.levelCount = pasteTargets.count; editing.selected = pasteTargets }
+        .onChange(of: focus) { editing.levelCount = pasteTargets.count; editing.selected = pasteTargets }
         .sheet(item: $copySheet) { mode in
             PasteChooser(count: pasteTargets.count, copying: mode == .copy) { _ in
                 if mode == .copy { if let focus { PhotoPasteboard.copy(focus) } } else { PhotoPasteboard.paste(PasteGroup.chosen, to: pasteTargets) }
@@ -274,6 +278,8 @@ struct PhotoPage: View {
             editing.asShot = press.phase != .up
             return .handled
         }
+        // Clients' picks and approvals onto the photos while the page is open (cheap: a lookup per shared photo).
+        .task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(20)); PhotoClientShare.pullDecisions() } }
         .onAppear {
             // The Scopes window follows what's on screen: back to the photo.
             ScopeHub.shared.showPhoto()
@@ -288,6 +294,7 @@ struct PhotoPage: View {
             if view != .grid, focus == nil { focus = photos.first }
             FootageFolders.shared.start()
             catalog.readSidecars(catalog.allPhotos)
+            PhotoClientShare.pullDecisions()
             // The library's background work (what's in each photo, checks, facts, faces, tags) a few seconds later: started
             // at once, it shared the GPU with the first photo shown and made it wait.
             Task { @MainActor in
@@ -985,7 +992,63 @@ struct PhotoPage: View {
             Button("Remove Virtual Copy") { removeCopies(targets.filter(PhotoCatalog.isCopy)) }
         }
         Divider()
+        Button("Share with Client…") { shareWithClient(photos.filter(Set(targets).contains)) }
+            .disabled(sharing != nil)
+            .help("Their exports in a Deliver gallery; the client’s picks come back as flags")
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: PhotoCatalog.file(of: $0)) }) }
+    }
+
+    /// The photos' exports into a Deliver gallery, then Deliver on it: a new gallery opens the link's builder.
+    private func shareWithClient(_ keys: [String]) {
+        guard !keys.isEmpty, sharing == nil else { return }
+        var title = Date.now.formatted(date: .abbreviated, time: .omitted)
+        if case .album(let id) = source, let album = catalog.albums.first(where: { $0.id == id }) { title = album.name }
+        sharing = (0, keys.count)
+        shareProblem = nil
+        Task {
+            defer { sharing = nil }
+            do {
+                let gallery = try await PhotoClientShare.share(keys, title: title, progress: { done in sharing = (done, keys.count) })
+                shareProblem = gallery.problem
+                let nav = StudioNavigator.shared
+                nav.deliver = .project(gallery.project, folder: gallery.folder)
+                nav.page = .deliver
+                let scope = Deliver.Scope.folder(gallery.folder, project: gallery.project)
+                if !DeliverStore.shared.links.contains(where: { $0.isLive && $0.scope == scope }) { ShareBuilder.shared.new(scope) }
+            } catch {
+                shareProblem = error.localizedDescription
+            }
+        }
+    }
+
+    /// One calm line over the photos: sharing's progress or problem, or a folder sidecars can't be written in.
+    @ViewBuilder private var notice: some View {
+        if let sharing {
+            HStack(spacing: 8) {
+                ProgressView(value: Double(sharing.done), total: Double(max(sharing.total, 1))).frame(width: 80)
+                Text("Preparing \(sharing.done) of \(sharing.total) for the client")
+            }
+            .modifier(NoticeCapsule())
+        } else if let shareProblem {
+            noticeLine(shareProblem) { self.shareProblem = nil }
+        } else if let folder = catalog.sidecarProblem {
+            noticeLine(String(localized: "Can’t write sidecars in “\(URL(fileURLWithPath: folder).lastPathComponent)”. Edits stay in Pluck and go in once it can.")) {
+                catalog.sidecarProblem = nil
+            }
+        }
+    }
+
+    private func noticeLine(_ text: String, close: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle").foregroundStyle(.secondary)
+            Text(text).lineLimit(2)
+            Button(action: close) { Image(systemName: "xmark") }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Close")
+                .accessibilityLabel(Text("Close"))
+        }
+        .modifier(NoticeCapsule())
     }
 
     /// A copy of the photo with its edit, shown next (to try another look on the same file).
@@ -1752,14 +1815,14 @@ struct PhotoLoupe: View {
         let upright = a.cropPortrait ?? PhotoRender.isPortrait(path)
         return HStack(spacing: 10) {
             Picker("Aspect", selection: Binding(get: { a.crop }, set: { value in
-                catalog.update([path]) { $0.adjust.crop = value; $0.adjust.cropRect = nil; $0.edited = .now }
+                editing.editShown(path) { $0.adjust.crop = value; $0.adjust.cropRect = nil }
             })) {
                 ForEach(PhotoAdjustments.Crop.allCases) { Text($0.title).tag($0) }
             }
             .labelsHidden()
             .fixedSize()
             Button {
-                catalog.update([path]) { $0.adjust.cropPortrait = !upright; $0.adjust.cropRect = nil; $0.edited = .now }
+                editing.editShown(path) { $0.adjust.cropPortrait = !upright; $0.adjust.cropRect = nil }
             } label: {
                 Image(systemName: upright ? "rectangle.portrait" : "rectangle")
             }
@@ -1767,7 +1830,7 @@ struct PhotoLoupe: View {
             .help("Turn the crop upright or on its side (\(Shortcuts.shared.shortcut(.photoTurnCrop).label))")
             .accessibilityLabel(Text("Turn the crop"))
             AdjustSlider(title: "Straighten", value: a.straighten, range: -45...45, format: "%+.1f°") { new in
-                catalog.update([path]) { $0.adjust.straighten = new; $0.edited = .now }
+                editing.editShown(path) { $0.adjust.straighten = new }
             }
             .frame(width: 280)
             Button("Reset") {
@@ -2437,6 +2500,17 @@ final class CullCache {
 }
 
 /// "Before" and "After", small, in a photo's corners.
+/// A short line over the photos, on glass.
+private struct NoticeCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(Design.Studio.body)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.regularMaterial, in: .capsule)
+            .frame(maxWidth: 560)
+    }
+}
+
 private struct CornerLabel: ViewModifier {
     func body(content: Content) -> some View {
         content

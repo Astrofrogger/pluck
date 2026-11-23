@@ -361,8 +361,11 @@ struct PhotoInspector: View {
                 }
                 return exposures
             }.value
-            for (path, exposure) in found {
-                catalog.update([path]) { $0.adjust.exposure = min(max(exposure, -5), 5); $0.edited = .now }
+            // (One step to undo, however many photos it set.)
+            catalog.group {
+                for (path, exposure) in found {
+                    catalog.update([path]) { $0.adjust.exposure = min(max(exposure, -5), 5); $0.edited = .now }
+                }
             }
             matching = false
         }

@@ -492,6 +492,10 @@ final class PhotoCatalog {
         guard Self.writesSidecars else { return }
         // Only the original goes into the file's sidecar; copies live in the catalogue.
         sidecarsWaiting.formUnion(paths.filter { !Self.isCopy($0) })
+        scheduleSidecars()
+    }
+
+    private func scheduleSidecars() {
         guard !sidecarsScheduled else { return }
         sidecarsScheduled = true
         Task {
@@ -499,10 +503,44 @@ final class PhotoCatalog {
             sidecarsScheduled = false
             let waiting = sidecarsWaiting.map { ($0, record($0)) }
             sidecarsWaiting = []
-            await Task.detached(priority: .utility) {
-                // A photo in a place Pluck can't write to keeps going without one.
-                for (path, record) in waiting { try? PhotoXMP.write(path, record: record) }
+            let failed = await Task.detached(priority: .utility) {
+                waiting.filter { (try? PhotoXMP.write($0.0, record: $0.1)) == nil }.map(\.0)
             }.value
+            sidecarsDone(failed: failed, written: waiting.map(\.0).filter { !failed.contains($0) })
+        }
+    }
+
+    /// Sidecars that couldn't be written (a locked card, a read-only share): the edit stays in the catalogue, they're
+    /// tried again every `sidecarRetry` until they go in (a photo whose file has gone is let go).
+    @ObservationIgnored private(set) var sidecarsFailed: Set<String> = []
+    @ObservationIgnored private var sidecarRetryScheduled = false
+    @ObservationIgnored private var sidecarFoldersTold: Set<String> = []
+    static var sidecarRetry = Duration.seconds(60)
+    /// A folder sidecars couldn't be written in, said once per folder (the Photo page shows it until closed).
+    var sidecarProblem: String?
+
+    private func sidecarsDone(failed: [String], written: [String]) {
+        sidecarsFailed.subtract(written)
+        sidecarsFailed.formUnion(failed)
+        for path in written {
+            let folder = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            sidecarFoldersTold.remove(folder)
+            if sidecarProblem == folder { sidecarProblem = nil }
+        }
+        for path in failed {
+            let folder = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            if sidecarFoldersTold.insert(folder).inserted { sidecarProblem = folder }
+        }
+        guard !sidecarsFailed.isEmpty, !sidecarRetryScheduled else { return }
+        sidecarRetryScheduled = true
+        Task {
+            try? await Task.sleep(for: Self.sidecarRetry)
+            sidecarRetryScheduled = false
+            let retry = sidecarsFailed.filter { FileManager.default.fileExists(atPath: $0) }
+            sidecarsFailed = []
+            guard Self.writesSidecars, !retry.isEmpty else { return }
+            sidecarsWaiting.formUnion(retry)
+            scheduleSidecars()
         }
     }
 

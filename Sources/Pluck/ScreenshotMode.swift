@@ -819,6 +819,8 @@ enum ScreenshotMode {
                     defaults.set(try? JSONEncoder().encode(settings), forKey: "photoExportSettings")
                 }
                 StudioNavigator.shared.show(.photo)
+                // -PluckScreenshotSidecarProblem <folder>: the "can't write sidecars" line over the photos (gy-photo).
+                if let folder = defaults.string(forKey: "PluckScreenshotSidecarProblem") { PhotoCatalog.shared.sidecarProblem = folder }
             case "project":
                 // -PluckScreenshotFiles <a|b|c>: a project with these files.
                 // -PluckScreenshotStabilize <file>: steadies it.
