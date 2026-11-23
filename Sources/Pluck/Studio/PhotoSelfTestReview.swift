@@ -3318,6 +3318,12 @@ extension PhotoSelfTest {
             await ShareRootNames.learn(publish: publish, timeout: 3)
             return publish.host(host.id)?.rootNames
         }
+        check("shares: Connect keeps the scheme the share was mounted with (smb, nfs, afp); unknown stays smb",
+              DeliverUploadDestination.reconnectURL(.init(server: "nas", name: "Wide Open"), mount: ("smbfs", "//u@nas/Wide%20Open"))?.absoluteString == "smb://nas/Wide%20Open"
+              && DeliverUploadDestination.reconnectURL(.init(server: "nas", name: "Wide Open"), mount: ("afpfs", "afp_1"))?.absoluteString == "afp://nas/Wide%20Open"
+              && DeliverUploadDestination.reconnectURL(.init(server: "nas", name: "media"), mount: ("nfs", "nas:/mnt/tank/media"))?.absoluteString == "nfs://nas/mnt/tank/media"
+              && DeliverUploadDestination.reconnectURL(.init(server: "nas", name: "x"), mount: nil)?.absoluteString == "smb://nas/x"
+              && DeliverUploadDestination.reconnectURL(.init(server: "nas", name: "x"), mount: ("apfs", "/dev/disk3"))?.absoluteString == "smb://nas/x")
         helper([["name": "Client", "path": "renders/Client", "dir": true]])
         let match = await learned(names: nil, server: "wideopen-2._smb._tcp.local")
         let kept = await learned(names: ["nas1": "Projects-2026"], server: "wideopen-2._smb._tcp.local")

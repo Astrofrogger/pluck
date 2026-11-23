@@ -323,7 +323,7 @@ struct DeliverAssetView: View {
             ReviewComment(time: Double(comment.frame ?? 0) * den / num, text: comment.text, author: comment.author, resolved: comment.completed,
                           replies: comment.replies.map { ReviewComment.Reply(text: $0.text, author: $0.author) })
         }
-        return RemoteReview.markerEDL(review, title: title, fps: num / den, start: start)
+        return RemoteReview.markerEDL(review, title: title, fps: num / den, start: start, dropFrame: probe?.dropFrame ?? false)
     }
 }
 

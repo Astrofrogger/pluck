@@ -10,7 +10,7 @@ import Foundation
 @MainActor
 enum RelaySetup {
     static let appName = "pluck-relay", setupKey = "editAnywhereRelaySetup", dnsService = "tools.pluck.relay.dns"
-    /// shortcut: the DNS sidecar only speaks Cloudflare, add providers when an owner needs one.
+    /// shortcut: the DNS-challenge sidecar only speaks Cloudflare; any other provider makes its record by hand (dnsRecords) with the automatic certificate.
     static let legoImage = "docker.io/goacme/lego:v4.25.2"
 
     enum Kind: String, Codable { case truenas, proxmox }
@@ -71,6 +71,49 @@ enum RelaySetup {
             blocks.insert("dns")
         }
         return try TrueNASClient.render(template, values, blocks: blocks)
+    }
+
+    // MARK: - DNS record by hand (any provider other than Cloudflare)
+
+    struct DNSRecord: Equatable { var type: String, name: String, value: String }
+
+    /// The record the owner makes at their DNS provider: A (IPv4), AAAA (IPv6) or CNAME (a dynamic DNS name) for the relay's
+    /// domain. Empty when the domain or the address isn't one.
+    nonisolated static func dnsRecords(hostname: String, target: String) -> [DNSRecord] {
+        let name = hostname.lowercased(), value = target.trimmingCharacters(in: .whitespaces).lowercased()
+        guard isHostname(name), !value.isEmpty else { return [] }
+        var v4 = in_addr(), v6 = in6_addr()
+        if inet_pton(AF_INET, value, &v4) == 1 { return [DNSRecord(type: "A", name: name, value: value)] }
+        if inet_pton(AF_INET6, value, &v6) == 1 { return [DNSRecord(type: "AAAA", name: name, value: value)] }
+        return isHostname(value) ? [DNSRecord(type: "CNAME", name: name, value: value)] : []
+    }
+
+    enum DNSCheck: Equatable { case ok, wrong([String]), missing }
+
+    /// Whether the domain resolves to the address (or, for a dynamic DNS name, to what that name resolves to).
+    /// `resolve` maps a name or IP to its addresses (empty: nothing).
+    nonisolated static func dnsCheck(hostname: String, target: String, resolve: (String) -> Set<String> = lookup) -> DNSCheck {
+        guard let record = dnsRecords(hostname: hostname, target: target).first else { return .missing }
+        let found = resolve(record.name)
+        let expected = record.type == "CNAME" ? resolve(record.value) : [record.value]
+        if found.isEmpty { return .missing }
+        return found.isDisjoint(with: expected) ? .wrong(found.sorted()) : .ok
+    }
+
+    /// The addresses a name resolves to (numeric text; blocking: call off the main thread).
+    nonisolated static func lookup(_ name: String) -> Set<String> {
+        var hints = addrinfo(), list: UnsafeMutablePointer<addrinfo>?
+        hints.ai_socktype = SOCK_STREAM
+        guard getaddrinfo(name, nil, &hints, &list) == 0, let first = list else { return [] }
+        defer { freeaddrinfo(list) }
+        var result: Set<String> = []
+        for entry in sequence(first: first, next: { $0.pointee.ai_next }) {
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                result.insert(String(cString: host).lowercased())
+            }
+        }
+        return result
     }
 
     /// The single-quoted shell form of a value.

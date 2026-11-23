@@ -119,27 +119,37 @@ enum RemoteReview {
     /// Export › Timeline Markers to EDL and reads back with Timeline › Import › Timeline Markers from EDL.
     /// (The scripting docs don't cover that file; checked: their EDL export subtypes only. Done by
     /// script it would be Timeline.AddMarker(frameId, color, name, note, duration, customData).)
-    /// shortcut: non-drop-frame and a whole-number frame rate only; drop-frame 29.97/59.94 timelines need a DF EDL.
-    nonisolated static func markerEDL(_ comments: [ReviewComment], title: String, fps: Double, start: Double = 3600) -> String {
+    /// `dropFrame`: a drop-frame timeline (29.97 / 59.94 only), written with `;` and FCM: DROP FRAME.
+    nonisolated static func markerEDL(_ comments: [ReviewComment], title: String, fps: Double, start: Double? = nil, dropFrame: Bool = false) -> String {
         markerEDL(comments.map { comment in
             let replies = comment.replies.map { " / \($0.author): \($0.text)" }.joined()
             return (comment.time, comment.resolved ? "ResolveColorGreen" : "ResolveColorRed", comment.author + ": " + comment.text + replies)
-        }, title: title, fps: fps, start: start)
+        }, title: title, fps: fps, start: start, dropFrame: dropFrame)
     }
 
     /// Any markers (seconds, a Resolve colour like ResolveColorRed, the note) in the same EDL layout.
-    nonisolated static func markerEDL(_ markers: [(time: Double, colour: String, note: String)], title: String, fps: Double, start: Double = 3600) -> String {
+    /// `start`: the timeline's start in seconds; nil is 01:00:00:00 (or 01:00:00;00).
+    nonisolated static func markerEDL(_ markers: [(time: Double, colour: String, note: String)], title: String, fps: Double, start: Double? = nil, dropFrame: Bool = false) -> String {
         let rate = max(1, Int(fps.rounded()))
-        func timecode(_ seconds: Double) -> String {
-            let frames = Int((seconds * Double(rate)).rounded())
-            return String(format: "%02d:%02d:%02d:%02d", frames / (3600 * rate), frames / (60 * rate) % 60, frames / rate % 60, frames % rate)
+        // Drop-frame only exists at 29.97 / 59.94: it skips 2 (4) frame numbers each minute but every tenth.
+        let drop = dropFrame && (rate == 30 || rate == 60) && fps != Double(rate) ? rate / 15 : 0
+        let perMinute = rate * 60 - drop, perTenMinutes = rate * 600 - drop * 9
+        func frames(_ seconds: Double) -> Int { Int((seconds * fps).rounded()) }
+        func timecode(_ count: Int) -> String {
+            var n = count
+            if drop > 0 {
+                let tens = n / perTenMinutes, rest = n % perTenMinutes
+                n += drop * 9 * tens + (rest < drop ? 0 : drop * ((rest - drop) / perMinute))
+            }
+            return String(format: "%02d:%02d:%02d%@%02d", n / (3600 * rate), n / (60 * rate) % 60, n / rate % 60, drop > 0 ? ";" : ":", n % rate)
         }
+        let origin = start.map(frames) ?? rate * 3600 - drop * 54
         func clean(_ text: String) -> String {
             text.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "|", with: "/")
         }
-        var lines = ["TITLE: \(clean(title))", "FCM: NON-DROP FRAME", ""]
+        var lines = ["TITLE: \(clean(title))", drop > 0 ? "FCM: DROP FRAME" : "FCM: NON-DROP FRAME", ""]
         for (index, marker) in markers.enumerated() {
-            let inPoint = timecode(start + marker.time), outPoint = timecode(start + marker.time + 1 / Double(rate))
+            let inPoint = timecode(origin + frames(marker.time)), outPoint = timecode(origin + frames(marker.time) + 1)
             let number = String(format: "%03d", index + 1)
             lines.append("\(number)  001      V     C        \(inPoint) \(outPoint) \(inPoint) \(outPoint)  ")
             lines.append(" |C:\(marker.colour) |M:\(clean(marker.note)) |D:1")

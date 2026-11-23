@@ -193,6 +193,25 @@ extension PhotoSelfTest {
                                   " |C:ResolveColorRed |M:Mac: Cut / here please |D:1", "",
                                   "002  001      V     C        01:01:01:12 01:01:01:13 01:01:01:12 01:01:01:13  ",
                                   " |C:ResolveColorGreen |M:iPhone: Done |D:1"]), edl)
+        // Drop-frame: frame 1800 at 29.97 is 00:01:00;02, frame 17982 is 00:10:00;00; the default start is 01:00:00;00.
+        func df(_ frame: Int, _ fps: Double, _ drop: Bool) -> String {
+            RemoteReview.markerEDL([(time: Double(frame) / fps, colour: "ResolveColorRed", note: "x")], title: "T", fps: fps, start: 0, dropFrame: drop)
+                .components(separatedBy: "\n")[3].split(separator: " ").filter { $0.contains(":") }.first.map(String.init) ?? ""
+        }
+        let ntsc = 30000.0 / 1001, ntsc60 = 60000.0 / 1001
+        check("review: drop-frame EDL timecode (29.97 and 59.94)",
+              df(1800, ntsc, true) == "00:01:00;02" && df(17982, ntsc, true) == "00:10:00;00" && df(1799, ntsc, true) == "00:00:59;29"
+              && df(17981, ntsc, true) == "00:09:59;29" && df(3600, ntsc, true) == "00:02:00;04" && df(3597, ntsc, true) == "00:01:59;29"
+              && df(3600, ntsc60, true) == "00:01:00;04" && df(35964, ntsc60, true) == "00:10:00;00",
+              [df(1800, ntsc, true), df(17982, ntsc, true), df(3600, ntsc60, true)].joined(separator: " "))
+        check("review: NDF 23.976 and 29.97 count real frames, with a colon",
+              df(1800, ntsc, false) == "00:01:00:00" && df(24 * 3600, 24000.0 / 1001, false) == "01:00:00:00"
+              && df(100, 25, true) == "00:00:04:00",
+              [df(1800, ntsc, false), df(24 * 3600, 24000.0 / 1001, false), df(100, 25, true)].joined(separator: " "))
+        let dfEDL = RemoteReview.markerEDL([(time: 0, colour: "ResolveColorRed", note: "x")], title: "T", fps: ntsc, dropFrame: true)
+        let ndfEDL = RemoteReview.markerEDL([(time: 0, colour: "ResolveColorRed", note: "x")], title: "T", fps: ntsc)
+        check("review: drop-frame EDL header and 01:00:00;00 start",
+              dfEDL.contains("FCM: DROP FRAME") && dfEDL.contains("01:00:00;00 01:00:00;01") && ndfEDL.contains("FCM: NON-DROP FRAME") && ndfEDL.contains("01:00:00:00 01:00:00:01"), dfEDL)
     }
 
     /// The Library server's /review pages, over HTTP on this Mac.

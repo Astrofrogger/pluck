@@ -114,15 +114,44 @@ enum DeliverUploadDestination {
             // (A volume in the mount table is there; stat-ing it could wait on a NAS that stopped answering.)
             guard volumes.contains(path) || (FileManager.default.fileExists(atPath: path, isDirectory: &folder) && folder.boolValue) else { continue }
             found.append((URL(fileURLWithPath: path, isDirectory: true), String(media)))
-            // (Its address, for Connect when it's gone. shortcut: always smb://, fine for TrueNAS SMB shares; an NFS mount would need nfs://.)
-            if let share = shareVolumes.share(path), let url = URL(string: "smb://\(share.server)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? share.name)") {
+            // (Its address, for Connect when it's gone, with the scheme it was mounted with: smb://, nfs:// or afp://.)
+            if let share = shareVolumes.share(path), let url = reconnectURL(share, mount: mountInfo(path)) {
                 UserDefaults.standard.set(url.absoluteString, forKey: "deliverShareURL." + host.id.uuidString)
             }
         }
         return found
     }
 
-    /// The share's address as macOS last mounted it (smb://…), for Connect; nil when it was never seen here.
+    /// The kernel's file system type and source ("smbfs", "//user@server/share") of a mounted path; nil when it isn't a mount point.
+    static func mountInfo(_ path: String) -> (type: String, from: String)? {
+        // (The mount table, MNT_NOWAIT: a NAS that stopped answering can't stall this, as statfs on it could.)
+        var list: UnsafeMutablePointer<statfs>?
+        let count = Int(getmntinfo(&list, MNT_NOWAIT))
+        guard count > 0, let list else { return nil }
+        for entry in UnsafeBufferPointer(start: list, count: count) {
+            var e = entry
+            let point = withUnsafeBytes(of: &e.f_mntonname) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            guard point == path else { continue }
+            let type = withUnsafeBytes(of: &e.f_fstypename) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            let from = withUnsafeBytes(of: &e.f_mntfromname) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            return (type, from)
+        }
+        return nil
+    }
+
+    /// The address to mount a share again: smbfs → smb://server/share, nfs → nfs://server/export/path, afpfs → afp://server/share.
+    /// Anything else (or a mount that can't be read) keeps smb://, as before.
+    nonisolated static func reconnectURL(_ share: ShareVolumes.Share, mount: (type: String, from: String)?) -> URL? {
+        func encoded(_ text: String) -> String { text.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? text }
+        if mount?.type == "nfs", let colon = mount?.from.firstIndex(of: ":"), let from = mount?.from {
+            let export = from[from.index(after: colon)...]
+            guard export.hasPrefix("/") else { return nil }
+            return URL(string: "nfs://\(share.server)" + export.split(separator: "/", omittingEmptySubsequences: true).map { "/" + encoded(String($0)) }.joined())
+        }
+        return URL(string: "\(mount?.type == "afpfs" ? "afp" : "smb")://\(share.server)/\(encoded(share.name))")
+    }
+
+    /// The share's address as macOS last mounted it (smb://, nfs://, afp://), for Connect; nil when it was never seen here.
     static func connectURL(_ host: Deliver.Host) -> URL? {
         UserDefaults.standard.string(forKey: "deliverShareURL." + host.id.uuidString).flatMap(URL.init(string:))
     }
