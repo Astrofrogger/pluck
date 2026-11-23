@@ -31,6 +31,7 @@ enum OfficeActions {
         RemoteNetworkHost.register()
         RemoteResolveProject.register()
         ReviewHosting.register()
+        ReviewHostUploads.register()
         OfficeGroup.register()
         RemoteSendInto.register()
         RemoteAskFiles.register()

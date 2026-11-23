@@ -1252,7 +1252,7 @@ final class ReviewHosting {
     }
 
     /// The data folder in the sending Mac's own inbox folder (only plain names).
-    private func folder(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) throws -> URL {
+    func folder(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) throws -> URL {
         let name = try OfficeActions.text(arguments["bundle"], 80)
         guard name.hasPrefix("Pluck Review "), !name.contains("/") else { throw OfficeActions.incomplete() }
         return try OfficeInbox.shared.target(name, from: OfficeInbox.folderName(device.name, id: device.id))
