@@ -380016,6 +380016,702 @@
           }
         }
       }
+    },
+    "Sync after the offload" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchron nach dem Kopieren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar tras la copia"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchro après la copie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizza dopo la copia"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピー後に同期"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "복사 후 동기화"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchroon na het kopiëren"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar após a cópia"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝后同步"
+          }
+        }
+      }
+    },
+    "Sync the cameras of an offload in one click, with bins, recorder sound and multicam angles for Resolve. RED and Blackmagic RAW included." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisiere die Kameras einer Kopie mit einem Klick, mit Bins, Recorder-Ton und Multicam-Winkeln für Resolve. Auch RED und Blackmagic RAW."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincroniza las cámaras de una copia con un clic, con bins, sonido del grabador y ángulos multicámara para Resolve. También RED y Blackmagic RAW."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisez les caméras d’une copie en un clic, avec chutiers, son de l’enregistreur et angles multicam pour Resolve. RED et Blackmagic RAW compris."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizza le camere di una copia con un clic, con bin, audio del registratore e angoli multicam per Resolve. Anche RED e Blackmagic RAW."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピーしたカメラをワンクリックで同期。ビン、レコーダー音声、Resolve 用マルチカムアングル付き。RED と Blackmagic RAW にも対応。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "복사한 카메라를 한 번에 동기화합니다. 빈, 레코더 사운드, Resolve용 멀티캠 앵글 포함. RED와 Blackmagic RAW도 지원합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchroniseer de camera’s van een kopie met één klik, met bins, recordergeluid en multicamhoeken voor Resolve. Ook RED en Blackmagic RAW."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronize as câmeras de uma cópia com um clique, com bins, som do gravador e ângulos multicâmera para o Resolve. RED e Blackmagic RAW incluídos."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一键同步一次拷贝的所有摄影机，附带素材箱、录音机声音和 Resolve 多机位角度。支持 RED 和 Blackmagic RAW。"
+          }
+        }
+      }
+    },
+    "Photo import and client picks" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotoimport und Kundenauswahl"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar fotos y elecciones del cliente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import photo et choix du client"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa foto e scelte del cliente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真の読み込みとクライアントの選択"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사진 가져오기와 클라이언트 선택"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Foto’s importeren en keuzes van de klant"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar fotos e escolhas do cliente"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片导入与客户挑选"
+          }
+        }
+      }
+    },
+    "Camera clocks set right, RAW and JPEG as one, Safe to format. Share photos with a client and their picks come back." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kamerauhren richtig gestellt, RAW und JPEG als eins, Sicher zum Formatieren. Teile Fotos mit Kunden, ihre Auswahl kommt zurück."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relojes de cámara corregidos, RAW y JPEG como uno, Seguro para formatear. Comparte fotos con un cliente y sus elecciones vuelven."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Horloges des boîtiers corrigées, RAW et JPEG en un, Prêt à formater. Partagez des photos avec un client, ses choix reviennent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orologi delle fotocamere corretti, RAW e JPEG insieme, Pronta da formattare. Condividi foto con un cliente e le sue scelte tornano."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カメラの時刻を補正、RAW と JPEG を一つに、フォーマットしても安全。写真をクライアントと共有すると選択が戻ってきます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "카메라 시계 보정, RAW와 JPEG를 하나로, 포맷해도 안전. 클라이언트와 사진을 공유하면 선택이 돌아옵니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cameraklokken goed gezet, RAW en JPEG als één, Veilig om te formatteren. Deel foto’s met een klant en de keuzes komen terug."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relógios das câmeras acertados, RAW e JPEG como um, Seguro para formatar. Compartilhe fotos com um cliente e as escolhas voltam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "校正相机时钟，RAW 与 JPEG 合为一项，可安全格式化。与客户分享照片，挑选结果自动返回。"
+          }
+        }
+      }
+    },
+    "Delivered and signed off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geliefert und freigegeben"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entregado y aprobado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Livré et validé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consegnato e approvato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "納品と承認"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "납품과 승인"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geleverd en goedgekeurd"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entregue e aprovado"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已交付并确认"
+          }
+        }
+      }
+    },
+    "Masters first when a project is delivered, a sign-off sheet of every approval, and one page per client." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master zuerst, wenn ein Projekt geliefert ist, ein Freigabeblatt mit jeder Freigabe und eine Seite pro Kunde."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los másteres primero cuando se entrega un proyecto, una hoja con cada aprobación y una página por cliente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les masters d’abord quand un projet est livré, une feuille de chaque validation et une page par client."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I master per primi quando un progetto è consegnato, un foglio con ogni approvazione e una pagina per cliente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "納品したプロジェクトはマスターを先頭に。すべての承認をまとめたシートと、クライアントごとのページ。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "프로젝트를 납품하면 마스터가 먼저, 모든 승인을 담은 승인서, 클라이언트별 페이지."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masters eerst als een project geleverd is, een overzicht van elke goedkeuring en één pagina per klant."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masters primeiro quando um projeto é entregue, uma folha com cada aprovação e uma página por cliente."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目交付后母版优先，每项批准的确认单，每个客户一个页面。"
+          }
+        }
+      }
+    },
+    "Archive you can trust" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archiv, dem du trauen kannst"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un archivo de confianza"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une archive fiable"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un archivio affidabile"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "信頼できるアーカイブ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "믿을 수 있는 아카이브"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Een archief om op te vertrouwen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um arquivo confiável"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可靠的归档"
+          }
+        }
+      }
+    },
+    "Hold, close and keep originals per client, an optional second copy, a searchable catalogue and Restore." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halten, abschließen und Originale pro Kunde aufbewahren, eine optionale zweite Kopie, ein durchsuchbarer Katalog und Wiederherstellen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retener, cerrar y conservar originales por cliente, una segunda copia opcional, un catálogo con búsqueda y Restaurar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bloquer, clôturer et garder les originaux par client, une seconde copie facultative, un catalogue avec recherche et Restaurer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocca, chiudi e conserva gli originali per cliente, una seconda copia facoltativa, un catalogo con ricerca e Ripristina."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留、クローズ、クライアントごとのオリジナル保持、任意の2つ目のコピー、検索できるカタログ、復元。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "보류, 종료, 클라이언트별 원본 보관, 선택적 두 번째 사본, 검색 가능한 카탈로그와 복원."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vasthouden, afsluiten en originelen per klant bewaren, een optionele tweede kopie, een doorzoekbare catalogus en Terugzetten."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reter, encerrar e manter originais por cliente, uma segunda cópia opcional, um catálogo pesquisável e Restaurar."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按客户保留、关闭和保存原始素材，可选的第二份拷贝，可搜索的目录和恢复。"
+          }
+        }
+      }
+    },
+    "Cutdowns and Shorts for Resolve" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cutdowns und Shorts für Resolve"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cutdowns y Shorts para Resolve"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cutdowns et Shorts pour Resolve"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cutdown e Shorts per Resolve"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve 向けカットダウンとショート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve용 컷다운과 쇼츠"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cutdowns en Shorts voor Resolve"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cutdowns e Shorts para o Resolve"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "适用于 Resolve 的剪辑版与短视频"
+          }
+        }
+      }
+    },
+    "Reframes kept, captions in the right language, ProRes, and a Resolve timeline with the reframe as keyframes. Pick each short's moment." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuschnitte bleiben erhalten, Untertitel in der richtigen Sprache, ProRes und eine Resolve-Timeline mit dem Zuschnitt als Keyframes. Wähle den Moment jedes Shorts."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reencuadres guardados, subtítulos en el idioma correcto, ProRes y una línea de tiempo de Resolve con el reencuadre como fotogramas clave. Elige el momento de cada short."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrages conservés, sous-titres dans la bonne langue, ProRes et une timeline Resolve avec le recadrage en images clés. Choisissez le moment de chaque short."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riquadrature conservate, sottotitoli nella lingua giusta, ProRes e una timeline Resolve con la riquadratura come fotogrammi chiave. Scegli il momento di ogni short."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リフレームを保持、正しい言語の字幕、ProRes、リフレームをキーフレームにした Resolve タイムライン。各ショートの瞬間を選べます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "리프레임 유지, 올바른 언어의 자막, ProRes, 리프레임을 키프레임으로 담은 Resolve 타임라인. 쇼츠마다 순간을 고르세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uitsneden blijven bewaard, ondertitels in de juiste taal, ProRes en een Resolve-tijdlijn met de uitsnede als keyframes. Kies het moment van elke short."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reenquadramentos mantidos, legendas no idioma certo, ProRes e uma timeline do Resolve com o reenquadramento em keyframes. Escolha o momento de cada short."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留重新构图，字幕使用正确语言，ProRes，以及把构图作为关键帧的 Resolve 时间线。为每个短视频挑选时刻。"
+          }
+        }
+      }
+    },
+    "AI tools ready for Resolve" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KI-Werkzeuge bereit für Resolve"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herramientas de IA listas para Resolve"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outils IA prêts pour Resolve"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strumenti IA pronti per Resolve"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve 対応の AI ツール"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve에 맞춘 AI 도구"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI-tools klaar voor Resolve"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ferramentas de IA prontas para o Resolve"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为 Resolve 准备的 AI 工具"
+          }
+        }
+      }
+    },
+    "Clean Up Audio keeps every channel, copies keep timecode, several videos at once, a blur matte, and correct a misheard word." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio bereinigen behält jeden Kanal, Kopien behalten Timecode, mehrere Videos auf einmal, eine Unschärfe-Maske und falsch verstandene Wörter korrigieren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limpiar audio conserva cada canal, las copias conservan el código de tiempo, varios vídeos a la vez, un mate de desenfoque y corrige una palabra mal oída."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nettoyer l’audio garde chaque canal, les copies gardent le timecode, plusieurs vidéos à la fois, un cache de flou et corrigez un mot mal compris."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pulisci audio mantiene ogni canale, le copie mantengono il timecode, più video insieme, un mascherino di sfocatura e correggi una parola fraintesa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オーディオのクリーンアップは全チャンネルを保持、コピーはタイムコードを保持、複数ビデオを一度に、ぼかしマット、聞き間違いの修正。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "오디오 정리는 모든 채널을 유지, 사본은 타임코드 유지, 여러 비디오를 한 번에, 블러 매트, 잘못 들린 단어 수정."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio opschonen houdt elk kanaal, kopieën houden timecode, meerdere video’s tegelijk, een vervagingsmatte en een verkeerd verstaan woord verbeteren."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limpar áudio mantém cada canal, as cópias mantêm o timecode, vários vídeos de uma vez, um matte de desfoque e corrija uma palavra mal ouvida."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清理音频保留每个声道，副本保留时间码，可一次处理多个视频，模糊遮罩，并可修正听错的词。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
