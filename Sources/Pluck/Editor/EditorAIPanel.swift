@@ -76,6 +76,12 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     if let span = wordSpan() { model.toggleOut(span) }
                 }
             }
+            // Screenshots: -PluckScreenshotCorrectWords <first>-<last> opens Correct Words on those words.
+            if part == .transcript, ScreenshotMode.scene == "editor", transcript != nil,
+               let pick = UserDefaults.standard.string(forKey: "PluckScreenshotCorrectWords")?.split(separator: "-").compactMap({ Int($0) }), pick.count == 2 {
+                wordSelection = pick[0]...pick[1]
+                startCorrecting(pick[0]...pick[1])
+            }
             if part == .ai, ScreenshotMode.scene == "editor", UserDefaults.standard.bool(forKey: "PluckScreenshotFind"), transcript != nil {
                 findMoments()
                 findFillers()
