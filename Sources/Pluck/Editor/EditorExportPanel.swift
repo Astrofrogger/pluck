@@ -74,7 +74,9 @@ struct EditorExportPanel: View {
                         ForEach(exports.finished, id: \.self) { file in
                             VStack(alignment: .leading, spacing: 2) {
                                 DoneLabel(text: Text(file.lastPathComponent), file: file)
+                                #if STUDIO
                                 if Converting.isVideo(file) { Button("Check Delivery") { DeliveryCheckView.check(file) }.buttonStyle(.link) }
+                                #endif
                             }
                             .font(.caption)
                             .padding(.horizontal, 8)
