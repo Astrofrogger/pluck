@@ -15,7 +15,7 @@ import Foundation
 /// "Frames", "FPS", "Audio Ch", "Start TC", "Type")/GetUniqueId/GetName/LinkProxyMedia/UnlinkProxyMedia/ReplaceClip,
 /// Timeline.GetMediaPoolItem/GetNodeGraph/GetTrackCount/GetItemListInTrack, TimelineItem.GetType/GetFusionCompCount/
 /// GetFusionCompByIndex/GetEffects("fusion")/GetNodeGraph(layer), Effect.GetFusionComp, Graph.GetNumNodes/GetLUT,
-/// Project.GetSetting("nodeStackLayers")/GetColorGroupsList, ColorGroup.GetPre/PostClipNodeGraph; Fusion (fusion_api.pyi):
+/// Project.GetSetting("nodeStackLayers")/GetSettings/RefreshLUTList/GetColorGroupsList, Timeline.GetSettings, ColorGroup.GetPre/PostClipNodeGraph; Fusion (fusion_api.pyi):
 /// Composition.GetToolList(False)/CopySettings(tools)/MapPath/GetPrefs("Comp"); for the check of what a project reaches
 /// also ProjectManager.ExportProject (read back as a .drp), Timeline.DuplicateTimeline, TimelineItem.FlattenMulticam
 /// (resolve.FLATTEN_MULTICAM_COPY_GRADE); for the used ranges TimelineItem.GetSourceStartFrame/GetSourceEndFrame/GetDuration.
@@ -433,6 +433,24 @@ def uses(project, drp=None, drp_label=None):
                                 scan_graph(it.GetNodeGraph(layer), label)
                     except Exception:
                         notes.add("unchecked", {"item": label, "why": "error"})
+    # LUTs the project's and each timeline's settings name (input, output, monitor, viewer LUTs).
+    def scan_settings(owner, label):
+        settings = None
+        for name in ("GetSettings", "GetSetting"):
+            try:
+                settings = getattr(owner, name)()
+            except Exception:
+                settings = None
+            if isinstance(settings, dict):
+                break
+        if not isinstance(settings, dict):
+            return
+        for value in settings.values():
+            if isinstance(value, str) and value.strip().lower().endswith(LUT_ENDINGS):
+                notes.add("refs", {"item": label, "tool": "LUT", "regid": "", "path": value.strip(), "lut": True})
+    scan_settings(project, project.GetName())
+    for t in timelines:
+        scan_settings(t, t.GetName())
     for group in project.GetColorGroupsList() or []:
         try:
             scan_graph(group.GetPreClipNodeGraph(), group.GetName())
@@ -576,6 +594,10 @@ if action == "render":
     if timeline is None:
         out({"error": "The timeline " + cmd["timeline"] + " isn't in this project."})
     project.SetCurrentTimeline(timeline)
+    try:
+        project.RefreshLUTList()  # (LUTs an editor's Mac just sent into the LUT folder)
+    except Exception:
+        pass
     if not project.LoadRenderPreset(cmd["preset"]):
         out({"error": "The render preset " + cmd["preset"] + " couldn't be loaded on the host Mac."})
     os.makedirs(cmd["target"], exist_ok=True)

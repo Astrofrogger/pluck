@@ -45,6 +45,7 @@ extension PhotoSelfTest {
         check("missing: an office from before isn't sent files (it refuses with its list)", !plan.canSend && !plan.canRenderAnyway)
         plan.takesFiles = true
         check("missing: a new office is", plan.canSend && !plan.clean)
+        await remoteMissingLUTs(base)
         let oldItem = Data(#"[{"id":"\#(UUID().uuidString)","project":"\#(UUID().uuidString)","projectName":"P","version":1,"timeline":"T","preset":"H","proxies":[],"device":"Mac","deviceID":"\#(UUID().uuidString)","added":0,"state":"queued","progress":0,"problems":[],"making":false}]"#.utf8)
         let decoded = try? JSONDecoder().decode([RemoteRenderQueue.Item].self, from: oldItem)
         check("missing: renders queued by an older Pluck load (no path map, no Render Anyway)", decoded?.first?.files == nil && decoded?.first?.anyway == nil)
@@ -170,6 +171,8 @@ extension PhotoSelfTest {
                   (answer["fonts"] as? [[String: Any]])?.compactMap { $0["family"] as? String } == [made]
                   && (answer["effects"] as? [[String: Any]])?.compactMap { $0["name"] as? String } == ["Sparkle"], "\(answer)")
 
+            try await remoteMissingPlaced(base, root: root, id: id, client: client)
+
             // Without the Editor role nothing is sent, and the editor is told who can change that.
             guard let mac = server.devices.first?.id else { return check("missing: paired device", false) }
             server.setRights(.init(browse: true, proxies: true, originals: false, render: false), for: mac)
@@ -182,5 +185,174 @@ extension PhotoSelfTest {
         } catch {
             check("missing: round trip", false, error.localizedDescription)
         }
+    }
+
+    /// LUTs and comp files sorted and checked on this Mac alone: the LUT folder, paths kept inside it, the office's
+    /// states, and an office from before.
+    private static func remoteMissingLUTs(_ base: URL) async {
+        let fm = FileManager.default
+        typealias M = RemoteMissing
+        let luts = base.appendingPathComponent("HomeLUT", isDirectory: true)
+        try? fm.createDirectory(at: luts.appendingPathComponent("Look"), withIntermediateDirectories: true)
+        for name in ["Look/Day.cube", "Film.dctl", "Look/Bad:name.cube"] { fm.createFile(atPath: luts.appendingPathComponent(name).path, contents: Data(name.utf8)) }
+        let comp = base.appendingPathComponent("Home/Title.png").path
+        let sorted = M.classify(media: [], refs: [["lut": true, "path": "Look/Day.cube"], ["lut": true, "path": luts.path + "/Film.dctl"],
+                                                  ["lut": true, "path": "Gone.cube"], ["lut": true, "path": "Look/Day.cube"], ["lut": true, "path": "Look/Bad:name.cube"],
+                                                  ["regid": "Loader", "path": comp]],
+                                proxies: [], shares: [], builtIn: [luts.path], lutRoot: luts.path) { RemoteDriveWriteHost.stamp(of: URL(fileURLWithPath: $0))?.size }
+        check("missing LUTs: a grade's LUT in the LUT folder (relative or not) is checked once with the office; one not here isn't; a bad name can't be sent",
+              sorted.luts.map(\.path) == ["Look/Day.cube", "Film.dctl"] && sorted.luts.first?.file.path == luts.path + "/Look/Day.cube"
+              && sorted.stuck == [luts.path + "/Look/Bad:name.cube", comp], "\(sorted.luts) \(sorted.stuck)")
+        check("missing LUTs: LUT paths are plain names with a LUT ending (a DCTL only compared)",
+              M.lutRelative("Sony/SLog3.cube") && M.lutRelative("A.CUBE") && !M.lutRelative("../x.cube") && !M.lutRelative("/x.cube")
+              && !M.lutRelative("a/.x.cube") && !M.lutRelative("a//x.cube") && !M.lutRelative("x.png") && !M.lutRelative("x.dctl") && M.lutRelative("x.dctl", code: true))
+
+        // The office's LUT folder: folders made inside it, never through a link out; same, missing, different.
+        let office = base.appendingPathComponent("OfficeLUT", isDirectory: true), outside = base.appendingPathComponent("Outside", isDirectory: true)
+        try? fm.createDirectory(at: office, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(at: office.appendingPathComponent("Out"), withDestinationURL: outside)
+        let made = try? M.lutTarget("A/B/x.cube", root: office, make: true)
+        check("missing LUTs: the office makes a LUT's folders inside its LUT folder", made?.path == (RemoteEditHost.realPath(office.path) ?? "") + "/A/B" && RemoteEditHost.isDirectory(office.appendingPathComponent("A/B")))
+        check("missing LUTs: never through a link out of it, nor a DCTL", (try? M.lutTarget("Out/x.cube", root: office, make: true)) == nil
+              && (try? M.lutTarget("Out/New/x.cube", root: office, make: true)) == nil && !fm.fileExists(atPath: outside.appendingPathComponent("New").path)
+              && (try? M.lutTarget("x.dctl", root: office, make: true)) == nil)
+        try? Data("day".utf8).write(to: office.appendingPathComponent("A/B/x.cube"))
+        let sha = (try? RemoteSendInto.hash(office.appendingPathComponent("A/B/x.cube"))) ?? ""
+        let states = [M.lutState(["path": "A/B/x.cube", "size": 3, "sha256": sha], root: office), M.lutState(["path": "A/B/y.cube", "size": 3, "sha256": sha], root: office),
+                      M.lutState(["path": "A/B/x.cube", "size": 3, "sha256": String(repeating: "0", count: 64)], root: office),
+                      M.lutState(["path": "Out/x.cube", "size": 3, "sha256": sha], root: office), M.lutState(["path": "../x.cube"], root: office),
+                      M.lutState(["path": "New/Film.dctl", "size": 3, "sha256": sha], root: office)]
+        check("missing LUTs: the office says same, missing or different (a link out or a bad path: neither)", states == ["same", "missing", "different", "", "", "missing"], "\(states)")
+
+        // Placing at exactly the name: never over another file.
+        let part = office.appendingPathComponent("A/B/.part"), target = office.appendingPathComponent("A/B/x.cube")
+        try? Data("night".utf8).write(to: part)
+        let refused = (try? M.placeExactly(part, at: target)) == nil
+        try? Data("day".utf8).write(to: part)
+        let same = (try? M.placeExactly(part, at: target)) != nil
+        try? Data("new".utf8).write(to: part)
+        let placed = (try? M.placeExactly(part, at: office.appendingPathComponent("A/B/z.cube"))) != nil
+        check("missing LUTs: a LUT is placed at its name, never over a different one (the same bytes are fine)",
+              refused && same && placed && (try? String(contentsOf: target, encoding: .utf8)) == "day"
+              && (try? String(contentsOf: office.appendingPathComponent("A/B/z.cube"), encoding: .utf8)) == "new" && !fm.fileExists(atPath: part.path))
+
+        // Comp paths as the office finds them in its shares.
+        let share = base.appendingPathComponent("OfficeShare", isDirectory: true)
+        try? fm.createDirectory(at: share.appendingPathComponent("Job"), withIntermediateDirectories: true)
+        let roots = [(id: "s1", root: RemoteEditHost.realPath(share.path) ?? share.path)]
+        let inside = M.officePlace(share.path + "/Job/GFX/Title.png", roots: roots)
+        check("missing comps: a comp's path in one of the office's shares is found there; outside, `..` or a hidden name isn't",
+              inside?.share == "s1" && inside?.path == "Job/GFX/Title.png" && M.officePlace(outside.path + "/x.png", roots: roots) == nil
+              && M.officePlace(share.path + "/Job/../../Outside/x.png", roots: roots) == nil && M.officePlace(share.path + "/.x/y.png", roots: roots) == nil
+              && M.officePlace("Job/x.png", roots: roots) == nil, "\(String(describing: inside))")
+
+        // The office's answer on a plan: same dropped, missing sent, different kept there, a DCTL never sent; comp files too.
+        let day = M.Placed(file: .init(path: luts.path + "/Look/Day.cube", size: 13), path: "Look/Day.cube")
+        let night = M.Placed(file: .init(path: luts.path + "/Look/Night.cube", size: 1), path: "Look/Night.cube")
+        let stock = M.Placed(file: .init(path: luts.path + "/Stock.cube", size: 1), path: "Stock.cube")
+        let film = M.Placed(file: .init(path: luts.path + "/Film.dctl", size: 9), path: "Film.dctl")
+        let lutList = [day, night, stock, film]
+        let gone = base.appendingPathComponent("Home/Gone.png").path
+        var plan = M.Plan(stuck: [comp, base.appendingPathComponent("Home/proxy.mov").path, gone])
+        plan.takesFiles = true
+        for path in lutList.map(\.file.path) + plan.stuck { plan.hashes[path] = "aa" }
+        plan.hashes[gone] = nil
+        let old = plan
+        M.apply(["luts": ["missing", "different", "same", "missing"],
+                 "comps": [["share": "s1", "path": "Job/GFX/Title.png", "base": "Job", "state": "missing"], ["share": "s1", "path": "Job/Other.mov", "state": "missing"],
+                           ["share": "s1", "path": "Job/Gone.png", "state": "missing"]]],
+                to: &plan, luts: lutList)
+        check("missing: the office's answer: a missing LUT and comp file are sent at their path, a different one kept and said, a DCTL, a comp file under another name there and one gone stay",
+              plan.placed.map(\.path) == ["Look/Day.cube", "Job/GFX/Title.png"] && plan.placed.last?.share == "s1" && plan.placed.last?.base == "Job"
+              && plan.different == ["Look/Night.cube"] && plan.stuck == [film.file.path, base.appendingPathComponent("Home/proxy.mov").path, gone]
+              && !plan.canSend, "\(plan.placed) \(plan.different) \(plan.stuck)")
+        var fine = M.Plan(stuck: [comp])
+        fine.takesFiles = true
+        fine.hashes[comp] = "aa"
+        M.apply(["luts": ["different"], "comps": [["share": "s1", "path": "Job/GFX/Title.png", "base": "Job", "state": "missing"]]], to: &fine, luts: [night])
+        check("missing: only LUTs or comp files to send: Send Missing Files and Render; a different one shown",
+              fine.canSend && !fine.clean && fine.sending.map(\.path) == [comp] && fine.different == ["Look/Night.cube"])
+        var differs = M.Plan()
+        differs.different = ["Look/Night.cube"]
+        check("missing: only a different LUT: Render Anyway", differs.canRenderAnyway && !differs.canSend && !differs.clean)
+        var before = old
+        M.apply(["fonts": [] as [Any], "effects": [] as [Any], "present": [] as [Any]], to: &before, luts: lutList)
+        check("missing: an office from before (no LUT or comp answers): no LUT is sent, comp files stay to copy by hand",
+              before.placed.isEmpty && before.different.isEmpty && before.stuck == old.stuck)
+    }
+
+    /// Over the pairing: the office's checks of LUTs and comp files, LUTs sent into its LUT folder (resumed) and comp
+    /// files to their path in a share, never over another file there, and nothing for a Mac without the right.
+    private static func remoteMissingPlaced(_ base: URL, root: URL, id: String, client: OfficeRenderClient) async throws {
+        let fm = FileManager.default
+        typealias M = RemoteMissing
+        let office = base.appendingPathComponent("LoopLUT", isDirectory: true), home = base.appendingPathComponent("LoopHomeLUT", isDirectory: true)
+        for folder in [office.appendingPathComponent("Look"), home.appendingPathComponent("Look")] { try? fm.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let before = M.lutFolder
+        M.lutFolder = office
+        defer { M.lutFolder = before }
+        let day = OfficeLink.randomBytes(OfficeLink.uploadChunk + 4321)
+        try day.write(to: home.appendingPathComponent("Look/Day.cube"))
+        try Data("night".utf8).write(to: home.appendingPathComponent("Look/Night.cube"))
+        try Data("other night".utf8).write(to: office.appendingPathComponent("Look/Night.cube"))
+        try Data("stock".utf8).write(to: home.appendingPathComponent("Stock.cube"))
+        try Data("stock".utf8).write(to: office.appendingPathComponent("Stock.cube"))
+        // A comp file of this Mac at a path in the office's share (as on a Mac whose drive has the same path).
+        let gfx = base.appendingPathComponent("LoopGFX/Title.png")
+        try? fm.createDirectory(at: gfx.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("title".utf8).write(to: gfx)
+        let real = RemoteEditHost.realPath(root.path) ?? root.path
+        let sorted = M.classify(media: [], refs: ["Look/Day.cube", "Look/Night.cube", "Stock.cube"].map { ["lut": true, "path": $0] },
+                                proxies: [], shares: [], builtIn: [], lutRoot: home.path) { RemoteDriveWriteHost.stamp(of: URL(fileURLWithPath: $0))?.size }
+        var plan = M.Plan(stuck: [base.appendingPathComponent("Home/Title.png").path])
+        plan.takesFiles = true
+        try await M.check(&plan, luts: sorted.luts, fonts: [], effects: [], client: client)
+        check("missing over a pairing: the office takes the missing LUT, keeps its different one, has the same; a comp file outside its shares stays",
+              plan.placed.map(\.path) == ["Look/Day.cube"] && plan.different == ["Look/Night.cube"] && plan.stuck == [base.appendingPathComponent("Home/Title.png").path],
+              "\(plan.placed) \(plan.different) \(plan.stuck)")
+        let answer = try await client.ask("resolveMissing", ["comps": [["path": real + "/Client/Job/GFX/Title.png", "size": 5, "sha256": "00"],
+                                                                     ["path": base.appendingPathComponent("Home/Title.png").path, "size": 3, "sha256": "00"]]])
+        let places = answer["comps"] as? [[String: Any]] ?? []
+        check("missing over a pairing: the office finds a comp's path in its share (nearest folder there) and none outside",
+              places.count == 2 && places[0]["share"] as? String == id && places[0]["path"] as? String == "Client/Job/GFX/Title.png"
+              && places[0]["base"] as? String == "Client/Job" && places[0]["state"] as? String == "missing" && places[1].isEmpty, "\(places)")
+
+        // Sending: the LUT resumed from a partial a dropped link left, the comp file into the folder made for it.
+        try day.prefix(OfficeLink.uploadChunk).write(to: RemoteSendInto.partial(office.appendingPathComponent("Look"), name: "Day.cube", size: Int64(day.count), modified: 0))
+        let title = M.Placed(file: .init(path: gfx.path, size: 5), share: id, path: "Client/Job/GFX/Title.png", base: "Client/Job")
+        try await M.send(plan.placed + [title], hashes: plan.hashes, client: client)
+        check("missing over a pairing: the LUT is in the office's LUT folder at its path (resumed), the comp file at the path the comp reads",
+              (try? Data(contentsOf: office.appendingPathComponent("Look/Day.cube"))) == day
+              && (try? String(contentsOf: office.appendingPathComponent("Look/Night.cube"), encoding: .utf8)) == "other night"
+              && (try? String(contentsOf: root.appendingPathComponent("Client/Job/GFX/Title.png"), encoding: .utf8)) == "title"
+              && ((try? fm.contentsOfDirectory(atPath: office.appendingPathComponent("Look").path)) ?? []).sorted() == ["Day.cube", "Night.cube"])
+        try Data("changed".utf8).write(to: gfx)
+        try Data("changed".utf8).write(to: home.appendingPathComponent("Look/Night.cube"))
+        let lutRefusal = await { () -> String in
+            do { try await M.send([M.Placed(file: .init(path: home.appendingPathComponent("Look/Night.cube").path, size: 7), path: "Look/Night.cube")], hashes: [:], client: client); return "" }
+            catch { return error.localizedDescription }
+        }()
+        let compRefusal = await { () -> String in
+            do { try await M.send([M.Placed(file: .init(path: gfx.path, size: 7), share: id, path: "Client/Job/GFX/Title.png", base: "Client/Job/GFX")], hashes: [:], client: client); return "" }
+            catch { return error.localizedDescription }
+        }()
+        check("missing over a pairing: a LUT or comp file the office got meanwhile under that name is never replaced, and said",
+              lutRefusal.contains("wasn’t replaced") && compRefusal.contains("wasn’t replaced")
+              && (try? String(contentsOf: office.appendingPathComponent("Look/Night.cube"), encoding: .utf8)) == "other night"
+              && (try? String(contentsOf: root.appendingPathComponent("Client/Job/GFX/Title.png"), encoding: .utf8)) == "title", lutRefusal + " | " + compRefusal)
+        let outRefused = (try? await client.ask("resolveLUT", ["path": "../Out.cube", "size": 1])) == nil
+        let dctlRefused = (try? await client.ask("resolveLUT", ["path": "Film.dctl", "size": 1])) == nil
+        check("missing over a pairing: a LUT path out of the LUT folder or a DCTL is refused", outRefused && dctlRefused
+              && !fm.fileExists(atPath: base.appendingPathComponent("Out.cube").path))
+
+        // A Mac that may not render: no LUT taken, no comp place offered.
+        guard let mac = OfficeRenderServer.shared.devices.first?.id else { return check("missing: paired device", false) }
+        OfficeRenderServer.shared.setRights(.init(browse: true, proxies: true, originals: false, render: false), for: mac)
+        defer { OfficeRenderServer.shared.setRights(.init(), for: mac) }
+        let refusedLUT = (try? await client.ask("resolveLUT", ["path": "Look/New.cube", "size": 1])) == nil
+        let noPlace = try? await client.ask("resolveMissing", ["comps": [["path": real + "/Client/Job/New.png", "size": 1, "sha256": "00"]]])
+        check("missing over a pairing: without the render right no LUT is taken and no comp place offered",
+              refusedLUT && noPlace == nil && !fm.fileExists(atPath: office.appendingPathComponent("Look/New.cube").path))
     }
 }
