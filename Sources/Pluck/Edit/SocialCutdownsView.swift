@@ -9,6 +9,9 @@ struct SocialCutdownsView: View {
     @Environment(AIStudio.self) private var studio
     /// A video to open when the page appears (screenshot mode).
     @MainActor static var openFile: URL?
+    /// Shows the Captions settings on the page once the edit is in (screenshot mode: a popover isn't in an off-screen picture).
+    @MainActor static var showCaptionsOnOpen = false
+    @State private var captionsInline = false
 
     @State private var session = CutdownSession.shared
     // The work lives in the shared session (it outlasts the page); these read and write it.
@@ -47,6 +50,7 @@ struct SocialCutdownsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
+            if captionsInline { captionSettings.studioBox() }
             if let analysis {
                 editor(analysis)
             } else if status == nil {
@@ -75,6 +79,7 @@ struct SocialCutdownsView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .studioPanel()
         .onAppear { if let url = Self.openFile { Self.openFile = nil; open(url) } }
+        .onChange(of: analysis != nil) { if analysis != nil, Self.showCaptionsOnOpen { Self.showCaptionsOnOpen = false; captionsInline = true; _ = fileItem() } }
         .onDisappear { player.pause() }
         .onChange(of: edits) { replan(); session.saveSoon() }
         .onChange(of: replaceLogo) { replan() }
@@ -138,21 +143,25 @@ struct SocialCutdownsView: View {
                 }
                 .menuStyle(.button).buttonStyle(.plain).fixedSize()
 
+                // Finishing choices, kept out of the way of Render.
                 Menu {
                     Picker("Format", selection: $proRes) {
                         Text(verbatim: "H.264").tag(false)
                         Text(verbatim: "ProRes 422 HQ").tag(true)
                     }
                     .pickerStyle(.inline)
+                    Divider()
+                    Button("Send to DaVinci Resolve", action: sendToResolve)
+                        .disabled(chosen.isEmpty || task != nil)
+                        .help(Text("A timeline per format, the reframe as keyframes"))
                 } label: {
-                    StudioMenuLabel(title: proRes ? "ProRes 422 HQ" : "H.264")
+                    Image(systemName: "ellipsis.circle").font(.system(size: 15)).foregroundStyle(Design.Studio.textQuiet)
+                        .frame(width: 28, height: 28).contentShape(.rect)
                 }
-                .menuStyle(.button).buttonStyle(.plain).fixedSize()
-
-                Button(action: sendToResolve) { Label("Send to DaVinci Resolve", systemImage: "square.and.arrow.up.on.square") }
-                    .buttonStyle(StudioFlatButtonStyle())
-                    .disabled(chosen.isEmpty || task != nil)
-                    .help(Text("A timeline per format, the reframe as keyframes"))
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
+                .accessibilityLabel(Text("More"))
 
                 Button("Render", action: render)
                     .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))

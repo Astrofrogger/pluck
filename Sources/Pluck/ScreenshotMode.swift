@@ -553,6 +553,7 @@ enum ScreenshotMode {
                 }
             case "cutdowns": SocialCutdownsView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }; StudioNavigator.shared.open(windowID: "cutdowns")
                 // -PluckScreenshotJobs YES: a finished render in the list (its Check button).
+                SocialCutdownsView.showCaptionsOnOpen = defaults.bool(forKey: "PluckScreenshotCaptions")
                 if defaults.bool(forKey: "PluckScreenshotJobs"), let file = SocialCutdownsView.openFile { CutdownQueue.shared.add("\(file.deletingPathExtension().lastPathComponent) · 9:16") { _ in file } }
             case "musicfit":
                 // -PluckScreenshotFile <song> is chosen.
