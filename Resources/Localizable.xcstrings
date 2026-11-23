@@ -57737,6 +57737,64 @@
         }
       }
     },
+    "Can’t write sidecars in “%@”. Edits stay in Pluck and go in once it can." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "XMP-Filialdateien in „%@“ können nicht geschrieben werden. Die Bearbeitungen bleiben in Pluck und folgen, sobald es geht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pueden escribir archivos XMP adjuntos en «%@». Las ediciones se quedan en Pluck y se escriben en cuanto se pueda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d’écrire les fichiers XMP annexes dans « %@ ». Les retouches restent dans Pluck et y iront dès que possible."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile scrivere i file XMP affiancati in “%@”. Le modifiche restano in Pluck e vengono scritte appena possibile."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」にXMPサイドカーを書き込めません。編集はPluckに保持され、書き込めるようになり次第保存されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”에 XMP 사이드카를 기록할 수 없습니다. 편집은 Pluck에 보관되며 가능해지면 기록됩니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kan geen XMP-bestanden schrijven in ‘%@’. Bewerkingen blijven in Pluck en gaan erin zodra het kan."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não é possível gravar arquivos XMP auxiliares em “%@”. As edições ficam no Pluck e são gravadas assim que possível."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法在“%@”中写入 XMP 附属文件。编辑会保留在 Pluck 中，可写入时再写入。"
+          }
+        }
+      }
+    },
     "CAPS" : {
       "localizations" : {
         "de" : {
@@ -229176,6 +229234,70 @@
         }
       }
     },
+    "Preparing %lld of %lld for the client" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Preparing %1$lld of %2$lld for the client"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld für den Kunden vorbereitet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando %1$lld de %2$lld para el cliente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation de %1$lld sur %2$lld pour le client"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparazione di %1$lld di %2$lld per il cliente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クライアント用に準備中：%1$lld／%2$lld"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클라이언트용 준비 중: %1$lld/%2$lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld van %2$lld voorbereid voor de klant"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando %1$lld de %2$lld para o cliente"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在为客户准备 %1$lld/%2$lld"
+          }
+        }
+      }
+    },
     "Preparing the film…" : {
       "localizations" : {
         "de" : {
@@ -253380,6 +253502,64 @@
     },
     "SFX" : {
       "shouldTranslate" : false
+    },
+    "Share with Client…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Kunden teilen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compartir con el cliente…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partager avec le client…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Condividi con il cliente…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クライアントと共有…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클라이언트와 공유…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delen met klant…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compartilhar com o cliente…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与客户共享…"
+          }
+        }
+      }
     },
     "SMB" : {
       "shouldTranslate" : false
@@ -293262,6 +293442,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将每台机位与 DJ 的混音同步，并在 DaVinci Resolve 中生成踩点剪辑。"
+          }
+        }
+      }
+    },
+    "Their exports in a Deliver gallery; the client’s picks come back as flags" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ihre Exporte in einer Deliver-Galerie; die Auswahl des Kunden kommt als Markierung zurück"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sus exportaciones en una galería de Deliver; las elecciones del cliente vuelven como marcas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leurs exports dans une galerie Deliver ; les choix du client reviennent en marqueurs"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le loro esportazioni in una galleria Deliver; le scelte del cliente tornano come contrassegni"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出したものをDeliverのギャラリーに。クライアントのセレクトはフラグとして戻ります"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "내보낸 사진을 Deliver 갤러리로. 클라이언트의 선택은 플래그로 돌아옵니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hun exports in een Deliver-galerij; de keuzes van de klant komen terug als vlaggen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As exportações numa galeria do Deliver; as escolhas do cliente voltam como marcações"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出到 Deliver 画廊；客户的精选会以旗标返回"
           }
         }
       }

@@ -23,6 +23,12 @@ final class PhotoEditing {
         if syncAll || paths.count < 2 { return paths }
         return shown.map { [$0] } ?? Array(paths.prefix(1))
     }
+    /// The photos selected on the page (the Photo page keeps it), for tools on the picture itself.
+    var selected: [String] = []
+    /// A change made on the picture of `shown` (crop bar, colour picked on it): to the selection it's in, as the sliders.
+    func editShown(_ shown: String, _ body: (inout PhotoRecord) -> Void) {
+        edit(selected.contains(shown) ? selected : [shown], shown: shown, body)
+    }
     /// One change to the photos it reaches (one undo step).
     func edit(_ paths: [String], shown: String?, _ body: (inout PhotoRecord) -> Void) {
         PhotoCatalog.shared.update(targets(paths, shown: shown)) { record in
@@ -1034,15 +1040,12 @@ struct PointPicker: View {
             guard let colour = await Task.detached(priority: .userInitiated, operation: { PhotoRender.sample(path, record: record, at: at) }).value
             else { return }
             let point = ColourPoint.picked(colour)
-            var count = 0
-            catalog.update([path]) {
+            editing.editShown(path) {
                 var list = $0.adjust.mixer.points ?? []
                 if list.count < ColourPoint.limit { list.append(point) }
-                count = list.count
                 $0.adjust.mixer.points = list
-                $0.edited = .now
             }
-            editing.mixerPoint = count - 1
+            editing.mixerPoint = (catalog.record(path).adjust.mixer.points?.count ?? 0) - 1
             editing.pointPicking = false
         }
     }
@@ -1136,7 +1139,7 @@ struct MixerTarget: View {
         for i in 0..<8 where start.weights[i] > 0.05 {
             mixer[keyPath: start.aspect][i] = min(max(start.mixer[keyPath: start.aspect][i] + amount * start.weights[i], -100), 100)
         }
-        catalog.update([path]) { $0.adjust.mixer = mixer; $0.edited = .now }
+        editing.editShown(path) { $0.adjust.mixer = mixer }
     }
 }
 
